@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kiln Load Planner</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="page-header">
+        <div>
+          <h1>Kiln Load Planner</h1>
+          <p class="lead">
+            One species, one board size, a fully occupied kiln, stable lifts, and clear inventory tracking.
+          </p>
+          <p id="reportMeta" class="report-meta"></p>
+        </div>
+        <button id="downloadPdf" class="pdf-button" type="button">Download PDF Report</button>
+      </header>
+
+      <section class="conditions">
+        <div class="condition">
+          <b id="condLength">Kiln length</b>
+          <span>Wood + metal must equal exactly 34 ft</span>
+        </div>
+        <div class="condition">
+          <b id="condHeight">Lift height</b>
+          <span>Fully filled lifts have priority</span>
+        </div>
+        <div class="condition">
+          <b id="condMetal">Metal box</b>
+          <span>Used only to fill the remaining kiln length</span>
+        </div>
+        <div class="condition">
+          <b id="condBF">Load utilization</b>
+          <span>Low-volume remainder is held for the next compatible order</span>
+        </div>
+      </section>
+
+      <div class="grid">
+        <section class="card s12">
+          <h2>1. Kiln and Material</h2>
+          <div class="fields">
+            <div>
+              <label>Supplier / company</label>
+              <input id="supplier" value="" placeholder="Company supplying this batch" />
+            </div>
+            <div>
+              <label>Wood species</label>
+              <input id="species" value="Hemlock" />
+            </div>
+            <div>
+              <label>Nominal board size</label>
+              <select id="size">
+                <option value="1,4">1×4</option>
+                <option value="1,6">1×6</option>
+                <option value="2,4">2×4</option>
+                <option value="2,6" selected>2×6</option>
+                <option value="custom">Custom batch size</option>
+              </select>
+            </div>
+            <div class="custom-size-field">
+              <label>Custom ordered thickness, ″</label>
+              <input id="customT" type="number" min="0.1" step="0.0625" value="1.5" disabled />
+            </div>
+            <div class="custom-size-field">
+              <label>Custom ordered width, ″</label>
+              <input id="customW" type="number" min="0.1" step="0.0625" value="5.5" disabled />
+            </div>
+            <div>
+              <label>Physical batch profile</label>
+              <select id="batchProfile">
+                <option value="rough" selected>Rough / full nominal size</option>
+                <option value="dressed">Dressed / standard finished size</option>
+                <option value="manual">Manual physical dimensions</option>
+              </select>
+            </div>
+            <div>
+              <label>Kiln length, ft</label>
+              <input id="kiln" type="number" min="1" step="1" value="34" />
+            </div>
+            <div>
+              <label>Maximum load height, ″</label>
+              <input id="height" type="number" min="1" step="0.125" value="57" />
+            </div>
+            <div>
+              <label>Maximum lift length, ft</label>
+              <input id="maxStack" type="number" min="1" step="1" value="20" />
+            </div>
+            <div>
+              <label>Metal box, ft</label>
+              <select id="metalBox">
+                <option value="-1" selected>Automatic: 0 / 4 / 5 / 6</option>
+                <option value="0">Not used</option>
+                <option value="4">4 ft</option>
+                <option value="5">5 ft</option>
+                <option value="6">6 ft</option>
+              </select>
+            </div>
+            <div>
+              <label>Actual board thickness, ″</label>
+              <input id="actualT" type="number" min="0.1" step="0.125" value="2" />
+            </div>
+            <div>
+              <label>Actual board width, ″</label>
+              <input id="actualW" type="number" min="0.1" step="0.125" value="6" />
+            </div>
+            <div>
+              <label>Usable lift width, ″</label>
+              <input id="liftWidth" type="number" min="1" step="0.125" value="48" />
+            </div>
+            <div>
+              <label>Measured row separation, ″</label>
+              <input id="sticker" type="number" min="0" step="0.03125" value="0.65625" />
+            </div>
+            <div>
+              <label>Boards across each row</label>
+              <input id="across" type="number" value="8" readonly />
+            </div>
+            <div>
+              <label>Sticker above the top row</label>
+              <select id="topSticker">
+                <option value="1" selected>Yes</option>
+                <option value="0">No</option>
+              </select>
+            </div>
+          </div>
+          <p class="note batch-note">
+            Actual dimensions are batch-specific and must be confirmed with the supplying company. Ordered dimensions define material volume internally; physical dimensions determine rows and boards across.
+          </p>
+          <p id="geometryPreview" class="note batch-note"></p>
+
+          <div class="metrics">
+            <div class="metric">
+              <b id="rows">—</b>
+              <span>rows high</span>
+            </div>
+            <div class="metric">
+              <b id="lines">—</b>
+              <span>board lines per lift</span>
+            </div>
+            <div class="metric">
+              <b id="needPieces">—</b>
+              <span>lifts in the layout</span>
+            </div>
+            <div class="metric">
+              <b id="capacity">—</b>
+              <span id="capacityLabel">board positions in current layout</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card s8">
+          <div class="section-heading">
+            <h2>2. Selected Material Inventory</h2>
+            <button id="clearTop" class="secondary clear-inventory" type="button">Clear Inventory</button>
+          </div>
+          <p class="note">
+            Each kiln load uses only the selected species and board size.
+          </p>
+
+          <div class="scroll">
+            <table class="inv">
+              <thead>
+                <tr>
+                  <th>Length, ft</th>
+                  <th>Original order</th>
+                  <th>Before this load</th>
+                  <th>Processed now</th>
+                  <th>After this load</th>
+                </tr>
+              </thead>
+              <tbody id="inventory"></tbody>
+              <tfoot>
+                <tr>
+                  <th>Total</th>
+                  <th id="qtyTotal">0</th>
+                  <th id="beforeTotal">0</th>
+                  <th id="usedTotal">0</th>
+                  <th id="remainTotal">0</th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div class="residuals-block">
+            <h3>Inventory Remaining After Calculation</h3>
+            <div class="scroll">
+              <table class="residuals">
+                <thead>
+                  <tr>
+                    <th>Length, ft</th>
+                    <th>Before this load</th>
+                    <th>Processed now</th>
+                    <th>After this load</th>
+                  </tr>
+                </thead>
+                <tbody id="residualsTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="calc">Calculate Load</button>
+            <button id="nextLoad" type="button">Load Remaining in Next Kiln →</button>
+            <button class="secondary" id="addLength">Add Length</button>
+            <button class="secondary" id="clear">Clear Quantities</button>
+          </div>
+          <div id="calculationStatus" class="calculation-status idle">
+            Enter the order, then click Calculate Load.
+          </div>
+          <div class="load-progress">
+            <div class="load-progress-heading">
+              <strong>Current calculation: Kiln Load <span id="loadNumber">1</span></strong>
+              <div class="load-switcher">
+                <button id="previousLoad" class="secondary" type="button">← Previous</button>
+                <button id="nextSavedLoad" class="secondary" type="button">Next saved →</button>
+              </div>
+            </div>
+            <div id="loadHistory" class="load-history"></div>
+          </div>
+        </section>
+
+        <aside class="card s4">
+          <h2>Constraint Check</h2>
+          <div id="status"></div>
+          <p class="note">All production results are shown as physical boards, complete rows, lifts, and kiln cycles.</p>
+        </aside>
+
+        <section class="card s12">
+          <h2>3. Full Load Plan and Required Fill</h2>
+          <div id="resultIntro"></div>
+
+          <div class="summary">
+            <div>
+              <b id="loadBF">0</b>
+              <span>boards in selected load</span>
+            </div>
+            <div>
+              <b id="fillPct">0</b>
+              <span>lifts in selected load</span>
+            </div>
+            <div>
+              <b id="missingBF">0</b>
+              <span>planned kiln cycles</span>
+            </div>
+            <div>
+              <b id="unusedBF">0</b>
+              <span>boards remaining after this load</span>
+            </div>
+          </div>
+
+          <div class="lift-editor-block">
+            <h3>Lift Target Editor</h3>
+            <p class="note">Set the planned height of each lift. Targets use complete full-width rows only; added board positions are calculated immediately.</p>
+            <div class="scroll">
+              <table class="lift-editor">
+                <thead>
+                  <tr>
+                    <th>Lift</th>
+                    <th>Rows available from order</th>
+                    <th>Target rows</th>
+                    <th>Rows to add</th>
+                    <th>Board positions to add</th>
+                    <th>Target status</th>
+                  </tr>
+                </thead>
+                <tbody id="liftEditor"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="productionNeed" class="note wrap-block"></div>
+          <div id="orderLoads" class="note wrap-block"></div>
+          <div id="orderRemaining" class="note wrap-block"></div>
+
+          <div class="scroll">
+            <table class="plan">
+              <thead>
+                <tr>
+                  <th>Lift</th>
+                  <th>Layout</th>
+                  <th>Full Rows</th>
+                  <th>Boards</th>
+                  <th>Gap</th>
+                  <th>Coverage</th>
+                </tr>
+              </thead>
+              <tbody id="plan"></tbody>
+            </table>
+          </div>
+
+          <div id="shortage"></div>
+          <div id="cycleYield" class="cycle-yield"></div>
+        </section>
+
+        <section class="card s12">
+          <h2>4. Kiln and Lift Visualization</h2>
+          <div class="visual-meta" id="visualMeta"></div>
+          <div class="kiln-shell" id="kilnVisual"></div>
+          <div id="finalInventoryVisual" class="final-inventory"></div>
+          <p class="note">
+            Brown blocks represent lumber lifts and the gray block represents the metal box. The empty area above a lift is unused space below the kiln's maximum height.
+          </p>
+        </section>
+      </div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -36,8 +36,8 @@
 
       <section class="card warehouse-section">
         <div class="section-heading">
-          <div><p class="eyebrow">YARD</p><h2>YARD Lift TAG Register</h2></div>
-          <button id="addWarehouseTag" type="button">+ Create YARD TAG</button>
+          <div><p class="eyebrow">YARD</p><h2>Warehouse (YARD) Lift TAG Register</h2></div>
+          <button id="addWarehouseTag" type="button">+ Build YARD lift &amp; assign TAG</button>
         </div>
         <p class="note">This register follows the paper form: TAG, order, product/MO, date, quantities by length, PCS and BFM. Create the TAG after physical sorting and packing into a YARD lift.</p>
         <div class="scroll"><table class="matrix-table shipping-table" id="warehouseTagTable"></table></div>
@@ -57,6 +57,27 @@
         <div id="shipmentHistory" class="shipment-history"></div>
       </section>
     </main>
-    <script src="warehouse.js?v=yard-tags-v3"></script>
+
+    <dialog id="yardTagDialog" class="cycle-dialog yard-dialog">
+      <form id="yardTagForm" method="dialog">
+        <div class="dialog-heading">
+          <div><small>BUILD FROM COMPLETED KILN LOADS</small><h2>Warehouse (YARD) lift</h2></div>
+          <button id="cancelYardTag" class="secondary" type="button">Close</button>
+        </div>
+        <div class="dialog-fields yard-tag-fields">
+          <label>TAG<input id="yardTag" required placeholder="TAG #" /></label>
+          <label>ORDER #<input id="yardOrder" required /></label>
+          <label>PRODUCT / MO #<input id="yardProduct" required /></label>
+          <label>DATE<input id="yardDate" type="date" required /></label>
+        </div>
+        <p class="note">Select the actual boards used to build this YARD lift. Only unallocated quantities from Completed Kiln Loads are available.</p>
+        <div id="yardAvailableSource" class="yard-source-summary"></div>
+        <div class="scroll"><table class="yard-builder"><thead><tr><th>Length</th><th>Available from completed</th><th>Put in this YARD lift</th></tr></thead><tbody id="yardBuilderRows"></tbody></table></div>
+        <div id="yardDialogStatus" class="calculation-status idle">Enter quantities and confirm the TAG.</div>
+        <div class="dialog-actions"><button type="submit">Create YARD lift TAG</button></div>
+      </form>
+    </dialog>
+
+    <script src="warehouse.js?v=yard-builder-v4"></script>
   </body>
 </html>

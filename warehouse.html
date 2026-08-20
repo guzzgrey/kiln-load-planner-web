@@ -12,7 +12,7 @@
         <div>
           <p class="eyebrow">PRODUCTION CONTROL</p>
           <h1>Processed Inventory &amp; Shipping</h1>
-          <p class="lead">Completed kiln cycles are sorted and packed into manually tagged lifts for the NFKV warehouse, then selected for shipping.</p>
+          <p class="lead">Completed kiln cycles are sorted and packed into manually tagged lifts for the YARD, then selected for shipping.</p>
         </div>
         <div class="header-actions">
           <a class="button-link secondary-link" href="index.html">← Kiln Load Planner</a>
@@ -29,24 +29,24 @@
 
       <section class="card warehouse-section">
         <div class="section-heading"><div><p class="eyebrow">AUTOMATIC REGISTER</p><h2>Completed Kiln Loads</h2></div></div>
-        <p class="note">Before physical sorting and packing there is no warehouse TAG yet, so this intake register starts with the kiln-cycle completion date. Quantities come directly from the confirmed kiln plan.</p>
+        <p class="note">Before physical sorting and packing there is no YARD TAG yet, so this intake register starts with the kiln-cycle completion date. Quantities come directly from the confirmed kiln plan.</p>
         <div class="scroll"><table class="matrix-table" id="completedTable"></table></div>
         <div id="emptyCompleted" class="empty-state">No completed cycles yet. Return to the planner and press “Cycle completed”.</div>
       </section>
 
       <section class="card warehouse-section">
         <div class="section-heading">
-          <div><p class="eyebrow">NFKV WAREHOUSE</p><h2>Warehouse Lift TAG Register</h2></div>
-          <button id="addWarehouseTag" type="button">+ Create warehouse TAG</button>
+          <div><p class="eyebrow">YARD</p><h2>YARD Lift TAG Register</h2></div>
+          <button id="addWarehouseTag" type="button">+ Create YARD TAG</button>
         </div>
-        <p class="note">This register follows the paper form: TAG, order, product/MO, date, quantities by length, PCS and BFM. Create the TAG after physical sorting and packing into a warehouse lift.</p>
+        <p class="note">This register follows the paper form: TAG, order, product/MO, date, quantities by length, PCS and BFM. Create the TAG after physical sorting and packing into a YARD lift.</p>
         <div class="scroll"><table class="matrix-table shipping-table" id="warehouseTagTable"></table></div>
-        <div id="warehouseMessage" class="calculation-status idle">Processed inventory is available for warehouse TAG allocation.</div>
+        <div id="warehouseMessage" class="calculation-status idle">Processed inventory is available for YARD TAG allocation.</div>
       </section>
 
       <section class="card warehouse-section">
         <div class="section-heading">
-          <div><p class="eyebrow">SHIPPING</p><h2>Form Shipping Order from Warehouse TAGs</h2></div>
+          <div><p class="eyebrow">SHIPPING</p><h2>Form Shipping Order from YARD TAGs</h2></div>
           <button id="createShipment" type="button">Create shipping order</button>
         </div>
         <div class="shipping-order-fields">
@@ -57,6 +57,6 @@
         <div id="shipmentHistory" class="shipment-history"></div>
       </section>
     </main>
-    <script src="warehouse.js?v=warehouse-tags-v2"></script>
+    <script src="warehouse.js?v=yard-tags-v3"></script>
   </body>
 </html>

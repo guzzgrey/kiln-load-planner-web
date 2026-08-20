@@ -47,6 +47,13 @@
               <input id="supplier" value="" placeholder="Company supplying this batch" />
             </div>
             <div>
+              <label>Supplier cutting tolerance</label>
+              <select id="supplierClearance">
+                <option value="0" selected>Precise lengths · use full kiln</option>
+                <option value="1">Irregular +6–8″ · reserve 1 ft</option>
+              </select>
+            </div>
+            <div>
               <label>Wood species</label>
               <input id="species" value="Hemlock" />
             </div>
@@ -307,6 +314,6 @@
       </div>
     </main>
 
-    <script src="app.js?v=automatic-final-metal"></script>
+    <script src="app.js?v=supplier-clearance"></script>
   </body>
 </html>

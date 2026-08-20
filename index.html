@@ -16,7 +16,10 @@
           </p>
           <p id="reportMeta" class="report-meta"></p>
         </div>
-        <button id="downloadPdf" class="pdf-button" type="button">Download PDF Report</button>
+        <div class="header-actions">
+          <a class="button-link secondary-link" href="warehouse.html">Planning &amp; Processed Inventory / Shipping</a>
+          <button id="downloadPdf" class="pdf-button" type="button">Download PDF Report</button>
+        </div>
       </header>
 
       <section class="conditions">
@@ -314,6 +317,23 @@
       </div>
     </main>
 
-    <script src="app.js?v=staircase-metal-min-4"></script>
+    <dialog id="completeCycleDialog" class="cycle-dialog">
+      <form id="completeCycleForm" method="dialog">
+        <div class="dialog-heading">
+          <div><small>TRANSFER TO PROCESSED INVENTORY</small><h2 id="completeCycleTitle">Complete Kiln Load</h2></div>
+          <button id="cancelCompleteCycle" class="secondary" type="button">Close</button>
+        </div>
+        <div class="dialog-fields">
+          <label>Supplier / company<input id="completeSupplier" required /></label>
+          <label>Product marking<input id="completeMarking" placeholder="Hemlock CLR VG RGH" required /></label>
+          <label>Cycle completion date<input id="completeDate" type="date" required /></label>
+          <label>Final process date<input id="finalProcessDate" type="date" /><small>Enter only when all kiln loads and subsequent processes are finished.</small></label>
+        </div>
+        <div id="completeCycleSummary" class="completion-summary"></div>
+        <div class="dialog-actions"><button id="confirmCompleteCycle" type="submit">Confirm cycle completed</button></div>
+      </form>
+    </dialog>
+
+    <script src="app.js?v=processed-inventory-v1"></script>
   </body>
 </html>

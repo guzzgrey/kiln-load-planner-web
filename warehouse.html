@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Processed Inventory & Shipping</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="wrap warehouse-page">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">PRODUCTION CONTROL</p>
+          <h1>Processed Inventory &amp; Shipping</h1>
+          <p class="lead">Completed kiln cycles become processed inventory. Shipping tags are created only after physical sorting and packing.</p>
+        </div>
+        <div class="header-actions">
+          <a class="button-link secondary-link" href="index.html">← Kiln Load Planner</a>
+          <button id="printWarehouse" type="button">Print / Save PDF</button>
+        </div>
+      </header>
+
+      <section class="card warehouse-summary">
+        <div><b id="cycleCount">0</b><span>completed cycles</span></div>
+        <div><b id="processedBoards">0</b><span>processed boards</span></div>
+        <div><b id="availableBoards">0</b><span>available for shipping</span></div>
+        <label>Final process date<input id="warehouseFinalDate" type="date" /><small>One final date for the complete production order.</small></label>
+      </section>
+
+      <section class="card warehouse-section">
+        <div class="section-heading"><div><p class="eyebrow">AUTOMATIC REGISTER</p><h2>Completed Kiln Loads</h2></div></div>
+        <p class="note">The first column is the kiln-cycle completion date instead of a shipping TAG. Quantities come directly from the confirmed kiln plan.</p>
+        <div class="scroll"><table class="matrix-table" id="completedTable"></table></div>
+        <div id="emptyCompleted" class="empty-state">No completed cycles yet. Return to the planner and press “Cycle completed”.</div>
+      </section>
+
+      <section class="card warehouse-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">MANUAL PACKING REGISTER</p><h2>Shipping Lift Tags</h2></div>
+          <button id="addShippingTag" type="button">+ Create shipping TAG</button>
+        </div>
+        <p class="note">Create a TAG after physical sorting. Enter the actual number of boards packed at each length; the system checks it against processed inventory.</p>
+        <div class="scroll"><table class="matrix-table shipping-table" id="shippingTable"></table></div>
+        <div id="shippingMessage" class="calculation-status idle">Processed inventory is available for manual shipping allocation.</div>
+      </section>
+    </main>
+    <script src="warehouse.js?v=warehouse-v1"></script>
+  </body>
+</html>

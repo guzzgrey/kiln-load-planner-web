@@ -12,7 +12,7 @@
         <div>
           <p class="eyebrow">PRODUCTION CONTROL</p>
           <h1>Processed Inventory &amp; Shipping</h1>
-          <p class="lead">Completed kiln cycles become processed inventory. Shipping tags are created only after physical sorting and packing.</p>
+          <p class="lead">Completed kiln cycles are sorted and packed into manually tagged lifts for the NFKV warehouse, then selected for shipping.</p>
         </div>
         <div class="header-actions">
           <a class="button-link secondary-link" href="index.html">← Kiln Load Planner</a>
@@ -23,27 +23,40 @@
       <section class="card warehouse-summary">
         <div><b id="cycleCount">0</b><span>completed cycles</span></div>
         <div><b id="processedBoards">0</b><span>processed boards</span></div>
-        <div><b id="availableBoards">0</b><span>available for shipping</span></div>
+        <div><b id="availableBoards">0</b><span>untagged processed boards</span></div>
         <label>Final process date<input id="warehouseFinalDate" type="date" /><small>One final date for the complete production order.</small></label>
       </section>
 
       <section class="card warehouse-section">
         <div class="section-heading"><div><p class="eyebrow">AUTOMATIC REGISTER</p><h2>Completed Kiln Loads</h2></div></div>
-        <p class="note">The first column is the kiln-cycle completion date instead of a shipping TAG. Quantities come directly from the confirmed kiln plan.</p>
+        <p class="note">Before physical sorting and packing there is no warehouse TAG yet, so this intake register starts with the kiln-cycle completion date. Quantities come directly from the confirmed kiln plan.</p>
         <div class="scroll"><table class="matrix-table" id="completedTable"></table></div>
         <div id="emptyCompleted" class="empty-state">No completed cycles yet. Return to the planner and press “Cycle completed”.</div>
       </section>
 
       <section class="card warehouse-section">
         <div class="section-heading">
-          <div><p class="eyebrow">MANUAL PACKING REGISTER</p><h2>Shipping Lift Tags</h2></div>
-          <button id="addShippingTag" type="button">+ Create shipping TAG</button>
+          <div><p class="eyebrow">NFKV WAREHOUSE</p><h2>Warehouse Lift TAG Register</h2></div>
+          <button id="addWarehouseTag" type="button">+ Create warehouse TAG</button>
         </div>
-        <p class="note">Create a TAG after physical sorting. Enter the actual number of boards packed at each length; the system checks it against processed inventory.</p>
-        <div class="scroll"><table class="matrix-table shipping-table" id="shippingTable"></table></div>
-        <div id="shippingMessage" class="calculation-status idle">Processed inventory is available for manual shipping allocation.</div>
+        <p class="note">This register follows the paper form: TAG, order, product/MO, date, quantities by length, PCS and BFM. Create the TAG after physical sorting and packing into a warehouse lift.</p>
+        <div class="scroll"><table class="matrix-table shipping-table" id="warehouseTagTable"></table></div>
+        <div id="warehouseMessage" class="calculation-status idle">Processed inventory is available for warehouse TAG allocation.</div>
+      </section>
+
+      <section class="card warehouse-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">SHIPPING</p><h2>Form Shipping Order from Warehouse TAGs</h2></div>
+          <button id="createShipment" type="button">Create shipping order</button>
+        </div>
+        <div class="shipping-order-fields">
+          <label>Shipping order #<input id="shipmentOrder" placeholder="Order #" /></label>
+          <label>Shipping date<input id="shipmentDate" type="date" /></label>
+        </div>
+        <div id="shippingTagSelection" class="tag-selection"></div>
+        <div id="shipmentHistory" class="shipment-history"></div>
       </section>
     </main>
-    <script src="warehouse.js?v=warehouse-v1"></script>
+    <script src="warehouse.js?v=warehouse-tags-v2"></script>
   </body>
 </html>

@@ -37,6 +37,32 @@ function inputSnapshot() {
   return Object.fromEntries(ids.map((id) => [id, $(id).value]));
 }
 function inventorySnapshot() { return Object.fromEntries([...readInventory()]); }
+const CACHED_HTML_IDS = ['status','resultIntro','liftEditor','productionNeed','orderLoads','orderRemaining','plan','shortage','cycleYield','visualMeta','kilnVisual','finalInventoryVisual','residualsTableBody'];
+const CACHED_TEXT_IDS = ['rows','lines','needPieces','capacity','capacityLabel','loadBF','fillPct','missingBF','unusedBF','visualTitle','qtyTotal','beforeTotal','usedTotal','remainTotal'];
+function serializeLoadRecords() {
+  return [...loadRecords.values()].map((record) => ({ ...record, available: Object.fromEntries(record.available), used: Object.fromEntries(record.used), remaining: Object.fromEntries(record.remaining) }));
+}
+function cacheRenderedCalculation() {
+  return { currentLoadNumber, html: Object.fromEntries(CACHED_HTML_IDS.map((id) => [id, $(id)?.innerHTML || ''])), text: Object.fromEntries(CACHED_TEXT_IDS.map((id) => [id, $(id)?.textContent || ''])), inventoryCells: [...document.querySelectorAll('#inventory tr')].map((row) => ({ before: row.querySelector('.before')?.textContent || '0', used: row.querySelector('.used')?.textContent || '0', remain: row.querySelector('.remain')?.textContent || '0' })), records: serializeLoadRecords() };
+}
+function restoreRenderedCalculation() {
+  const cache = activeOrder?.viewCache;
+  if (!cache?.records?.length) return false;
+  Object.entries(cache.html || {}).forEach(([id, value]) => { if ($(id)) $(id).innerHTML = value; });
+  Object.entries(cache.text || {}).forEach(([id, value]) => { if ($(id)) $(id).textContent = value; });
+  [...document.querySelectorAll('#inventory tr')].forEach((row, index) => { const cells = cache.inventoryCells?.[index]; if (!cells) return; row.querySelector('.before').textContent = cells.before; row.querySelector('.used').textContent = cells.used; row.querySelector('.remain').textContent = cells.remain; });
+  loadRecords.clear();
+  cache.records.forEach((record) => loadRecords.set(record.number, { ...record, available: new Map(Object.entries(record.available || {}).map(([k,v]) => [Number(k),v])), used: new Map(Object.entries(record.used || {}).map(([k,v]) => [Number(k),v])), remaining: new Map(Object.entries(record.remaining || {}).map(([k,v]) => [Number(k),v])) }));
+  currentLoadNumber = Number(cache.currentLoadNumber || 1);
+  currentLoadSnapshot = loadRecords.get(currentLoadNumber) || loadRecords.get(1);
+  $('loadNumber').textContent = currentLoadNumber;
+  $('nextLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
+  renderLoadNavigation();
+  calculationDirty = false;
+  $('calculationStatus').className = 'calculation-status ready';
+  $('calculationStatus').textContent = 'Saved calculation restored. Change an input and click Calculate Load to optimize again.';
+  return true;
+}
 function persistActiveOrder(calculated = false) {
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, createdAt: new Date().toISOString() };
   activeOrder.number = $('orderNumber').value.trim() || activeOrder.number || newOrderNumber();
@@ -51,6 +77,7 @@ function persistActiveOrder(calculated = false) {
     activeOrder.plannedCycles = loadRecords.size;
     activeOrder.plannedBoards = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBoards, 0);
     activeOrder.plannedBf = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBf, 0);
+    activeOrder.viewCache = cacheRenderedCalculation();
   }
   localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(activeOrder));
   $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
@@ -1940,7 +1967,7 @@ function init() {
   bindEvents();
   applyPhysicalProfile();
   persistActiveOrder(false);
-  if (activeOrder.calculated && Object.values(activeOrder.inventory || {}).some(Number)) runCalculation();
+  if (activeOrder.calculated && !restoreRenderedCalculation()) runCalculation();
 }
 
 init();

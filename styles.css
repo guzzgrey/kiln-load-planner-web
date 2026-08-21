@@ -301,6 +301,21 @@ button:disabled {
   opacity: 0.45;
 }
 
+.cloud-locked > main { visibility: hidden; }
+.cloud-login { position:fixed; inset:0; z-index:9999; display:grid; place-items:center; padding:20px; background:#f4f2ea; }
+.cloud-login form { width:min(430px,100%); padding:32px; border:1px solid var(--line); border-radius:14px; background:#fff; box-shadow:0 20px 60px #18251f22; }
+.cloud-login small { color:var(--green); font-weight:800; letter-spacing:.12em; }
+.cloud-login h1 { margin:8px 0; font-size:32px; }
+.cloud-login p { color:var(--muted); }
+.cloud-login label { display:block; margin:14px 0; }
+.cloud-login-message { min-height:24px; margin:8px 0; color:#a33; }
+.cloud-login button { width:100%; }
+#cloudStatusBar { position:sticky; top:0; z-index:1000; display:flex; justify-content:flex-end; align-items:center; gap:8px; padding:7px 18px; color:#fff; background:var(--green); font-size:12px; }
+#cloudStatusBar[data-state="offline"] { background:#93600b; }
+#cloudStatusBar span { color:#65ef9b; }
+#cloudStatusBar button { padding:3px 8px; border:1px solid #ffffff66; font-size:11px; }
+@media print { #cloudStatusBar { display:none !important; } }
+
 .calculation-status {
   display: flex;
   align-items: center;

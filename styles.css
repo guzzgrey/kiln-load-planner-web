@@ -169,8 +169,8 @@ input:disabled {
 
 @media print {
   @page {
-    size: landscape;
-    margin: 10mm;
+    size: A4 landscape;
+    margin: 7mm;
   }
 
   body {
@@ -206,6 +206,78 @@ input:disabled {
 
   .scroll {
     overflow: visible;
+  }
+
+  /* Wide production registers are formatted as true A4 landscape tables. */
+  .warehouse-page {
+    width: 283mm;
+    max-width: 283mm;
+    margin: 0;
+    font-size: 8px;
+  }
+
+  .warehouse-page .page-header,
+  .warehouse-page .warehouse-summary,
+  .warehouse-page .warehouse-section {
+    break-inside: auto;
+  }
+
+  .warehouse-page .page-header {
+    margin-bottom: 4mm;
+  }
+
+  .warehouse-page .header-actions,
+  .warehouse-page .calculation-status,
+  .warehouse-page .empty-state,
+  .warehouse-page .section-heading button,
+  .warehouse-page .shipping-order-fields,
+  .warehouse-page .tag-selection {
+    display: none !important;
+  }
+
+  .warehouse-page .card {
+    padding: 3mm;
+    margin-bottom: 3mm;
+    border-radius: 0;
+  }
+
+  .warehouse-page h1 { font-size: 20px; }
+  .warehouse-page h2 { font-size: 13px; margin: 0 0 2mm; }
+  .warehouse-page .lead,
+  .warehouse-page .note { font-size: 8px; line-height: 1.25; margin: 1.5mm 0; }
+
+  .warehouse-page table,
+  .warehouse-page .matrix-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed;
+    font-size: 6px;
+  }
+
+  .warehouse-page thead { display: table-header-group; }
+  .warehouse-page tfoot { display: table-footer-group; }
+  .warehouse-page tr { break-inside: avoid; page-break-inside: avoid; }
+
+  .warehouse-page .matrix-table th,
+  .warehouse-page .matrix-table td {
+    min-width: 0 !important;
+    width: auto !important;
+    padding: 1.2mm .45mm;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .warehouse-page .matrix-table th:first-child,
+  .warehouse-page .matrix-table td:first-child { width: 18mm !important; }
+  .warehouse-page .matrix-table th:nth-child(2),
+  .warehouse-page .matrix-table td:nth-child(2) { width: 22mm !important; }
+  .warehouse-page .matrix-table th:nth-child(3),
+  .warehouse-page .matrix-table td:nth-child(3) { width: 27mm !important; }
+
+  .warehouse-page .matrix-table input {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 6px;
   }
 }
 

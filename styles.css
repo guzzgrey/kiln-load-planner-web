@@ -217,9 +217,24 @@ input:disabled {
   }
 
   .warehouse-page .page-header,
-  .warehouse-page .warehouse-summary,
+  .warehouse-page .warehouse-summary {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  /* Every production register starts on a fresh sheet and stays intact. */
   .warehouse-page .warehouse-section {
-    break-inside: auto;
+    break-before: page;
+    page-break-before: always;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .warehouse-page .warehouse-section .scroll,
+  .warehouse-page .warehouse-section table,
+  .warehouse-page .warehouse-section .shipment-history {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
   }
 
   .warehouse-page .page-header {

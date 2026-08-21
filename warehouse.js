@@ -201,6 +201,7 @@ function openYardBuilder() {
 
 function createYardTag(event) {
   event.preventDefault();
+  const order = activeOrder();
   const available = availableForYard();
   const quantities = {};
   document.querySelectorAll('.yard-build-qty').forEach((input) => { quantities[input.dataset.length] = Math.max(0, Math.floor(Number(input.value) || 0)); });
@@ -324,7 +325,16 @@ function completeActiveOrder() {
 }
 
 $('addWarehouseTag').addEventListener('click', openYardBuilder);
-$('yardTagForm').addEventListener('submit', createYardTag);
+$('yardTagForm').addEventListener('submit', (event) => {
+  try {
+    createYardTag(event);
+  } catch (error) {
+    event.preventDefault();
+    console.error('YARD TAG creation failed:', error);
+    $('yardDialogStatus').className = 'calculation-status pending';
+    $('yardDialogStatus').textContent = 'The YARD TAG could not be saved. Your entered values are still available; please try again.';
+  }
+});
 $('cancelYardTag').addEventListener('click', () => $('yardTagDialog').close());
 $('createShipment').addEventListener('click', () => {
   const tagIds = [...document.querySelectorAll('#shippingTagSelection input:checked')].map((input) => input.value);

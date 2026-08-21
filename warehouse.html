@@ -27,6 +27,15 @@
         <label>Final process date<input id="warehouseFinalDate" type="date" /><small>One final date for the complete production order.</small></label>
       </section>
 
+      <section class="card warehouse-section order-ledger-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">ORDER MATERIAL LEDGER</p><h2 id="activeOrderTitle">No active order</h2></div>
+          <button id="completeOrder" class="danger" type="button" disabled>Order completed</button>
+        </div>
+        <p id="orderBalanceStatus" class="calculation-status idle">Create and calculate an order in the planner.</p>
+        <div class="scroll"><table id="orderLedger" class="matrix-table ledger-table"></table></div>
+      </section>
+
       <section class="card warehouse-section">
         <div class="section-heading"><div><p class="eyebrow">AUTOMATIC REGISTER</p><h2>Completed Kiln Loads</h2></div></div>
         <p class="note">Before physical sorting and packing there is no YARD TAG yet, so this intake register starts with the kiln-cycle completion date. Quantities come directly from the confirmed kiln plan.</p>
@@ -58,6 +67,11 @@
         <div id="shipmentMessage" class="calculation-status idle">Select registered YARD TAGs, enter a unique Shipping order number and date.</div>
         <div id="shipmentHistory" class="shipment-history"></div>
       </section>
+
+      <section class="card warehouse-section">
+        <div class="section-heading"><div><p class="eyebrow">HISTORY</p><h2>Completed Orders</h2></div></div>
+        <div id="orderArchive" class="shipment-history"></div>
+      </section>
     </main>
 
     <dialog id="yardTagDialog" class="cycle-dialog yard-dialog">
@@ -80,6 +94,6 @@
       </form>
     </dialog>
 
-    <script src="warehouse.js?v=protected-registers-v5"></script>
+    <script src="warehouse.js?v=order-ledger-v1"></script>
   </body>
 </html>

@@ -1,107 +1,1946 @@
-const MIN_BOARD_LENGTH=3,MAX_BOARD_LENGTH=20,DEFAULT_LENGTHS=Array.from({length:18},(t,e)=>3+e),DEFAULT_QUANTITIES=new Map([[6,36],[7,106],[8,522],[9,104],[10,1079],[11,88],[12,320],[13,78],[14,240],[16,240],[18,264],[19,184],[20,328]]),$=t=>document.getElementById(t);let currentLoadNumber=1,currentLoadSnapshot=null;const manualLiftTargets=new Map,loadRecords=new Map;let globalOrderSignature="",globalOrderPlans=[],highsEngine=null,highsPromise=null,calculationRunning=!1,calculationDirty=!1;const SUPPLIER_PROFILE_STORAGE="kiln-planner-supplier-profiles-v1",LAST_SUPPLIER_STORAGE="kiln-planner-last-supplier-v1",COMPLETED_CYCLES_STORAGE="kiln-planner-completed-cycles-v1";let completingLoadNumber=null;function readCompletedCycles(){try{const t=JSON.parse(localStorage.getItem(COMPLETED_CYCLES_STORAGE)||"[]");return Array.isArray(t)?t:[]}catch{return[]}}function writeCompletedCycles(t){localStorage.setItem(COMPLETED_CYCLES_STORAGE,JSON.stringify(t))}function completionRecordId(t){return`${globalOrderSignature||"current-order"}::${t}`}function isLoadCompleted(t){const e=completionRecordId(t);return readCompletedCycles().some(n=>n.id===e)}function supplierStorageKey(t){return String(t||"").trim().toLocaleLowerCase()}function isWestminsterSupplier(t){const e=String(t||"").toLocaleLowerCase().replace(/[^a-z0-9]/g,"");return e.includes("westminster")||e.includes("westminister")||e.includes("newwest")}function applySupplierClearanceRule(){const t=isWestminsterSupplier($("supplier").value)?1:0;return $("supplierClearance").value=String(t),t}function readSupplierProfiles(){try{return JSON.parse(localStorage.getItem(SUPPLIER_PROFILE_STORAGE)||"{}")}catch{return{}}}function saveSupplierProfile(){const t=$("supplier").value.trim();if(!t)return;const e=readSupplierProfiles();e[supplierStorageKey(t)]={name:t,clearance:Math.max(0,Math.floor(Number($("supplierClearance").value)||0))};try{localStorage.setItem(SUPPLIER_PROFILE_STORAGE,JSON.stringify(e)),localStorage.setItem(LAST_SUPPLIER_STORAGE,t)}catch{}}function loadSupplierProfile(){if(!$("supplier").value.trim()){$("supplierClearance").value="0";return}applySupplierClearanceRule()}function loadOptimizer(){return highsEngine?Promise.resolve(highsEngine):highsPromise||(highsPromise=new Promise(t=>{const e=document.createElement("script");e.src="vendor/highs.js",e.onload=()=>{if(typeof Module>"u"){t(null);return}Module({locateFile:n=>`vendor/${n}`}).then(n=>{highsEngine=n,globalOrderSignature="",t(n)}).catch(n=>{console.error("HiGHS optimizer failed to initialize; using local fallback:",n),t(null)})},e.onerror=()=>{console.error("HiGHS optimizer could not be loaded; using local fallback."),t(null)},document.head.appendChild(e)}),highsPromise)}function markCalculationPending(){if(calculationDirty)return;calculationDirty=!0;const t=$("calculationStatus");t&&(t.className="calculation-status pending",t.textContent="Inputs changed \u2014 click Calculate Load to optimize the order.")}function runCalculation(){if(calculationRunning)return;calculationRunning=!0;const t=$("calc"),e=$("calculationStatus");t.disabled=!0,t.classList.add("is-loading"),e.className="calculation-status loading",e.innerHTML="<i></i><span>Optimizing complete rows, lifts, and kiln cycles\u2026</span>",requestAnimationFrame(()=>window.setTimeout(async()=>{try{calculate(),calculationDirty=!1,e.className="calculation-status ready",e.textContent="Calculation complete. Change an input and calculate again to create a new plan."}catch(n){console.error("Kiln calculation failed:",n),e.className="calculation-status pending",e.textContent="Calculation could not be completed. Check the entered dimensions and quantities, then try again."}finally{calculationRunning=!1,t.disabled=!1,t.classList.remove("is-loading")}},30))}function num(t){return Math.max(0,Number($(t).value)||0)}function board(){if($("size").value==="custom")return{thickness:num("customT"),width:num("customW")};const[t,e]=$("size").value.split(",").map(Number);return{thickness:t,width:e}}function materialSizeLabel(){const{thickness:t,width:e}=board();return`${fmtMeasure(t)} \xD7 ${fmtMeasure(e)}`}function physicalDimensionsForProfile(){const t=board(),e=$("batchProfile").value;return e==="manual"||$("size").value==="custom"?{thickness:num("actualT"),width:num("actualW")}:e==="dressed"?{thickness:t.thickness===1?.75:t.thickness===2?1.5:t.thickness,width:t.width===4?3.5:t.width===6?5.5:t.width}:t}function applyPhysicalProfile(){const t=$("batchProfile").value==="manual";if($("actualT").disabled=!1,$("actualW").disabled=!1,t)return;const e=physicalDimensionsForProfile();$("actualT").value=String(e.thickness),$("actualW").value=String(e.width)}function escapeHtml(t){return String(t||"").replace(/[&<>"']/g,e=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[e])}function bf(t,e=1){const{thickness:n,width:s}=board();return n*s*t*e/12}function fmt(t,e=0){return Number(t).toLocaleString("en-US",{maximumFractionDigits:e,minimumFractionDigits:e})}function fmtMeasure(t,e=3){return`${Number(t).toLocaleString("en-US",{maximumFractionDigits:e})}\u2033`}function addRow(t,e=0){const n=document.createElement("tr");n.innerHTML=`
-    <td><input class="len" type="number" min="3" max="20" step="1" value="${t}" /></td>
-    <td><input class="qty" type="number" min="0" step="1" value="${e}" /></td>
+const MIN_BOARD_LENGTH = 3;
+const MAX_BOARD_LENGTH = 20;
+const DEFAULT_LENGTHS = Array.from(
+  { length: MAX_BOARD_LENGTH - MIN_BOARD_LENGTH + 1 },
+  (_, index) => MIN_BOARD_LENGTH + index
+);
+const DEFAULT_QUANTITIES = new Map([
+  [6, 36], [7, 106], [8, 522], [9, 104], [10, 1079], [11, 88],
+  [12, 320], [13, 78], [14, 240], [16, 240], [18, 264], [19, 184], [20, 328],
+]);
+const $ = (id) => document.getElementById(id);
+let currentLoadNumber = 1;
+let currentLoadSnapshot = null;
+const manualLiftTargets = new Map();
+const loadRecords = new Map();
+let globalOrderSignature = '';
+let globalOrderPlans = [];
+let highsEngine = null;
+let highsPromise = null;
+let calculationRunning = false;
+let calculationDirty = false;
+const SUPPLIER_PROFILE_STORAGE = 'kiln-planner-supplier-profiles-v1';
+const LAST_SUPPLIER_STORAGE = 'kiln-planner-last-supplier-v1';
+const COMPLETED_CYCLES_STORAGE = 'kiln-planner-completed-cycles-v1';
+const ACTIVE_ORDER_STORAGE = 'kiln-planner-active-order-v1';
+let completingLoadNumber = null;
+let activeOrder = null;
+
+function newOrderNumber() {
+  return `ORD-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${String(Date.now()).slice(-4)}`;
+}
+function readActiveOrder() {
+  try { return JSON.parse(localStorage.getItem(ACTIVE_ORDER_STORAGE) || 'null'); } catch (_) { return null; }
+}
+function inputSnapshot() {
+  const ids = ['supplier','supplierClearance','species','size','customT','customW','batchProfile','kiln','height','maxStack','metalBox','actualT','actualW','liftWidth','sticker','topSticker'];
+  return Object.fromEntries(ids.map((id) => [id, $(id).value]));
+}
+function inventorySnapshot() { return Object.fromEntries([...readInventory()]); }
+function persistActiveOrder(calculated = false) {
+  if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, createdAt: new Date().toISOString() };
+  activeOrder.number = $('orderNumber').value.trim() || activeOrder.number || newOrderNumber();
+  $('orderNumber').value = activeOrder.number;
+  activeOrder.status = 'active';
+  activeOrder.updatedAt = new Date().toISOString();
+  activeOrder.inputs = inputSnapshot();
+  activeOrder.inventory = inventorySnapshot();
+  if (calculated) {
+    activeOrder.calculated = true;
+    activeOrder.planSignature = globalOrderSignature;
+    activeOrder.plannedCycles = loadRecords.size;
+    activeOrder.plannedBoards = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBoards, 0);
+    activeOrder.plannedBf = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBf, 0);
+  }
+  localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(activeOrder));
+  $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
+}
+
+function readCompletedCycles() {
+  try {
+    const value = JSON.parse(localStorage.getItem(COMPLETED_CYCLES_STORAGE) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function writeCompletedCycles(records) {
+  localStorage.setItem(COMPLETED_CYCLES_STORAGE, JSON.stringify(records));
+}
+
+function completionRecordId(loadNumber) {
+  return `${activeOrder?.id || globalOrderSignature || 'current-order'}::${loadNumber}`;
+}
+
+function isLoadCompleted(loadNumber) {
+  const id = completionRecordId(loadNumber);
+  return readCompletedCycles().some((record) => record.id === id);
+}
+
+function supplierStorageKey(value) {
+  return String(value || '').trim().toLocaleLowerCase();
+}
+
+function isWestminsterSupplier(value) {
+  const normalized = String(value || '').toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalized.includes('westminster')
+    || normalized.includes('westminister')
+    || normalized.includes('newwest');
+}
+
+function applySupplierClearanceRule() {
+  const clearance = isWestminsterSupplier($('supplier').value) ? 1 : 0;
+  $('supplierClearance').value = String(clearance);
+  return clearance;
+}
+
+function readSupplierProfiles() {
+  try {
+    return JSON.parse(localStorage.getItem(SUPPLIER_PROFILE_STORAGE) || '{}');
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveSupplierProfile() {
+  const supplier = $('supplier').value.trim();
+  if (!supplier) return;
+  const profiles = readSupplierProfiles();
+  profiles[supplierStorageKey(supplier)] = {
+    name: supplier,
+    clearance: Math.max(0, Math.floor(Number($('supplierClearance').value) || 0)),
+  };
+  try {
+    localStorage.setItem(SUPPLIER_PROFILE_STORAGE, JSON.stringify(profiles));
+    localStorage.setItem(LAST_SUPPLIER_STORAGE, supplier);
+  } catch (_) {
+    // Storage can be unavailable in private browsing; calculation still works.
+  }
+}
+
+function loadSupplierProfile() {
+  const supplier = $('supplier').value.trim();
+  if (!supplier) {
+    $('supplierClearance').value = '0';
+    return;
+  }
+  // Westminster's cutting allowance is a production rule, not an optional
+  // preference. Every other supplier currently defaults to the full 34 ft.
+  applySupplierClearanceRule();
+}
+
+function loadOptimizer() {
+  if (highsEngine) return Promise.resolve(highsEngine);
+  if (highsPromise) return highsPromise;
+  highsPromise = new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/highs.js';
+    script.onload = () => {
+      if (typeof Module === 'undefined') {
+        resolve(null);
+        return;
+      }
+      Module({ locateFile: (file) => `vendor/${file}` })
+        .then((engine) => {
+          highsEngine = engine;
+          globalOrderSignature = '';
+          resolve(engine);
+        })
+        .catch((error) => {
+          console.error('HiGHS optimizer failed to initialize; using local fallback:', error);
+          resolve(null);
+        });
+    };
+    script.onerror = () => {
+      console.error('HiGHS optimizer could not be loaded; using local fallback.');
+      resolve(null);
+    };
+    document.head.appendChild(script);
+  });
+  return highsPromise;
+}
+
+function markCalculationPending() {
+  if (calculationDirty) return;
+  calculationDirty = true;
+  const status = $('calculationStatus');
+  if (!status) return;
+  status.className = 'calculation-status pending';
+  status.textContent = 'Inputs changed — click Calculate Load to optimize the order.';
+}
+
+function runCalculation() {
+  if (calculationRunning) return;
+  calculationRunning = true;
+  const button = $('calc');
+  const status = $('calculationStatus');
+  button.disabled = true;
+  button.classList.add('is-loading');
+  status.className = 'calculation-status loading';
+  status.innerHTML = '<i></i><span>Optimizing complete rows, lifts, and kiln cycles…</span>';
+
+  requestAnimationFrame(() => window.setTimeout(async () => {
+    try {
+      calculate();
+      persistActiveOrder(true);
+      calculationDirty = false;
+      status.className = 'calculation-status ready';
+      status.textContent = 'Calculation complete. Change an input and calculate again to create a new plan.';
+    } catch (error) {
+      console.error('Kiln calculation failed:', error);
+      status.className = 'calculation-status pending';
+      status.textContent = 'Calculation could not be completed. Check the entered dimensions and quantities, then try again.';
+    } finally {
+      calculationRunning = false;
+      button.disabled = false;
+      button.classList.remove('is-loading');
+    }
+  }, 30));
+}
+
+function num(id) {
+  return Math.max(0, Number($(id).value) || 0);
+}
+
+function board() {
+  if ($('size').value === 'custom') {
+    return { thickness: num('customT'), width: num('customW') };
+  }
+  const [thickness, width] = $('size').value.split(',').map(Number);
+  return { thickness, width };
+}
+
+function materialSizeLabel() {
+  const { thickness, width } = board();
+  return `${fmtMeasure(thickness)} × ${fmtMeasure(width)}`;
+}
+
+function physicalDimensionsForProfile() {
+  const nominal = board();
+  const profile = $('batchProfile').value;
+  if (profile === 'manual' || $('size').value === 'custom') {
+    return { thickness: num('actualT'), width: num('actualW') };
+  }
+  if (profile === 'dressed') {
+    return {
+      thickness: nominal.thickness === 1 ? 0.75 : nominal.thickness === 2 ? 1.5 : nominal.thickness,
+      width: nominal.width === 4 ? 3.5 : nominal.width === 6 ? 5.5 : nominal.width,
+    };
+  }
+  return nominal;
+}
+
+function applyPhysicalProfile() {
+  const manual = $('batchProfile').value === 'manual';
+  // Physical dimensions remain editable for every profile. Typing into either
+  // field switches the batch to Manual automatically.
+  $('actualT').disabled = false;
+  $('actualW').disabled = false;
+  if (manual) return;
+  const dimensions = physicalDimensionsForProfile();
+  $('actualT').value = String(dimensions.thickness);
+  $('actualW').value = String(dimensions.width);
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+}
+
+function bf(length, qty = 1) {
+  const { thickness, width } = board();
+  return (thickness * width * length * qty) / 12;
+}
+
+function fmt(value, digits = 0) {
+  return Number(value).toLocaleString('en-US', {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits
+  });
+}
+
+function fmtMeasure(value, digits = 3) {
+  return `${Number(value).toLocaleString('en-US', { maximumFractionDigits: digits })}″`;
+}
+
+function addRow(length, quantity = 0) {
+  const row = document.createElement('tr');
+  row.innerHTML = `
+    <td><input class="len" type="number" min="${MIN_BOARD_LENGTH}" max="${MAX_BOARD_LENGTH}" step="1" value="${length}" /></td>
+    <td><input class="qty" type="number" min="0" step="1" value="${quantity}" /></td>
     <td class="before">0</td>
     <td class="used">0</td>
     <td class="remain">0</td>
-  `,$("inventory").appendChild(n),n.querySelectorAll("input").forEach(r=>{r.addEventListener("input",markCalculationPending)});const s=n.querySelector(".qty"),i=()=>{Number(s.value)===0&&requestAnimationFrame(()=>s.select())};s.addEventListener("focus",i),s.addEventListener("click",i),s.addEventListener("blur",()=>{s.value.trim()===""&&(s.value="0")})}function buildInventoryRows(){DEFAULT_LENGTHS.forEach(t=>{addRow(t,DEFAULT_QUANTITIES.get(t)||0)})}function readInventory(){const t=new Map;return document.querySelectorAll("#inventory tr").forEach(e=>{const n=Math.floor(Number(e.querySelector(".len").value)||0),s=Math.floor(Number(e.querySelector(".qty").value)||0);n>=3&&n<=20&&s>0&&t.set(n,(t.get(n)||0)+s)}),t}function computeGeometry(){const t=num("height"),e=num("actualT"),n=num("actualW"),s=num("liftWidth"),i=num("sticker"),r=Number($("topSticker").value),a=n>0?Math.floor(s/n):0;$("across").value=a;let u=0,c=0;for(let f=1;f<500;f+=1){const S=f*e+(r?f*i:Math.max(0,f-1)*i);if(S<=t+1e-9)u=f,c=S;else break}return{rows:u,usedHeight:c,across:a,usedWidth:a*n,widthWaste:Math.max(0,s-a*n),lines:u*a}}function makePatternLabel(t){if(!t||t.length===0)return"\u2014";const e=new Map;return t.forEach(n=>e.set(n,(e.get(n)||0)+1)),[...e.entries()].map(([n,s])=>s>1?`${s} \xD7 ${n} ft`:`${n} ft`).join(" + ")}function isStableLiftPattern(t){const e=[...t].map(Number).filter(u=>u>0);if(!e.length)return{valid:!1,label:"no stable structure"};const n=Math.max(...e),s=e.filter(u=>u<n);if(!s.length)return{valid:!0,label:`a = ${n} ft`};const i=s.some(u=>e.includes(n-u)),r=e.length>=2&&e.every((u,c)=>c%2===0?u>=20:u<20),a=i||r;return{valid:a,label:a?"a = long board; b = combination c + d = a":"layout without a stable frame"}}function patternsForTarget(t,e){const n=[...new Set(e.filter(r=>r>0&&r<=t))].sort((r,a)=>a-r),s=[];function i(r,a,u){if(r===0){s.push([...u]);return}for(let c=a;c<n.length;c+=1){const f=n[c];f<=r&&i(r-f,c,[...u,f])}}return i(t,0,[]),s.sort((r,a)=>r.length-a.length)}function schemesForInventory(t,e){const n=[...new Set(e)].filter(r=>r>0),s=Math.max(1,t-Math.min(6,t-1)),i=[];if(n.length===1){const r=n[0];for(let a=t;a>=s;a-=1)a%r===0&&i.push(Array(a/r).fill(r));return i}for(let r=t;r>=s;r-=1)patternsForTarget(r,n).forEach(a=>i.push(a));return i}function patternKey(t){return t.join(" + ")}function statePatternParts(t){if(!t||!t.groups.size)return[];let e="",n=-1;return t.groups.forEach((s,i)=>{s>n&&(n=s,e=i)}),e.split("|")[0].split(" + ").map(Number).filter(Boolean)}function stateMaterialLength(t){return statePatternParts(t).reduce((e,n)=>e+n,0)}function canUsePattern(t,e){const n={};return t.forEach(s=>{n[s]=(n[s]||0)+1}),Object.entries(n).every(([s,i])=>(e.get(Number(s))||0)>=i)}function takePattern(t,e){t.forEach(n=>{e.set(n,(e.get(n)||0)-1)})}function linePatternsForStack(t,e){const n=e.includes(t)?[[t]]:[],s=[...new Set(e)].sort((r,a)=>r-a),i=[];for(let r=0;r<s.length;r+=1)for(let a=r;a<s.length;a+=1){const u=s[r],c=s[a];u<t&&c<t&&u+c===t&&i.push([u,c])}for(let r=0;r<s.length;r+=1)for(let a=r;a<s.length;a+=1)for(let u=a;u<s.length;u+=1){const c=s[r],f=s[a],S=s[u];c<t&&f<t&&S<t&&c+f+S===t&&i.push([c,f,S])}return{direct:n.map(r=>({pattern:r,type:"solid"})),joined:i.map(r=>({pattern:r,type:"joined"}))}}function canUseRowPattern(t,e,n){const s={};return t.forEach(i=>{s[i]=(s[i]||0)+n}),Object.entries(s).every(([i,r])=>(e.get(Number(i))||0)>=r)}function takeRowPattern(t,e,n){t.forEach(s=>e.set(s,(e.get(s)||0)-n))}function availableFullRows(t,e,n){const s={};return t.forEach(i=>{s[i]=(s[i]||0)+n}),Math.min(...Object.entries(s).map(([i,r])=>Math.floor((e.get(Number(i))||0)/r)))}function summarizeStock(t){const e=[...t.entries()].filter(([,n])=>n>0).sort(([n],[s])=>s-n).map(([n,s])=>`${s}\xD7${n} ft`);return e.length?e.join(", "):"no remaining inventory"}function renderResidualTable(t,e){const n=$("residualsTableBody");n.innerHTML="";const s=[...t.entries()].map(([i,r])=>{const a=e.get(i)||0,u=Math.max(0,r-a);return{length:i,qty:r,used:a,remain:u}}).filter(i=>i.qty>0);if(!s.length){n.innerHTML='<tr><td colspan="4">No remaining inventory</td></tr>';return}s.forEach(i=>{const r=document.createElement("tr");r.innerHTML=`
-      <td>${i.length} ft</td>
-      <td>${i.qty}</td>
-      <td>${i.used}</td>
-      <td>${i.remain}</td>
-    `,n.appendChild(r)})}function runScheme(t,e,n,s,i=0){const r=new Map(e),a=t.map((p,L)=>({length:p,index:L,rowsLeft:n.rows,linesLeft:n.lines,groups:new Map,patterns:linePatternsForStack(p,s),rowSequence:[]}));let u=0,c=0,f=0;const S=[...a];i===1&&S.reverse(),i===2&&S.sort((p,L)=>p.length-L.length),i===3&&S.sort((p,L)=>L.length-p.length);for(const p of S){const L=p.patterns.direct.length>0,v=p.patterns.joined.length>0,b=L&&v;for(let h=0;h<n.rows;h+=1){const d=(b&&h%2===1?p.patterns.joined:p.patterns.direct).filter(m=>canUseRowPattern(m.pattern,r,n.across)).sort((m,q)=>availableFullRows(q.pattern,r,n.across)-availableFullRows(m.pattern,r,n.across))[0];if(!d)break;takeRowPattern(d.pattern,r,n.across),p.rowsLeft-=1,p.linesLeft-=n.across,c+=n.across,u+=p.length*n.across,p.rowSequence.push({type:d.type,pattern:[...d.pattern]});const F=`${patternKey(d.pattern)}|0`;p.groups.set(F,(p.groups.get(F)||0)+1)}}const l=a.filter(p=>p.linesLeft===0).length,o=a.every(p=>{const L=new Set(p.rowSequence.map(d=>d.type)),v=p.rowSequence.some(d=>d.type==="joined"),b=p.rowSequence.filter(d=>d.type==="solid").length,h=p.rowSequence.filter(d=>d.type==="joined").length,M=!v||p.patterns.direct.length>0&&p.rowSequence[0]?.type==="solid"&&b>=h&&p.rowSequence.every((d,F)=>d.type===(F%2===0?"solid":"joined"));return L.size<=1?!v:M}),g={valid:o,label:a.some(p=>p.rowSequence.some(L=>L.type==="joined"))?"forklift-stable: full-length rows anchor alternating two- or three-board joined rows":"solid full-length rows"},y=o;return{scheme:t,stock:r,states:a,usedFt:u,complete:c,gaps:f,fullLifts:l,stability:g,valid:y,score:(y?1e15:0)+c*1e10+l*1e8+u*1e5-t.length*1e3-f}}function liftRecipes(t,e,n,s){const i=linePatternsForStack(t,n),r=[],a=new Set,u=c=>{const f=new Map,S=new Map;c.forEach(g=>{g.pattern.forEach(p=>f.set(p,(f.get(p)||0)+e.across));const y=`${patternKey(g.pattern)}|0`;S.set(y,(S.get(y)||0)+1)});const l=[...f.entries()].sort(([g],[y])=>g-y).map(([g,y])=>`${g}:${y}`).join("|");if(a.has(l))return;a.add(l);const o=new Set(c.filter(g=>g.type==="joined").map(g=>patternKey(g.pattern)));r.push({rowSequence:c,need:f,groups:S,rows:c.length,boards:[...f.values()].reduce((g,y)=>g+y,0),usedFt:t*e.across*c.length,diversity:o.size})};if(i.direct.length){for(let c=1;c<=e.rows;c+=1)u(Array.from({length:c},()=>({type:"solid",pattern:[t]})));i.joined.forEach(c=>{if(c.pattern.length===2)for(let f=2;f<=e.rows;f+=1)u(Array.from({length:f},(S,l)=>l%2===0?{type:"solid",pattern:[t]}:{type:"joined",pattern:[...c.pattern]}))});for(let c=2;c<=e.rows;c+=1){const f=Math.ceil(c/2),S=Math.floor(c/2),l=f*e.across;if((s.get(t)||0)<l||S===0)continue;const o=i.joined;o.forEach((g,y)=>{const p=new Map(s);p.set(t,(p.get(t)||0)-l);const L=[];for(let b=0;b<S;b+=1){const h=(y+b)%o.length,M=o.filter(F=>F.pattern.length===2||b>=3).filter(F=>canUseRowPattern(F.pattern,p,e.across)).sort((F,m)=>{const q=o.indexOf(F),C=o.indexOf(m),k=(q-h+o.length)%o.length,_=(C-h+o.length)%o.length;return k-_});if(!M.length)break;const d=M[0];takeRowPattern(d.pattern,p,e.across),L.push(d.pattern)}if(L.length!==S)return;let v=0;u(Array.from({length:c},(b,h)=>h%2===0?{type:"solid",pattern:[t]}:{type:"joined",pattern:[...L[v++]]}))})}}return r.sort((c,f)=>f.usedFt-c.usedFt||c.boards-f.boards)}function runSchemeOptimal(t,e,n,s){const i=t.map(o=>liftRecipes(o,n,s,e)),r=Array(i.length+1).fill(0);for(let o=i.length-1;o>=0;o-=1)r[o]=r[o+1]+Math.max(0,...i[o].map(g=>g.usedFt));let a=null;function u(o,g,y,p,L,v){if(!(a&&L+r[o]<a.usedFt)){if(o===t.length){const b=y.filter(M=>M.rows===n.rows).length,h={selected:[...y],remaining:new Map(g),boards:p,usedFt:L,fullLifts:b,diversity:v};(!a||h.usedFt>a.usedFt||h.usedFt===a.usedFt&&h.fullLifts>a.fullLifts||h.usedFt===a.usedFt&&h.fullLifts===a.fullLifts&&h.boards<a.boards||h.usedFt===a.usedFt&&h.fullLifts===a.fullLifts&&h.boards===a.boards&&h.diversity>a.diversity)&&(a=h);return}for(const b of i[o]){if([...b.need.entries()].some(([M,d])=>(g.get(M)||0)<d))continue;const h=new Map(g);b.need.forEach((M,d)=>h.set(d,(h.get(d)||0)-M)),u(o+1,h,[...y,b],p+b.boards,L+b.usedFt,v+b.diversity)}}}if(u(0,new Map(e),[],0,0,0),!a)return null;const c=t.map((o,g)=>{const y=a.selected[g];return{length:o,index:g,rowsLeft:n.rows-y.rows,linesLeft:n.lines-y.rows*n.across,groups:y.groups,patterns:linePatternsForStack(o,s),rowSequence:y.rowSequence}}),f=c.filter(o=>o.rowsLeft===0).length,S=c.some(o=>o.rowSequence.some(g=>g.type==="joined")),l=c.map(o=>o.rowSequence.length);return{scheme:t,stock:a.remaining,states:c,usedFt:a.usedFt,complete:c.reduce((o,g)=>o+g.rowSequence.length*n.across,0),minRows:Math.min(...l),maxRows:Math.max(...l),gaps:0,fullLifts:f,stability:{valid:!0,label:S?"independent forklift-stable lifts with alternating full-width rows":"independent lifts with solid full-width rows"},valid:!0}}function isBetterKilnPlan(t,e){if(!e)return!0;const n=[[t.completeLoad?1:0,e.completeLoad?1:0,"max"],[t.orderUsableFt,e.orderUsableFt,"max"],[t.strandedFt,e.strandedFt,"min"],[t.usedFt,e.usedFt,"max"],[t.heightSpread,e.heightSpread,"min"],[t.fullLifts,e.fullLifts,"max"],[t.chamberGap,e.chamberGap,"min"],[t.metal,e.metal,"min"],[t.activeStates.length,e.activeStates.length,"min"]];for(const[s,i,r]of n)if(s!==i)return r==="max"?s>i:s<i;return!1}function liftPlacementClass(t){return t.rowSequence.some(n=>n.pattern.reduce((s,i)=>s+i,0)<t.length)?2:t.rowsLeft>0?1:0}function sortStatesByHeight(t){return[...t].sort((e,n)=>n.rowSequence.length-e.rowSequence.length||liftPlacementClass(e)-liftPlacementClass(n)||n.length-e.length)}function compactDescendingStates(t,e){const n=[...t].sort((s,i)=>i.length-s.length).map(s=>({...s,rowSequence:[...s.rowSequence]}));for(let s=0;s<n.length;s+=1){const i=n[s];for(let r=s+1;r<n.length&&i.rowSequence.length<e.rows;r+=1){const a=n[r];if(!a.rowSequence.some(u=>u.type!=="solid"))for(;a.rowSequence.length&&i.rowSequence.length<e.rows;){const c=a.rowSequence[0].pattern.reduce((l,o)=>l+o,0),f=i.rowSequence[i.rowSequence.length-1],S=f?f.pattern.reduce((l,o)=>l+o,0):i.length;if(c>S||c<S-1)break;i.rowSequence.push(a.rowSequence.shift())}}}return n.filter(s=>s.rowSequence.length).map((s,i)=>{const r=new Map;return s.rowSequence.forEach(a=>{const u=`${patternKey(a.pattern)}|${Math.max(0,s.length-a.pattern.reduce((c,f)=>c+f,0))}`;r.set(u,(r.get(u)||0)+1)}),{...s,index:i,groups:r,rowsLeft:e.rows-s.rowSequence.length,linesLeft:e.lines-s.rowSequence.length*e.across}})}function inventoryFeet(t){return[...t.entries()].reduce((e,[n,s])=>e+n*s,0)}function usableInventoryFeet(t,e){return e?[...t.entries()].reduce((n,[s,i])=>n+s*Math.floor(i/e)*e,0):0}function orderSignature(t,e,n,s,i){return JSON.stringify({stock:[...t.entries()],rows:e.rows,across:e.across,kilnLength:n,maxStack:s,selectedMetal:i})}function linearModelToLp(t,e,n){const s=r=>Object.entries(e).map(([a,u])=>[a,u[r]||0]).filter(([,a])=>a!==0).map(([a,u],c)=>`${u>=0&&c?"+ ":u<0?"- ":""}${Math.abs(u)} ${a}`).join(" ")||"0",i=Object.entries(t).map(([r,a])=>a.max!==void 0?` ${r}: ${s(r)} <= ${a.max}`:a.min!==void 0?` ${r}: ${s(r)} >= ${a.min}`:` ${r}: ${s(r)} = ${a.equal}`);return`Maximize
- objective: ${s("score")}
-Subject To
-${i.join(`
-`)}
-Bounds
-${Object.keys(e).map(r=>` 0 <= ${r}`).join(`
-`)}
-Generals
- ${Object.keys(n).join(" ")}
-End`}function distributeAlternatingRows(t,e,n,s){if(t<=0||e<t||n.length>e||e+n.length>t*s)return[];const i=Array.from({length:t},()=>[{type:"solid"}]);let r=e-t;const a=[...n];for(;r||a.length;){const u=i.map((f,S)=>({rows:f,index:S})).filter(({rows:f})=>f.length<s).sort((f,S)=>f.rows.length-S.rows.length||f.index-S.index);let c=!1;for(const f of u){if(f.rows[f.rows.length-1].type==="solid"&&a.length){f.rows.push({type:"joined",pattern:a.shift()}),c=!0;break}if(r){f.rows.push({type:"solid"}),r-=1,c=!0;break}}if(!c)return[]}return i}function solveOrderAcrossCycles(t,e,n,s,i){if(!highsEngine||!e.rows||!e.across)return[];const r=[...t.keys()].filter(h=>h<=s).sort((h,M)=>h-M),a=usableInventoryFeet(t,e.across);if(a<=0)return[];const u=n*e.lines,c=Math.max(1,Math.ceil(a/Math.max(1,u))),f=i>=0?i:0,S=Math.max(0,n-f),l={},o={},g={};r.forEach(h=>{l[`inv_${h}`]={max:t.get(h)||0}});for(let h=0;h<c;h+=1)l[`chamber_${h}`]={max:S};for(let h=0;h<c;h+=1)r.forEach(M=>{const d=`${h}_${M}`;l[`rows_${d}`]={max:0},l[`joined_anchor_${d}`]={max:0},l[`lift_presence_${d}`]={max:0},l[`lift_count_${d}`]={max:Math.floor(S/M)};const F=`lift_${d}`;o[F]={score:-1,[`chamber_${h}`]:M,[`rows_${d}`]:-e.rows,[`lift_presence_${d}`]:1,[`lift_count_${d}`]:1},g[F]=1;const m=`solid_${d}`,q=M*e.across;o[m]={score:q*1e9+(c-h)*q*1e4+e.across,materialFeet:q,[`inv_${M}`]:e.across,[`rows_${d}`]:1,[`joined_anchor_${d}`]:-1,[`lift_presence_${d}`]:-1},g[m]=1;for(let C=0;C<r.length;C+=1){const k=r[C];for(let _=C;_<r.length;_+=1){const O=r[_];if(k+O!==M)continue;const N=`joined_${h}_${M}_${k}_${O}`,T=M*e.across;o[N]={score:T*1e9+(c-h)*T*1e4,materialFeet:T,[`inv_${k}`]:e.across*(k===O?2:1),[`rows_${d}`]:1,[`joined_anchor_${d}`]:1},k!==O&&(o[N][`inv_${O}`]=e.across),g[N]=1}}});const y=highsEngine.solve(linearModelToLp(l,o,g),{presolve:"on",time_limit:15,mip_rel_gap:0});if(y.Status!=="Optimal")return[];const p=Object.fromEntries(Object.entries(y.Columns).map(([h,M])=>[h,M.Primal])),L=[];for(let h=0;h<c;h+=1){const M=[],d=new Map;r.forEach(T=>{const R=Math.round(p[`lift_${h}_${T}`]||0);if(!R)return;const K=Math.round(p[`solid_${h}_${T}`]||0),U=[];for(let j=0;j<r.length;j+=1){const A=r[j];for(let D=j;D<r.length;D+=1){const I=r[D];if(A+I!==T)continue;const z=Math.round(p[`joined_${h}_${T}_${A}_${I}`]||0);for(let G=0;G<z;G+=1)U.push([A,I])}}const J=distributeAlternatingRows(R,K,U,e.rows);J.forEach(j=>j.forEach(A=>{A.type==="solid"&&(A.pattern=[T])})),J.filter(j=>j.length).forEach((j,A)=>{const D=new Map;j.forEach(I=>{I.pattern.forEach(G=>d.set(G,(d.get(G)||0)+e.across));const z=`${patternKey(I.pattern)}|0`;D.set(z,(D.get(z)||0)+1)}),M.push({length:T,index:A,rowsLeft:e.rows-j.length,linesLeft:e.lines-j.length*e.across,groups:D,patterns:linePatternsForStack(T,r),rowSequence:j})})});const F=sortStatesByHeight(compactDescendingStates(M,e)),m=F.reduce((T,R)=>T+R.length,0),q=Math.max(0,n-m-f),C=i<0&&[4,5,6].includes(q)?q:f,k=Math.max(0,n-m-C),_=new Map(t);d.forEach((T,R)=>_.set(R,Math.max(0,(_.get(R)||0)-T)));const O=[...d.entries()].reduce((T,[R,K])=>T+R*K,0),N=F.map(T=>T.rowSequence.length);L.push({scheme:F.map(T=>T.length),stock:_,states:F,activeStates:F,activeLength:m,usedMap:d,usedFt:O,complete:F.reduce((T,R)=>T+R.rowSequence.length*e.across,0),minRows:N.length?Math.min(...N):0,maxRows:N.length?Math.max(...N):0,gaps:0,fullLifts:F.filter(T=>T.rowSequence.length===e.rows).length,metal:C,target:n-C,chamberGap:k,inactiveLifts:0,completeLoad:k===0&&F.every(T=>T.rowSequence.length===e.rows),stability:{valid:!0,label:"globally optimized alternating full-width rows"},valid:F.length>0,heightSpread:N.length?Math.max(...N)-Math.min(...N):e.rows})}const v=L.filter(h=>h.usedFt>0).sort((h,M)=>M.maxRows-h.maxRows||M.usedFt-h.usedFt);let b=new Map(t);return v.forEach(h=>{h.availableStock=new Map(b),h.usedMap.forEach((M,d)=>{b.set(d,Math.max(0,(b.get(d)||0)-M))}),h.stock=new Map(b)}),v}function solveSequentialFallback(t,e,n,s,i){const r=[];let a=new Map(t);const u=i<0?[0,4,5,6]:[i];for(let p=0;p<50&&usableInventoryFeet(a,e.across)>0;p+=1){const L=[...a.keys()].filter(b=>b<=s);let v=null;for(const b of u){const h=Math.max(0,n-b);for(const M of schemesForInventory(h,L)){const d=runSchemeOptimal(M,a,e,L);if(!d)continue;d.metal=b,d.target=h,d.activeStates=sortStatesByHeight(compactDescendingStates(d.states.filter(m=>m.rowSequence.length>0),e)),d.activeLength=d.activeStates.reduce((m,q)=>m+q.length,0),d.chamberGap=Math.max(0,h-d.activeLength),d.inactiveLifts=d.states.length-d.activeStates.length,d.completeLoad=d.chamberGap===0&&d.activeStates.length>0&&d.activeStates.every(m=>m.rowSequence.length===e.rows),d.remainingFt=inventoryFeet(d.stock),d.remainingUsableFt=usableInventoryFeet(d.stock,e.across),d.strandedFt=Math.max(0,d.remainingFt-d.remainingUsableFt),d.orderUsableFt=d.usedFt+d.remainingUsableFt;const F=d.activeStates.map(m=>m.rowSequence.length);d.heightSpread=F.length?Math.max(...F)-Math.min(...F):e.rows,isBetterKilnPlan(d,v)&&(v=d)}}if(!v||!v.valid||v.usedFt<=0)break;v.availableStock=new Map(a),v.usedMap=new Map([...a.entries()].map(([b,h])=>[b,Math.max(0,h-(v.stock.get(b)||0))]).filter(([,b])=>b>0)),r.push(v),a=new Map(v.stock)}const c=[...r];for(;c.length>1&&!(c[c.length-1].usedFt/Math.max(1,n*e.lines)>=.15);)c.pop();let f=compactDescendingStates(c.flatMap(p=>p.activeStates||[]),e);const l=repackPlansGlobally([{activeStates:f}],t,e,n,i).length,o=i>=0?i:0,g=Math.max(0,n-o);return r.slice(c.length).flatMap(p=>p.activeStates||[]).sort((p,L)=>{const v=p.rowSequence.length*e.across;return L.rowSequence.length*e.across-v||L.length-p.length}).forEach(p=>{const L=compactDescendingStates([...f,p],e);packLiftStatesGlobally(L,g).length<=l&&(f=L)}),repackPlansGlobally([{activeStates:compactDescendingStates(f,e)}],t,e,n,i)}function packLiftStatesGlobally(t,e){const n=[...t].sort((l,o)=>o.length-l.length||o.rowSequence.length-l.rowSequence.length);if(!n.length||e<=0)return[];const s=[];n.forEach(l=>{let o=-1,g=1/0;s.forEach((y,p)=>{const L=e-y.used-l.length;L>=0&&L<g&&(o=p,g=L)}),o<0?s.push({used:l.length,states:[l]}):(s[o].used+=l.length,s[o].states.push(l))});let i=s.map(l=>({used:l.used,states:[...l.states]}));const r=n.reduce((l,o)=>l+o.length,0),a=Math.ceil(r/e),u=(typeof performance>"u"?Date.now():performance.now())+500,c=l=>l.map(o=>o.used).sort((o,g)=>g-o),f=(l,o)=>{if(l.length!==o.length)return l.length<o.length;const g=c(l),y=c(o);for(let p=0;p<g.length;p+=1)if(g[p]!==y[p])return g[p]>y[p];return!1};function S(l,o){if((typeof performance>"u"?Date.now():performance.now())>u||o.length>i.length)return;if(l===n.length){f(o,i)&&(i=o.map(v=>({used:v.used,states:[...v.states]})));return}const y=n[l],p=new Set,L=o.map((v,b)=>({bin:v,binIndex:b,gap:e-v.used-y.length})).filter(({gap:v})=>v>=0).sort((v,b)=>v.gap-b.gap);for(const{bin:v,binIndex:b}of L)p.has(v.used)||(p.add(v.used),v.used+=y.length,v.states.push(y),S(l+1,o),v.states.pop(),v.used-=y.length);o.length<i.length&&o.length<Math.max(a,i.length)&&(o.push({used:y.length,states:[y]}),S(l+1,o),o.pop())}return S(0,[]),i.sort((l,o)=>{const g=C=>C.states.reduce((k,_)=>k+_.rowSequence.reduce((O,N)=>O+N.pattern.reduce((T,R)=>T+R,0),0),0),y=C=>C.states.reduce((k,_)=>k+_.rowSequence.reduce((O,N)=>O+N.pattern.length,0),0),p=g(l),L=g(o),v=y(l),b=y(o),h=l.states.map(liftPlacementClass),M=o.states.map(liftPlacementClass),d=Math.max(0,...h),F=Math.max(0,...M),m=h.filter(C=>C>0).length,q=M.filter(C=>C>0).length;return L-p||b-v||o.used-l.used||d-F||m-q})}function repackPlansGlobally(t,e,n,s,i){const r=t.flatMap(S=>S.activeStates||[]);if(!r.length)return t;const a=i>=0?i:0,u=Math.max(0,s-a),c=packLiftStatesGlobally(r,u);let f=new Map(e);return c.map((S,l)=>{const o=sortStatesByHeight(S.states).map((m,q)=>({...m,index:q})),g=new Map;o.forEach(m=>m.rowSequence.forEach(q=>q.pattern.forEach(C=>{g.set(C,(g.get(C)||0)+n.across)})));const y=new Map(f);g.forEach((m,q)=>f.set(q,Math.max(0,(f.get(q)||0)-m)));const p=o.reduce((m,q)=>m+q.length,0),L=Math.max(0,s-p),v=l===c.length-1,b=i<0&&v&&[4,5,6].includes(L)?L:a,h=Math.max(0,s-p-b),M=o.map(m=>m.rowSequence.length),d=M.reduce((m,q)=>m+q*n.across,0),F=[...g.entries()].reduce((m,[q,C])=>m+q*C,0);return{scheme:o.map(m=>m.length),stock:new Map(f),availableStock:y,states:o,activeStates:o,activeLength:p,usedMap:g,usedFt:F,complete:d,minRows:M.length?Math.min(...M):0,maxRows:M.length?Math.max(...M):0,gaps:0,fullLifts:o.filter(m=>m.rowSequence.length===n.rows).length,metal:b,target:s-b,chamberGap:h,inactiveLifts:0,completeLoad:h===0&&o.every(m=>m.rowSequence.length===n.rows),stability:{valid:!0,label:"globally repacked independent forklift-stable lifts"},valid:o.length>0,heightSpread:M.length?Math.max(...M)-Math.min(...M):n.rows}})}function liftTargetKey(t,e){return`${e}:${t.length}`}function targetRowsForLift(t,e,n){const s=t.rowSequence.length,i=manualLiftTargets.get(liftTargetKey(t,e));return Math.max(s,Math.min(n.rows,Number.isFinite(i)?i:n.rows))}function requiredBoardsForTargetHeight(t,e){const n=new Map;return t.forEach((s,i)=>{const r=targetRowsForLift(s,i,e),a=[],u=new Set;s.rowSequence.filter(c=>c.type==="joined").forEach(c=>{const f=patternKey(c.pattern);u.has(f)||(u.add(f),a.push(c.pattern))});for(let c=s.rowSequence.length;c<r;c+=1){const f=Math.floor(c/2);(a.length&&c%2===1?a[f%a.length]:[s.length]).forEach(l=>n.set(l,(n.get(l)||0)+e.across))}}),n}function renderLiftEditor(t,e){const n=$("liftEditor");n.innerHTML="",t.forEach((s,i)=>{const r=s.rowSequence.length,a=targetRowsForLift(s,i,e),u=Math.max(0,a-r),c=document.createElement("tr");c.innerHTML=`
-      <td>Lift ${i+1} (${s.length} ft)</td>
-      <td>${r} / ${e.rows}</td>
-      <td><input class="lift-target-rows" type="number" min="${r}" max="${e.rows}" step="1" value="${a}" data-key="${liftTargetKey(s,i)}"></td>
-      <td>${u}</td>
-      <td>${u*e.across}</td>
-      <td><span class="pill ${u?"warn":"good"}">${u?"Fill required":"Complete"}</span></td>
-    `,n.appendChild(c)}),n.querySelectorAll(".lift-target-rows").forEach(s=>{s.addEventListener("change",()=>{const i=Number(s.min),r=Number(s.max),a=Math.max(i,Math.min(r,Math.floor(Number(s.value)||i)));manualLiftTargets.set(s.dataset.key,a),markCalculationPending()})})}function renderVisual(t,e,n,s,i=0){const r=$("kilnVisual");r.innerHTML="";const a=n+i,u=num("height")>0?e.usedHeight/num("height"):0,c=sortStatesByHeight(t.activeStates||t.states.filter(o=>o.rowSequence.length>0)),f=c.reduce((o,g)=>o+g.length,0),S=Math.max(0,n-f);if(c.forEach((o,g)=>{const y=o.length,p=o?Math.max(0,e.lines-o.linesLeft):0,L=e.lines?p/e.lines:0,v=100*u*L,b=document.createElement("div");b.className="lift",b.dataset.order=g+1,b.style.width=`${y/a*100}%`;const h=new Map;o.rowSequence.forEach(F=>{const m=makePatternLabel(F.pattern);h.set(m,(h.get(m)||0)+1)});const M=[...h.entries()].map(([F,m])=>`${m} \xD7 ${F}`).join("<br>"),d=o.rowSequence.map((F,m)=>{const q=F.pattern.reduce((k,_)=>k+_,0),C=Math.min(100,q/y*100);return`<i class="row-band ${F.type}" style="bottom:${m*100/e.rows}%;height:${100/e.rows}%;width:${C}%" title="Row ${m+1}: ${makePatternLabel(F.pattern)}"></i>`}).join("");b.innerHTML=`
-      <div class="lift-rows">${d}</div>
-      <div class="lift-empty" style="height:${100-v}%"></div>
-      <div class="lift-label">Lift ${g+1} \xB7 ${y} ft maximum<br>${M}<br>${e.across} boards across</div>
-    `,r.appendChild(b)}),s>0){const o=document.createElement("div");o.className="metal-box",o.style.width=`${s/a*100}%`,o.innerHTML=`Metal<br>${s} ft`,r.appendChild(o)}const l=Math.max(0,n-f-s);if(l>0){const o=document.createElement("div");o.style.width=`${l/a*100}%`,o.style.height="100%",o.style.background="#fff4d9",o.style.display="flex",o.style.alignItems="center",o.style.justifyContent="center",o.style.textAlign="center",o.innerHTML=`Empty<br>${l} ft`,r.appendChild(o)}if(i>0){const o=document.createElement("div");o.style.width=`${i/a*100}%`,o.style.height="100%",o.style.background="repeating-linear-gradient(135deg, #f5d58a 0 12px, #fff4d9 12px 24px)",o.style.display="flex",o.style.alignItems="center",o.style.justifyContent="center",o.style.textAlign="center",o.innerHTML=`Safety<br>${i} ft`,r.appendChild(o)}$("visualTitle").textContent=`4. Kiln Load ${currentLoadNumber} \u2014 Kiln and Lift Visualization`,$("visualMeta").innerHTML=`
-    <span><b>Kiln Load ${currentLoadNumber}</b> of ${Math.max(1,globalOrderPlans.length)}</span>
-    <span><b>${c.length}</b> lifts \xB7 loaded left \u2192 right</span>
-    <span>Lifts: <b>${c.map(o=>`${o.length} ft${new Set(o.rowSequence.map(g=>g.type)).size>1?" alternating":""}`).join(" \u2192 ")||"\u2014"}</b></span>
-    <span>Metal: <b>${s} ft</b></span>
-    <span>Physical kiln: <b>${a} ft</b></span>
-    <span>Usable length: <b>${n} ft</b></span>
-    ${i?`<span>Supplier clearance: <b>${i} ft</b></span>`:""}
-    <span>Calculated height: <b>${fmtMeasure(e.usedHeight)} / ${fmtMeasure(num("height"))}</b></span>
-    ${S>=n/2?`<span class="pill warn"><b>LOW-EFFICIENCY FINAL CYCLE:</b> ${S} ft without lumber${s?` \xB7 closed by ${s} ft metal`:" \xB7 consolidate before running"}</span>`:""}
-  `}function renderFinalInventory(t,e,n){const s=$("finalInventoryVisual"),r=[...(t.length?t[t.length-1].stock:e).entries()].filter(([,l])=>l>0).sort(([l],[o])=>o-l),a=r.reduce((l,[,o])=>l+o,0),u=[...e.values()].reduce((l,o)=>l+o,0),c=r.reduce((l,[,o])=>l+Math.floor(o/Math.max(1,n.across)),0),f=Math.max(1,...r.map(([,l])=>l)),S=r.length?r.map(([l,o])=>`${o} board${o===1?"":"s"} at ${l} ft`).join(", "):"no boards";s.innerHTML=`
+  `;
+
+  $('inventory').appendChild(row);
+  row.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', markCalculationPending);
+  });
+
+  const quantityInput = row.querySelector('.qty');
+  const selectPlaceholderZero = () => {
+    if (Number(quantityInput.value) === 0) {
+      requestAnimationFrame(() => quantityInput.select());
+    }
+  };
+  quantityInput.addEventListener('focus', selectPlaceholderZero);
+  quantityInput.addEventListener('click', selectPlaceholderZero);
+  quantityInput.addEventListener('blur', () => {
+    if (quantityInput.value.trim() === '') quantityInput.value = '0';
+  });
+}
+
+function buildInventoryRows() {
+  DEFAULT_LENGTHS.forEach((length) => {
+    addRow(length, Number(activeOrder?.inventory?.[length] || 0));
+  });
+}
+
+function readInventory() {
+  const stock = new Map();
+
+  document.querySelectorAll('#inventory tr').forEach((row) => {
+    const length = Math.floor(Number(row.querySelector('.len').value) || 0);
+    const quantity = Math.floor(Number(row.querySelector('.qty').value) || 0);
+
+    if (length >= MIN_BOARD_LENGTH && length <= MAX_BOARD_LENGTH && quantity > 0) {
+      stock.set(length, (stock.get(length) || 0) + quantity);
+    }
+
+  });
+
+  return stock;
+}
+
+function computeGeometry() {
+  const height = num('height');
+  const actualT = num('actualT');
+  const actualW = num('actualW');
+  const liftWidth = num('liftWidth');
+  const sticker = num('sticker');
+  const topSticker = Number($('topSticker').value);
+  const across = actualW > 0 ? Math.floor(liftWidth / actualW) : 0;
+
+  $('across').value = across;
+
+  let rows = 0;
+  let usedHeight = 0;
+
+  for (let n = 1; n < 500; n += 1) {
+    const nextHeight = n * actualT + (topSticker ? n * sticker : Math.max(0, n - 1) * sticker);
+    if (nextHeight <= height + 1e-9) {
+      rows = n;
+      usedHeight = nextHeight;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    rows,
+    usedHeight,
+    across,
+    usedWidth: across * actualW,
+    widthWaste: Math.max(0, liftWidth - across * actualW),
+    lines: rows * across,
+  };
+}
+
+function makePatternLabel(parts) {
+  if (!parts || parts.length === 0) {
+    return '—';
+  }
+
+  const quantities = new Map();
+  parts.forEach((length) => quantities.set(length, (quantities.get(length) || 0) + 1));
+  return [...quantities.entries()].map(([length, quantity]) => quantity > 1 ? `${quantity} × ${length} ft` : `${length} ft`).join(' + ');
+}
+
+function isStableLiftPattern(values) {
+  const arr = [...values].map(Number).filter((value) => value > 0);
+
+  if (!arr.length) {
+    return { valid: false, label: 'no stable structure' };
+  }
+
+  const long = Math.max(...arr);
+  const support = arr.filter((value) => value < long);
+
+  if (!support.length) {
+    return { valid: true, label: `a = ${long} ft` };
+  }
+
+  const hasPair = support.some((value) => arr.includes(long - value));
+  const alternating = arr.length >= 2 && arr.every((value, index) => index % 2 === 0 ? value >= 20 : value < 20);
+  const valid = hasPair || alternating;
+
+  return {
+    valid,
+    label: valid
+      ? 'a = long board; b = combination c + d = a'
+      : 'layout without a stable frame',
+  };
+}
+
+function patternsForTarget(target, lengths) {
+  const unique = [...new Set(lengths.filter((value) => value > 0 && value <= target))].sort((a, b) => b - a);
+  const out = [];
+
+  function rec(remaining, start, current) {
+    if (remaining === 0) {
+      out.push([...current]);
+      return;
+    }
+
+    for (let index = start; index < unique.length; index += 1) {
+      const piece = unique[index];
+      if (piece <= remaining) {
+        rec(remaining - piece, index, [...current, piece]);
+      }
+    }
+  }
+
+  rec(target, 0, []);
+  return out.sort((a, b) => a.length - b.length);
+}
+
+function schemesForInventory(woodTarget, lengths) {
+  const available = [...new Set(lengths)].filter((length) => length > 0);
+  const minimumWoodTarget = Math.max(1, woodTarget - Math.min(6, woodTarget - 1));
+  const schemes = [];
+
+  if (available.length === 1) {
+    const onlyLength = available[0];
+    for (let occupiedLength = woodTarget; occupiedLength >= minimumWoodTarget; occupiedLength -= 1) {
+      if (occupiedLength % onlyLength === 0) {
+        schemes.push(Array(occupiedLength / onlyLength).fill(onlyLength));
+      }
+    }
+    return schemes;
+  }
+
+  for (let occupiedLength = woodTarget; occupiedLength >= minimumWoodTarget; occupiedLength -= 1) {
+    patternsForTarget(occupiedLength, available).forEach((scheme) => schemes.push(scheme));
+  }
+  return schemes;
+}
+
+function patternKey(parts) {
+  return parts.join(' + ');
+}
+
+function statePatternParts(state) {
+  if (!state || !state.groups.size) return [];
+
+  let selectedKey = '';
+  let largestGroup = -1;
+  state.groups.forEach((count, key) => {
+    if (count > largestGroup) {
+      largestGroup = count;
+      selectedKey = key;
+    }
+  });
+  return selectedKey.split('|')[0].split(' + ').map(Number).filter(Boolean);
+}
+
+function stateMaterialLength(state) {
+  return statePatternParts(state).reduce((sum, length) => sum + length, 0);
+}
+
+function canUsePattern(pattern, stock) {
+  const need = {};
+
+  pattern.forEach((length) => {
+    need[length] = (need[length] || 0) + 1;
+  });
+
+  return Object.entries(need).every(([length, qty]) => (stock.get(Number(length)) || 0) >= qty);
+}
+
+function takePattern(pattern, stock) {
+  pattern.forEach((length) => {
+    stock.set(length, (stock.get(length) || 0) - 1);
+  });
+}
+
+function linePatternsForStack(stackLength, lengths) {
+  const direct = lengths.includes(stackLength) ? [[stackLength]] : [];
+  const available = [...new Set(lengths)].sort((a, b) => a - b);
+  const joined = [];
+  for (let leftIndex = 0; leftIndex < available.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex; rightIndex < available.length; rightIndex += 1) {
+      const left = available[leftIndex];
+      const right = available[rightIndex];
+      if (left < stackLength && right < stackLength && left + right === stackLength) {
+        joined.push([left, right]);
+      }
+    }
+  }
+  for (let firstIndex = 0; firstIndex < available.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex; secondIndex < available.length; secondIndex += 1) {
+      for (let thirdIndex = secondIndex; thirdIndex < available.length; thirdIndex += 1) {
+        const first = available[firstIndex];
+        const second = available[secondIndex];
+        const third = available[thirdIndex];
+        if (first < stackLength && second < stackLength && third < stackLength && first + second + third === stackLength) {
+          joined.push([first, second, third]);
+        }
+      }
+    }
+  }
+  return {
+    direct: direct.map((pattern) => ({ pattern, type: 'solid' })),
+    joined: joined.map((pattern) => ({ pattern, type: 'joined' })),
+  };
+}
+
+function canUseRowPattern(pattern, stock, across) {
+  const need = {};
+  pattern.forEach((length) => { need[length] = (need[length] || 0) + across; });
+  return Object.entries(need).every(([length, qty]) => (stock.get(Number(length)) || 0) >= qty);
+}
+
+function takeRowPattern(pattern, stock, across) {
+  pattern.forEach((length) => stock.set(length, (stock.get(length) || 0) - across));
+}
+
+function availableFullRows(pattern, stock, across) {
+  const perRow = {};
+  pattern.forEach((length) => { perRow[length] = (perRow[length] || 0) + across; });
+  return Math.min(...Object.entries(perRow).map(([length, quantity]) => Math.floor((stock.get(Number(length)) || 0) / quantity)));
+}
+
+function summarizeStock(stock) {
+  const lines = [...stock.entries()]
+    .filter(([, quantity]) => quantity > 0)
+    .sort(([left], [right]) => right - left)
+    .map(([length, quantity]) => `${quantity}×${length} ft`);
+  return lines.length ? lines.join(', ') : 'no remaining inventory';
+}
+
+function renderResidualTable(originalStock, allocated) {
+  const body = $('residualsTableBody');
+  body.innerHTML = '';
+
+  const rows = [...originalStock.entries()]
+    .map(([length, qty]) => {
+      const used = allocated.get(length) || 0;
+      const remain = Math.max(0, qty - used);
+      return { length, qty, used, remain };
+    })
+    .filter((entry) => entry.qty > 0);
+
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="4">No remaining inventory</td></tr>';
+    return;
+  }
+
+  rows.forEach((entry) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${entry.length} ft</td>
+      <td>${entry.qty}</td>
+      <td>${entry.used}</td>
+      <td>${entry.remain}</td>
+    `;
+    body.appendChild(row);
+  });
+}
+
+function runScheme(scheme, sourceStock, geometry, lengths, mode = 0) {
+  const stock = new Map(sourceStock);
+  const states = scheme.map((length, index) => ({
+    length,
+    index,
+    rowsLeft: geometry.rows,
+    linesLeft: geometry.lines,
+    groups: new Map(),
+    patterns: linePatternsForStack(length, lengths),
+    rowSequence: [],
+  }));
+
+  let usedFt = 0;
+  let complete = 0;
+  let gaps = 0;
+
+  const order = [...states];
+  if (mode === 1) order.reverse();
+  if (mode === 2) order.sort((a, b) => a.length - b.length);
+  if (mode === 3) order.sort((a, b) => b.length - a.length);
+
+  for (const state of order) {
+    const hasSolid = state.patterns.direct.length > 0;
+    const hasJoined = state.patterns.joined.length > 0;
+    const mixed = hasSolid && hasJoined;
+
+    for (let rowIndex = 0; rowIndex < geometry.rows; rowIndex += 1) {
+      const wanted = mixed && rowIndex % 2 === 1 ? state.patterns.joined : state.patterns.direct;
+      const option = wanted
+        .filter((item) => canUseRowPattern(item.pattern, stock, geometry.across))
+        .sort((left, right) => availableFullRows(right.pattern, stock, geometry.across) - availableFullRows(left.pattern, stock, geometry.across))[0];
+      if (!option) break;
+
+      takeRowPattern(option.pattern, stock, geometry.across);
+      state.rowsLeft -= 1;
+      state.linesLeft -= geometry.across;
+      complete += geometry.across;
+      usedFt += state.length * geometry.across;
+      state.rowSequence.push({ type: option.type, pattern: [...option.pattern] });
+
+      const key = `${patternKey(option.pattern)}|0`;
+      state.groups.set(key, (state.groups.get(key) || 0) + 1);
+    }
+  }
+
+  const fullLifts = states.filter((state) => state.linesLeft === 0).length;
+  const stableRows = states.every((state) => {
+    const types = new Set(state.rowSequence.map((row) => row.type));
+    const usesJoinedRows = state.rowSequence.some((row) => row.type === 'joined');
+    const solidRows = state.rowSequence.filter((row) => row.type === 'solid').length;
+    const joinedRows = state.rowSequence.filter((row) => row.type === 'joined').length;
+    const anchored = !usesJoinedRows || (
+      state.patterns.direct.length > 0 &&
+      state.rowSequence[0]?.type === 'solid' &&
+      solidRows >= joinedRows &&
+      state.rowSequence.every((row, index) => row.type === (index % 2 === 0 ? 'solid' : 'joined'))
+    );
+    return types.size <= 1 ? !usesJoinedRows : anchored;
+  });
+  const stability = { valid: stableRows, label: states.some((state) => state.rowSequence.some((row) => row.type === 'joined')) ? 'forklift-stable: full-length rows anchor alternating two- or three-board joined rows' : 'solid full-length rows' };
+  const valid = stableRows;
+  return {
+    scheme,
+    stock,
+    states,
+    usedFt,
+    complete,
+    gaps,
+    fullLifts,
+    stability,
+    valid,
+    score: (valid ? 1e15 : 0) + complete * 1e10 + fullLifts * 1e8 + usedFt * 1e5 - scheme.length * 1e3 - gaps,
+  };
+}
+
+function liftRecipes(length, geometry, lengths, sourceStock) {
+  const patterns = linePatternsForStack(length, lengths);
+  const recipes = [];
+  const recipeKeys = new Set();
+  const addRecipe = (rowSequence) => {
+    const need = new Map();
+    const groups = new Map();
+    rowSequence.forEach((row) => {
+      row.pattern.forEach((boardLength) => need.set(boardLength, (need.get(boardLength) || 0) + geometry.across));
+      const key = `${patternKey(row.pattern)}|0`;
+      groups.set(key, (groups.get(key) || 0) + 1);
+    });
+    const recipeKey = [...need.entries()].sort(([left], [right]) => left - right).map(([boardLength, quantity]) => `${boardLength}:${quantity}`).join('|');
+    if (recipeKeys.has(recipeKey)) return;
+    recipeKeys.add(recipeKey);
+    const joinedPatterns = new Set(rowSequence.filter((row) => row.type === 'joined').map((row) => patternKey(row.pattern)));
+    recipes.push({ rowSequence, need, groups, rows: rowSequence.length, boards: [...need.values()].reduce((sum, value) => sum + value, 0), usedFt: length * geometry.across * rowSequence.length, diversity: joinedPatterns.size });
+  };
+
+  if (patterns.direct.length) {
+    for (let height = 1; height <= geometry.rows; height += 1) {
+      addRecipe(Array.from({ length: height }, () => ({ type: 'solid', pattern: [length] })));
+    }
+    patterns.joined.forEach((joined) => {
+      // A uniform mixed recipe is valid only for two-part rows. A three-part
+      // row needs the seven-row solid/pair foundation generated below.
+      if (joined.pattern.length !== 2) return;
+      for (let height = 2; height <= geometry.rows; height += 1) {
+        addRecipe(Array.from({ length: height }, (_, index) => index % 2 === 0
+          ? { type: 'solid', pattern: [length] }
+          : { type: 'joined', pattern: [...joined.pattern] }));
+      }
+    });
+
+    // A mixed lift may use a different combination on every joined level.
+    // The first three mixed levels must be two-part rows. A three-part row is
+    // allowed only on row 8 or later, after this seven-row stable foundation:
+    // solid / pair / solid / pair / solid / pair / solid.
+    for (let height = 2; height <= geometry.rows; height += 1) {
+      const solidRows = Math.ceil(height / 2);
+      const joinedRows = Math.floor(height / 2);
+      const solidNeed = solidRows * geometry.across;
+      if ((sourceStock.get(length) || 0) < solidNeed || joinedRows === 0) continue;
+
+      const allowedJoined = patterns.joined;
+      allowedJoined.forEach((_, seed) => {
+        const remaining = new Map(sourceStock);
+        remaining.set(length, (remaining.get(length) || 0) - solidNeed);
+        const selectedJoined = [];
+
+        for (let row = 0; row < joinedRows; row += 1) {
+          const rotationStart = (seed + row) % allowedJoined.length;
+          const viable = allowedJoined
+            .filter((item) => item.pattern.length === 2 || row >= 3)
+            .filter((item) => canUseRowPattern(item.pattern, remaining, geometry.across))
+            .sort((left, right) => {
+              const leftIndex = allowedJoined.indexOf(left);
+              const rightIndex = allowedJoined.indexOf(right);
+              const leftRotation = (leftIndex - rotationStart + allowedJoined.length) % allowedJoined.length;
+              const rightRotation = (rightIndex - rotationStart + allowedJoined.length) % allowedJoined.length;
+              return leftRotation - rightRotation;
+            });
+          if (!viable.length) break;
+          const chosen = viable[0];
+          takeRowPattern(chosen.pattern, remaining, geometry.across);
+          selectedJoined.push(chosen.pattern);
+        }
+
+        if (selectedJoined.length !== joinedRows) return;
+        let joinedIndex = 0;
+        addRecipe(Array.from({ length: height }, (_, index) => index % 2 === 0
+          ? { type: 'solid', pattern: [length] }
+          : { type: 'joined', pattern: [...selectedJoined[joinedIndex++]] }));
+      });
+    }
+  }
+  // Prefer the highest-volume recipe first. For equal volume, a solid row uses
+  // fewer individual boards and is preferred over a joined row.
+  return recipes.sort((left, right) => right.usedFt - left.usedFt || left.boards - right.boards);
+}
+
+function runSchemeOptimal(scheme, sourceStock, geometry, lengths) {
+  const recipeSets = scheme.map((length) => liftRecipes(length, geometry, lengths, sourceStock));
+  const maxUsedFtFrom = Array(recipeSets.length + 1).fill(0);
+  for (let index = recipeSets.length - 1; index >= 0; index -= 1) {
+    maxUsedFtFrom[index] = maxUsedFtFrom[index + 1] + Math.max(0, ...recipeSets[index].map((recipe) => recipe.usedFt));
+  }
+  let best = null;
+
+  function search(index, remaining, selected, boards, usedFt, diversity) {
+    if (best && usedFt + maxUsedFtFrom[index] < best.usedFt) return;
+    if (index === scheme.length) {
+      const fullLifts = selected.filter((recipe) => recipe.rows === geometry.rows).length;
+      const candidate = { selected: [...selected], remaining: new Map(remaining), boards, usedFt, fullLifts, diversity };
+      if (!best || candidate.usedFt > best.usedFt ||
+        (candidate.usedFt === best.usedFt && candidate.fullLifts > best.fullLifts) ||
+        (candidate.usedFt === best.usedFt && candidate.fullLifts === best.fullLifts && candidate.boards < best.boards) ||
+        (candidate.usedFt === best.usedFt && candidate.fullLifts === best.fullLifts && candidate.boards === best.boards && candidate.diversity > best.diversity)) best = candidate;
+      return;
+    }
+    for (const recipe of recipeSets[index]) {
+      if ([...recipe.need.entries()].some(([length, quantity]) => (remaining.get(length) || 0) < quantity)) continue;
+      const next = new Map(remaining);
+      recipe.need.forEach((quantity, length) => next.set(length, (next.get(length) || 0) - quantity));
+      search(index + 1, next, [...selected, recipe], boards + recipe.boards, usedFt + recipe.usedFt, diversity + recipe.diversity);
+    }
+  }
+
+  // Lifts are separate forklift units. Each one must contain complete stable
+  // rows, but their heights may differ so inventory can produce maximum volume.
+  search(0, new Map(sourceStock), [], 0, 0, 0);
+
+  if (!best) return null;
+  const states = scheme.map((length, index) => {
+    const recipe = best.selected[index];
+    return { length, index, rowsLeft: geometry.rows - recipe.rows, linesLeft: geometry.lines - recipe.rows * geometry.across, groups: recipe.groups, patterns: linePatternsForStack(length, lengths), rowSequence: recipe.rowSequence };
+  });
+  const fullLifts = states.filter((state) => state.rowsLeft === 0).length;
+  const hasJoined = states.some((state) => state.rowSequence.some((row) => row.type === 'joined'));
+  const rowCounts = states.map((state) => state.rowSequence.length);
+  return { scheme, stock: best.remaining, states, usedFt: best.usedFt, complete: states.reduce((sum, state) => sum + state.rowSequence.length * geometry.across, 0), minRows: Math.min(...rowCounts), maxRows: Math.max(...rowCounts), gaps: 0, fullLifts, stability: { valid: true, label: hasJoined ? 'independent forklift-stable lifts with alternating full-width rows' : 'independent lifts with solid full-width rows' }, valid: true };
+}
+
+function isBetterKilnPlan(candidate, current) {
+  if (!current) return true;
+
+  // The business objective is maximum lumber volume (and therefore maximum
+  // board feet). Metal, empty chamber length and recipe style are tie-breakers.
+  const comparisons = [
+    [candidate.completeLoad ? 1 : 0, current.completeLoad ? 1 : 0, 'max'],
+    [candidate.orderUsableFt, current.orderUsableFt, 'max'],
+    [candidate.strandedFt, current.strandedFt, 'min'],
+    [candidate.usedFt, current.usedFt, 'max'],
+    [candidate.heightSpread, current.heightSpread, 'min'],
+    [candidate.fullLifts, current.fullLifts, 'max'],
+    [candidate.chamberGap, current.chamberGap, 'min'],
+    [candidate.metal, current.metal, 'min'],
+    [candidate.activeStates.length, current.activeStates.length, 'min'],
+  ];
+
+  for (const [next, previous, direction] of comparisons) {
+    if (next === previous) continue;
+    return direction === 'max' ? next > previous : next < previous;
+  }
+  return false;
+}
+
+function liftPlacementClass(state) {
+  const stepped = state.rowSequence.some((row) => row.pattern.reduce((sum, length) => sum + length, 0) < state.length);
+  if (stepped) return 2;
+  if (state.rowsLeft > 0) return 1;
+  return 0;
+}
+
+function sortStatesByHeight(states) {
+  // Physical loading order is a descending staircase: the tallest lift is
+  // loaded first on the left, followed by progressively lower lifts.
+  return [...states].sort((left, right) => right.rowSequence.length - left.rowSequence.length
+    || liftPlacementClass(left) - liftPlacementClass(right)
+    || right.length - left.length);
+}
+
+function compactDescendingStates(states, geometry) {
+  const compacted = [...states]
+    .sort((left, right) => right.length - left.length)
+    .map((state) => ({ ...state, rowSequence: [...state.rowSequence] }));
+
+  for (let targetIndex = 0; targetIndex < compacted.length; targetIndex += 1) {
+    const target = compacted[targetIndex];
+    for (let sourceIndex = targetIndex + 1; sourceIndex < compacted.length && target.rowSequence.length < geometry.rows; sourceIndex += 1) {
+      const source = compacted[sourceIndex];
+      // Stepped consolidation is permitted only with complete solid rows.
+      // Moving joined rows would break their full-length anchoring sequence.
+      if (source.rowSequence.some((row) => row.type !== 'solid')) continue;
+      while (source.rowSequence.length && target.rowSequence.length < geometry.rows) {
+        const row = source.rowSequence[0];
+        const rowLength = row.pattern.reduce((sum, length) => sum + length, 0);
+        const previousRow = target.rowSequence[target.rowSequence.length - 1];
+        const previousLength = previousRow
+          ? previousRow.pattern.reduce((sum, length) => sum + length, 0)
+          : target.length;
+        // A physical stepped lift may remain level or decrease exactly 1 ft
+        // from one full-width layer to the next. Larger unsupported jumps are
+        // not allowed (18 → 17 → 16 is valid; 18 → 16 is not).
+        if (rowLength > previousLength || rowLength < previousLength - 1) break;
+        target.rowSequence.push(source.rowSequence.shift());
+      }
+    }
+  }
+
+  return compacted.filter((state) => state.rowSequence.length).map((state, index) => {
+    const groups = new Map();
+    state.rowSequence.forEach((row) => {
+      const key = `${patternKey(row.pattern)}|${Math.max(0, state.length - row.pattern.reduce((sum, length) => sum + length, 0))}`;
+      groups.set(key, (groups.get(key) || 0) + 1);
+    });
+    return {
+      ...state,
+      index,
+      groups,
+      rowsLeft: geometry.rows - state.rowSequence.length,
+      linesLeft: geometry.lines - state.rowSequence.length * geometry.across,
+    };
+  });
+}
+
+function inventoryFeet(stock) {
+  return [...stock.entries()].reduce((sum, [length, quantity]) => sum + length * quantity, 0);
+}
+
+function usableInventoryFeet(stock, across) {
+  if (!across) return 0;
+  return [...stock.entries()].reduce((sum, [length, quantity]) => sum + length * Math.floor(quantity / across) * across, 0);
+}
+
+function orderSignature(stock, geometry, kilnLength, maxStack, selectedMetal) {
+  return JSON.stringify({ stock: [...stock.entries()], rows: geometry.rows, across: geometry.across, kilnLength, maxStack, selectedMetal });
+}
+
+function linearModelToLp(constraints, variables, ints) {
+  const expression = (field) => Object.entries(variables)
+    .map(([name, coefficients]) => [name, coefficients[field] || 0])
+    .filter(([, coefficient]) => coefficient !== 0)
+    .map(([name, coefficient], index) => `${coefficient >= 0 && index ? '+ ' : coefficient < 0 ? '- ' : ''}${Math.abs(coefficient)} ${name}`)
+    .join(' ') || '0';
+  const rows = Object.entries(constraints).map(([name, bound]) => {
+    if (bound.max !== undefined) return ` ${name}: ${expression(name)} <= ${bound.max}`;
+    if (bound.min !== undefined) return ` ${name}: ${expression(name)} >= ${bound.min}`;
+    return ` ${name}: ${expression(name)} = ${bound.equal}`;
+  });
+  return `Maximize\n objective: ${expression('score')}\nSubject To\n${rows.join('\n')}\nBounds\n${Object.keys(variables).map((name) => ` 0 <= ${name}`).join('\n')}\nGenerals\n ${Object.keys(ints).join(' ')}\nEnd`;
+}
+
+function distributeAlternatingRows(liftCount, solidCount, joinedPatterns, maxRows) {
+  if (
+    liftCount <= 0
+    || solidCount < liftCount
+    || joinedPatterns.length > solidCount
+    || solidCount + joinedPatterns.length > liftCount * maxRows
+  ) return [];
+
+  const lifts = Array.from({ length: liftCount }, () => [{ type: 'solid' }]);
+  let solidsLeft = solidCount - liftCount;
+  const joinedPool = [...joinedPatterns];
+  while (solidsLeft || joinedPool.length) {
+    const candidates = lifts
+      .map((rows, index) => ({ rows, index }))
+      .filter(({ rows }) => rows.length < maxRows)
+      .sort((left, right) => left.rows.length - right.rows.length || left.index - right.index);
+    let placed = false;
+
+    for (const candidate of candidates) {
+      const last = candidate.rows[candidate.rows.length - 1];
+      if (last.type === 'solid' && joinedPool.length) {
+        candidate.rows.push({ type: 'joined', pattern: joinedPool.shift() });
+        placed = true;
+        break;
+      }
+      if (solidsLeft) {
+        candidate.rows.push({ type: 'solid' });
+        solidsLeft -= 1;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) return [];
+  }
+  return lifts;
+}
+
+function solveOrderAcrossCycles(sourceStock, geometry, kilnLength, maxStack, selectedMetal) {
+  if (!highsEngine || !geometry.rows || !geometry.across) return [];
+  const lengths = [...sourceStock.keys()].filter((length) => length <= maxStack).sort((a, b) => a - b);
+  const totalFeet = usableInventoryFeet(sourceStock, geometry.across);
+  if (totalFeet <= 0) return [];
+  const feetCapacity = kilnLength * geometry.lines;
+  // This is a calculated production-cycle lower bound, never a fixed cycle
+  // count. It changes with row count, boards across, kiln length and inventory.
+  const cycleCount = Math.max(1, Math.ceil(totalFeet / Math.max(1, feetCapacity)));
+  const fixedMetal = selectedMetal >= 0 ? selectedMetal : 0;
+  const woodChamber = Math.max(0, kilnLength - fixedMetal);
+  const constraints = {};
+  const variables = {};
+  const ints = {};
+
+  lengths.forEach((length) => { constraints[`inv_${length}`] = { max: sourceStock.get(length) || 0 }; });
+  for (let cycle = 0; cycle < cycleCount; cycle += 1) constraints[`chamber_${cycle}`] = { max: woodChamber };
+  for (let cycle = 0; cycle < cycleCount; cycle += 1) {
+    lengths.forEach((length) => {
+      const suffix = `${cycle}_${length}`;
+      constraints[`rows_${suffix}`] = { max: 0 };
+      constraints[`joined_anchor_${suffix}`] = { max: 0 };
+      constraints[`lift_presence_${suffix}`] = { max: 0 };
+      constraints[`lift_count_${suffix}`] = { max: Math.floor(woodChamber / length) };
+
+      const liftName = `lift_${suffix}`;
+      variables[liftName] = {
+        score: -1,
+        [`chamber_${cycle}`]: length,
+        [`rows_${suffix}`]: -geometry.rows,
+        [`lift_presence_${suffix}`]: 1,
+        [`lift_count_${suffix}`]: 1,
+      };
+      ints[liftName] = 1;
+
+      const solidName = `solid_${suffix}`;
+      const solidFeet = length * geometry.across;
+      variables[solidName] = {
+        // Optimize physical volume first, then fill earlier cycles, and use a
+        // solid row instead of a joined row when both carry equal volume.
+        score: solidFeet * 1000000000 + (cycleCount - cycle) * solidFeet * 10000 + geometry.across,
+        materialFeet: solidFeet,
+        [`inv_${length}`]: geometry.across,
+        [`rows_${suffix}`]: 1,
+        [`joined_anchor_${suffix}`]: -1,
+        [`lift_presence_${suffix}`]: -1,
+      };
+      ints[solidName] = 1;
+
+      for (let leftIndex = 0; leftIndex < lengths.length; leftIndex += 1) {
+        const left = lengths[leftIndex];
+        for (let rightIndex = leftIndex; rightIndex < lengths.length; rightIndex += 1) {
+          const right = lengths[rightIndex];
+          if (left + right !== length) continue;
+          const joinedName = `joined_${cycle}_${length}_${left}_${right}`;
+          const joinedFeet = length * geometry.across;
+          variables[joinedName] = {
+            score: joinedFeet * 1000000000 + (cycleCount - cycle) * joinedFeet * 10000,
+            materialFeet: joinedFeet,
+            [`inv_${left}`]: geometry.across * (left === right ? 2 : 1),
+            [`rows_${suffix}`]: 1,
+            [`joined_anchor_${suffix}`]: 1,
+          };
+          if (left !== right) variables[joinedName][`inv_${right}`] = geometry.across;
+          ints[joinedName] = 1;
+        }
+      }
+    });
+  }
+
+  const solution = highsEngine.solve(linearModelToLp(constraints, variables, ints), {
+    presolve: 'on',
+    time_limit: 15,
+    mip_rel_gap: 0,
+  });
+  if (solution.Status !== 'Optimal') return [];
+  const result = Object.fromEntries(Object.entries(solution.Columns).map(([name, column]) => [name, column.Primal]));
+
+  const plans = [];
+  for (let cycle = 0; cycle < cycleCount; cycle += 1) {
+    const states = [];
+    const used = new Map();
+    lengths.forEach((length) => {
+      const liftCount = Math.round(result[`lift_${cycle}_${length}`] || 0);
+      if (!liftCount) return;
+      const solidRows = Math.round(result[`solid_${cycle}_${length}`] || 0);
+      const joinedPool = [];
+      for (let leftIndex = 0; leftIndex < lengths.length; leftIndex += 1) {
+        const left = lengths[leftIndex];
+        for (let rightIndex = leftIndex; rightIndex < lengths.length; rightIndex += 1) {
+          const right = lengths[rightIndex];
+          if (left + right !== length) continue;
+          const count = Math.round(result[`joined_${cycle}_${length}_${left}_${right}`] || 0);
+          for (let index = 0; index < count; index += 1) joinedPool.push([left, right]);
+        }
+      }
+
+      const liftRows = distributeAlternatingRows(liftCount, solidRows, joinedPool, geometry.rows);
+      liftRows.forEach((rows) => rows.forEach((row) => {
+        if (row.type === 'solid') row.pattern = [length];
+      }));
+
+      liftRows.filter((rows) => rows.length).forEach((rowSequence, liftIndex) => {
+        const groups = new Map();
+        rowSequence.forEach((row) => {
+          row.pattern.forEach((boardLength) => used.set(boardLength, (used.get(boardLength) || 0) + geometry.across));
+          const key = `${patternKey(row.pattern)}|0`;
+          groups.set(key, (groups.get(key) || 0) + 1);
+        });
+        states.push({ length, index: liftIndex, rowsLeft: geometry.rows - rowSequence.length, linesLeft: geometry.lines - rowSequence.length * geometry.across, groups, patterns: linePatternsForStack(length, lengths), rowSequence });
+      });
+    });
+
+    const activeStates = sortStatesByHeight(compactDescendingStates(states, geometry));
+    const activeLength = activeStates.reduce((sum, state) => sum + state.length, 0);
+    const autoGap = Math.max(0, kilnLength - activeLength - fixedMetal);
+    const metal = selectedMetal < 0 && [4, 5, 6].includes(autoGap) ? autoGap : fixedMetal;
+    const chamberGap = Math.max(0, kilnLength - activeLength - metal);
+    const stock = new Map(sourceStock);
+    used.forEach((quantity, length) => stock.set(length, Math.max(0, (stock.get(length) || 0) - quantity)));
+    const usedFt = [...used.entries()].reduce((sum, [length, quantity]) => sum + length * quantity, 0);
+    const rowCounts = activeStates.map((state) => state.rowSequence.length);
+    plans.push({ scheme: activeStates.map((state) => state.length), stock, states: activeStates, activeStates, activeLength, usedMap: used, usedFt, complete: activeStates.reduce((sum, state) => sum + state.rowSequence.length * geometry.across, 0), minRows: rowCounts.length ? Math.min(...rowCounts) : 0, maxRows: rowCounts.length ? Math.max(...rowCounts) : 0, gaps: 0, fullLifts: activeStates.filter((state) => state.rowSequence.length === geometry.rows).length, metal, target: kilnLength - metal, chamberGap, inactiveLifts: 0, completeLoad: chamberGap === 0 && activeStates.every((state) => state.rowSequence.length === geometry.rows), stability: { valid: true, label: 'globally optimized alternating full-width rows' }, valid: activeStates.length > 0, heightSpread: rowCounts.length ? Math.max(...rowCounts) - Math.min(...rowCounts) : geometry.rows });
+  }
+  const nonEmptyPlans = plans
+    .filter((plan) => plan.usedFt > 0)
+    .sort((left, right) => right.maxRows - left.maxRows || right.usedFt - left.usedFt);
+  let cumulativeStock = new Map(sourceStock);
+  nonEmptyPlans.forEach((plan) => {
+    plan.availableStock = new Map(cumulativeStock);
+    plan.usedMap.forEach((quantity, length) => {
+      cumulativeStock.set(length, Math.max(0, (cumulativeStock.get(length) || 0) - quantity));
+    });
+    plan.stock = new Map(cumulativeStock);
+  });
+  return nonEmptyPlans;
+}
+
+function solveSequentialFallback(sourceStock, geometry, kilnLength, maxStack, selectedMetal) {
+  const plans = [];
+  let stock = new Map(sourceStock);
+  const metalOptions = selectedMetal < 0 ? [0, 4, 5, 6] : [selectedMetal];
+
+  for (let cycle = 0; cycle < 50 && usableInventoryFeet(stock, geometry.across) > 0; cycle += 1) {
+    const lengths = [...stock.keys()].filter((length) => length <= maxStack);
+    let bestPlan = null;
+    for (const metal of metalOptions) {
+      const target = Math.max(0, kilnLength - metal);
+      for (const scheme of schemesForInventory(target, lengths)) {
+        const candidate = runSchemeOptimal(scheme, stock, geometry, lengths);
+        if (!candidate) continue;
+        candidate.metal = metal;
+        candidate.target = target;
+        candidate.activeStates = sortStatesByHeight(compactDescendingStates(candidate.states.filter((state) => state.rowSequence.length > 0), geometry));
+        candidate.activeLength = candidate.activeStates.reduce((sum, state) => sum + state.length, 0);
+        candidate.chamberGap = Math.max(0, target - candidate.activeLength);
+        candidate.inactiveLifts = candidate.states.length - candidate.activeStates.length;
+        candidate.completeLoad = candidate.chamberGap === 0 && candidate.activeStates.length > 0 && candidate.activeStates.every((state) => state.rowSequence.length === geometry.rows);
+        candidate.remainingFt = inventoryFeet(candidate.stock);
+        candidate.remainingUsableFt = usableInventoryFeet(candidate.stock, geometry.across);
+        candidate.strandedFt = Math.max(0, candidate.remainingFt - candidate.remainingUsableFt);
+        candidate.orderUsableFt = candidate.usedFt + candidate.remainingUsableFt;
+        const heights = candidate.activeStates.map((state) => state.rowSequence.length);
+        candidate.heightSpread = heights.length ? Math.max(...heights) - Math.min(...heights) : geometry.rows;
+        if (isBetterKilnPlan(candidate, bestPlan)) bestPlan = candidate;
+      }
+    }
+    if (!bestPlan || !bestPlan.valid || bestPlan.usedFt <= 0) break;
+    bestPlan.availableStock = new Map(stock);
+    bestPlan.usedMap = new Map([...stock.entries()].map(([length, quantity]) => [
+      length,
+      Math.max(0, quantity - (bestPlan.stock.get(length) || 0)),
+    ]).filter(([, quantity]) => quantity > 0));
+    plans.push(bestPlan);
+    stock = new Map(bestPlan.stock);
+  }
+  // Establish the minimum practical cycle count first. Small tail plans are
+  // candidates for consolidation, not permission to create extra kiln runs.
+  const basePlans = [...plans];
+  while (basePlans.length > 1) {
+    const last = basePlans[basePlans.length - 1];
+    const utilization = last.usedFt / Math.max(1, kilnLength * geometry.lines);
+    if (utilization >= 0.15) break;
+    basePlans.pop();
+  }
+
+  // Consolidate rows across every provisional cycle before packing chambers.
+  // This allows a 14-ft lift to be completed by full-width 13-ft rows, then
+  // 12-ft rows, while preserving the one-foot stepped profile.
+  let selectedStates = compactDescendingStates(
+    basePlans.flatMap((plan) => plan.activeStates || []),
+    geometry,
+  );
+  const basePacked = repackPlansGlobally([{ activeStates: selectedStates }], sourceStock, geometry, kilnLength, selectedMetal);
+  const cycleLimit = basePacked.length;
+  const fixedMetal = selectedMetal >= 0 ? selectedMetal : 0;
+  const capacity = Math.max(0, kilnLength - fixedMetal);
+  const extraStates = plans
+    .slice(basePlans.length)
+    .flatMap((plan) => plan.activeStates || [])
+    .sort((left, right) => {
+      const leftBoards = left.rowSequence.length * geometry.across;
+      const rightBoards = right.rowSequence.length * geometry.across;
+      return rightBoards - leftBoards || right.length - left.length;
+    });
+
+  // Maximize boards without exceeding the already established cycle count.
+  // An 8-ft residual lift is accepted when it fills an existing 8-ft gap, but
+  // rejected when it would require an additional kiln cycle.
+  extraStates.forEach((state) => {
+    const candidateStates = compactDescendingStates([...selectedStates, state], geometry);
+    if (packLiftStatesGlobally(candidateStates, capacity).length <= cycleLimit) selectedStates = candidateStates;
+  });
+
+  return repackPlansGlobally(
+    [{ activeStates: compactDescendingStates(selectedStates, geometry) }],
+    sourceStock,
+    geometry,
+    kilnLength,
+    selectedMetal,
+  );
+}
+
+function packLiftStatesGlobally(states, capacity) {
+  const items = [...states].sort((left, right) => right.length - left.length || right.rowSequence.length - left.rowSequence.length);
+  if (!items.length || capacity <= 0) return [];
+
+  // Best-fit decreasing gives an immediate feasible upper bound. The bounded
+  // exact search below then tries to reduce the number of kiln cycles and to
+  // concentrate any unavoidable free length in the final cycle.
+  const seedBins = [];
+  items.forEach((state) => {
+    let target = -1;
+    let smallestGap = Infinity;
+    seedBins.forEach((bin, index) => {
+      const gap = capacity - bin.used - state.length;
+      if (gap >= 0 && gap < smallestGap) {
+        target = index;
+        smallestGap = gap;
+      }
+    });
+    if (target < 0) seedBins.push({ used: state.length, states: [state] });
+    else {
+      seedBins[target].used += state.length;
+      seedBins[target].states.push(state);
+    }
+  });
+
+  let best = seedBins.map((bin) => ({ used: bin.used, states: [...bin.states] }));
+  const totalLength = items.reduce((sum, state) => sum + state.length, 0);
+  const lowerBound = Math.ceil(totalLength / capacity);
+  const deadline = (typeof performance === 'undefined' ? Date.now() : performance.now()) + 500;
+
+  const quality = (bins) => bins.map((bin) => bin.used).sort((a, b) => b - a);
+  const isBetter = (candidate, current) => {
+    if (candidate.length !== current.length) return candidate.length < current.length;
+    const next = quality(candidate);
+    const previous = quality(current);
+    for (let index = 0; index < next.length; index += 1) {
+      if (next[index] !== previous[index]) return next[index] > previous[index];
+    }
+    return false;
+  };
+
+  function search(index, bins) {
+    const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+    if (now > deadline || bins.length > best.length) return;
+    if (index === items.length) {
+      if (isBetter(bins, best)) best = bins.map((bin) => ({ used: bin.used, states: [...bin.states] }));
+      return;
+    }
+
+    const state = items[index];
+    const seenLoads = new Set();
+    const order = bins
+      .map((bin, binIndex) => ({ bin, binIndex, gap: capacity - bin.used - state.length }))
+      .filter(({ gap }) => gap >= 0)
+      .sort((left, right) => left.gap - right.gap);
+
+    for (const { bin, binIndex } of order) {
+      if (seenLoads.has(bin.used)) continue;
+      seenLoads.add(bin.used);
+      bin.used += state.length;
+      bin.states.push(state);
+      search(index + 1, bins);
+      bin.states.pop();
+      bin.used -= state.length;
+    }
+
+    if (bins.length < best.length && bins.length < Math.max(lowerBound, best.length)) {
+      bins.push({ used: state.length, states: [state] });
+      search(index + 1, bins);
+      bins.pop();
+    }
+  }
+
+  search(0, []);
+  return best.sort((left, right) => {
+    // Board dimensions and the number of positions across are constant for the
+    // order, so the sum of board lengths is exactly proportional to BF.
+    const bfUnits = (bin) => bin.states.reduce((binTotal, state) => binTotal
+      + state.rowSequence.reduce((stateTotal, row) => stateTotal
+        + row.pattern.reduce((rowTotal, length) => rowTotal + length, 0), 0), 0);
+    const boardUnits = (bin) => bin.states.reduce((binTotal, state) => binTotal
+      + state.rowSequence.reduce((stateTotal, row) => stateTotal + row.pattern.length, 0), 0);
+    const leftBf = bfUnits(left);
+    const rightBf = bfUnits(right);
+    const leftBoards = boardUnits(left);
+    const rightBoards = boardUnits(right);
+    const leftClasses = left.states.map(liftPlacementClass);
+    const rightClasses = right.states.map(liftPlacementClass);
+    const leftWorst = Math.max(0, ...leftClasses);
+    const rightWorst = Math.max(0, ...rightClasses);
+    const leftIncomplete = leftClasses.filter((value) => value > 0).length;
+    const rightIncomplete = rightClasses.filter((value) => value > 0).length;
+    // Production queue: maximum BF first. Board count and occupied kiln length
+    // are deterministic tie-breakers; low-volume cycles move to the end.
+    return rightBf - leftBf
+      || rightBoards - leftBoards
+      || right.used - left.used
+      || leftWorst - rightWorst
+      || leftIncomplete - rightIncomplete;
+  });
+}
+
+function repackPlansGlobally(plans, sourceStock, geometry, kilnLength, selectedMetal) {
+  const states = plans.flatMap((plan) => plan.activeStates || []);
+  if (!states.length) return plans;
+  const fixedMetal = selectedMetal >= 0 ? selectedMetal : 0;
+  const capacity = Math.max(0, kilnLength - fixedMetal);
+  const bins = packLiftStatesGlobally(states, capacity);
+  let cumulativeStock = new Map(sourceStock);
+
+  return bins.map((bin, binIndex) => {
+    const activeStates = sortStatesByHeight(bin.states).map((state, index) => ({ ...state, index }));
+    const usedMap = new Map();
+    activeStates.forEach((state) => state.rowSequence.forEach((row) => row.pattern.forEach((length) => {
+      usedMap.set(length, (usedMap.get(length) || 0) + geometry.across);
+    })));
+    const availableStock = new Map(cumulativeStock);
+    usedMap.forEach((quantity, length) => cumulativeStock.set(length, Math.max(0, (cumulativeStock.get(length) || 0) - quantity)));
+    const activeLength = activeStates.reduce((sum, state) => sum + state.length, 0);
+    const automaticGap = Math.max(0, kilnLength - activeLength);
+    // Automatic metal closes only the unavoidable gap in the final cycle.
+    // Earlier cycles must remain visibly incomplete so the optimizer cannot
+    // disguise a poor wood layout with metal blocks.
+    const isFinalCycle = binIndex === bins.length - 1;
+    const metal = selectedMetal < 0 && isFinalCycle && [4, 5, 6].includes(automaticGap)
+      ? automaticGap
+      : fixedMetal;
+    const chamberGap = Math.max(0, kilnLength - activeLength - metal);
+    const rowCounts = activeStates.map((state) => state.rowSequence.length);
+    const complete = rowCounts.reduce((sum, rows) => sum + rows * geometry.across, 0);
+    const usedFt = [...usedMap.entries()].reduce((sum, [length, quantity]) => sum + length * quantity, 0);
+    return {
+      scheme: activeStates.map((state) => state.length),
+      stock: new Map(cumulativeStock),
+      availableStock,
+      states: activeStates,
+      activeStates,
+      activeLength,
+      usedMap,
+      usedFt,
+      complete,
+      minRows: rowCounts.length ? Math.min(...rowCounts) : 0,
+      maxRows: rowCounts.length ? Math.max(...rowCounts) : 0,
+      gaps: 0,
+      fullLifts: activeStates.filter((state) => state.rowSequence.length === geometry.rows).length,
+      metal,
+      target: kilnLength - metal,
+      chamberGap,
+      inactiveLifts: 0,
+      completeLoad: chamberGap === 0 && activeStates.every((state) => state.rowSequence.length === geometry.rows),
+      stability: { valid: true, label: 'globally repacked independent forklift-stable lifts' },
+      valid: activeStates.length > 0,
+      heightSpread: rowCounts.length ? Math.max(...rowCounts) - Math.min(...rowCounts) : geometry.rows,
+    };
+  });
+}
+
+function liftTargetKey(state, index) {
+  return `${index}:${state.length}`;
+}
+
+function targetRowsForLift(state, index, geometry) {
+  const availableRows = state.rowSequence.length;
+  const saved = manualLiftTargets.get(liftTargetKey(state, index));
+  return Math.max(availableRows, Math.min(geometry.rows, Number.isFinite(saved) ? saved : geometry.rows));
+}
+
+function requiredBoardsForTargetHeight(states, geometry) {
+  const required = new Map();
+  states.forEach((state, stateIndex) => {
+    const targetRows = targetRowsForLift(state, stateIndex, geometry);
+    const joinedPatterns = [];
+    const joinedKeys = new Set();
+    state.rowSequence.filter((row) => row.type === 'joined').forEach((row) => {
+      const key = patternKey(row.pattern);
+      if (!joinedKeys.has(key)) {
+        joinedKeys.add(key);
+        joinedPatterns.push(row.pattern);
+      }
+    });
+    for (let rowIndex = state.rowSequence.length; rowIndex < targetRows; rowIndex += 1) {
+      const joinedIndex = Math.floor(rowIndex / 2);
+      const pattern = joinedPatterns.length && rowIndex % 2 === 1 ? joinedPatterns[joinedIndex % joinedPatterns.length] : [state.length];
+      pattern.forEach((length) => required.set(length, (required.get(length) || 0) + geometry.across));
+    }
+  });
+  return required;
+}
+
+function renderLiftEditor(states, geometry) {
+  const body = $('liftEditor');
+  body.innerHTML = '';
+  states.forEach((state, index) => {
+    const availableRows = state.rowSequence.length;
+    const targetRows = targetRowsForLift(state, index, geometry);
+    const rowsToAdd = Math.max(0, targetRows - availableRows);
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>Lift ${index + 1} (${state.length} ft)</td>
+      <td>${availableRows} / ${geometry.rows}</td>
+      <td><input class="lift-target-rows" type="number" min="${availableRows}" max="${geometry.rows}" step="1" value="${targetRows}" data-key="${liftTargetKey(state, index)}"></td>
+      <td>${rowsToAdd}</td>
+      <td>${rowsToAdd * geometry.across}</td>
+      <td><span class="pill ${rowsToAdd ? 'warn' : 'good'}">${rowsToAdd ? 'Fill required' : 'Complete'}</span></td>
+    `;
+    body.appendChild(row);
+  });
+  body.querySelectorAll('.lift-target-rows').forEach((input) => {
+    input.addEventListener('change', () => {
+      const minimum = Number(input.min);
+      const maximum = Number(input.max);
+      const value = Math.max(minimum, Math.min(maximum, Math.floor(Number(input.value) || minimum)));
+      manualLiftTargets.set(input.dataset.key, value);
+      markCalculationPending();
+    });
+  });
+}
+
+function renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance = 0) {
+  const container = $('kilnVisual');
+  container.innerHTML = '';
+  const physicalKilnLength = kilnLength + safetyClearance;
+
+  const fillRatio = num('height') > 0 ? geometry.usedHeight / num('height') : 0;
+  const activeStates = sortStatesByHeight(bestPlan.activeStates || bestPlan.states.filter((state) => state.rowSequence.length > 0));
+  const woodTotal = activeStates.reduce((sum, state) => sum + state.length, 0);
+  const woodGap = Math.max(0, kilnLength - woodTotal);
+
+  activeStates.forEach((state, index) => {
+    const stackLength = state.length;
+    const readyLines = state ? Math.max(0, geometry.lines - state.linesLeft) : 0;
+    const materialFill = geometry.lines ? readyLines / geometry.lines : 0;
+    const fillPercent = 100 * fillRatio * materialFill;
+
+    const lift = document.createElement('div');
+    lift.className = 'lift';
+    lift.dataset.order = index + 1;
+    lift.style.width = `${(stackLength / physicalKilnLength) * 100}%`;
+    const rowCounts = new Map();
+    state.rowSequence.forEach((row) => {
+      const label = makePatternLabel(row.pattern);
+      rowCounts.set(label, (rowCounts.get(label) || 0) + 1);
+    });
+    const rowSummary = [...rowCounts.entries()].map(([label, count]) => `${count} × ${label}`).join('<br>');
+    const rowBands = state.rowSequence.map((row, rowIndex) => {
+      const occupiedLength = row.pattern.reduce((sum, length) => sum + length, 0);
+      const width = Math.min(100, (occupiedLength / stackLength) * 100);
+      return `<i class="row-band ${row.type}" style="bottom:${rowIndex * 100 / geometry.rows}%;height:${100 / geometry.rows}%;width:${width}%" title="Row ${rowIndex + 1}: ${makePatternLabel(row.pattern)}"></i>`;
+    }).join('');
+    lift.innerHTML = `
+      <div class="lift-rows">${rowBands}</div>
+      <div class="lift-empty" style="height:${100 - fillPercent}%"></div>
+      <div class="lift-label">Lift ${index + 1} · ${stackLength} ft maximum<br>${rowSummary}<br>${geometry.across} boards across</div>
+    `;
+    container.appendChild(lift);
+  });
+
+  if (metalBox > 0) {
+    const metal = document.createElement('div');
+    metal.className = 'metal-box';
+    metal.style.width = `${(metalBox / physicalKilnLength) * 100}%`;
+    metal.innerHTML = `Metal<br>${metalBox} ft`;
+    container.appendChild(metal);
+  }
+
+  const emptyTotal = Math.max(0, kilnLength - woodTotal - metalBox);
+
+  if (emptyTotal > 0) {
+    const empty = document.createElement('div');
+    empty.style.width = `${(emptyTotal / physicalKilnLength) * 100}%`;
+    empty.style.height = '100%';
+    empty.style.background = '#fff4d9';
+    empty.style.display = 'flex';
+    empty.style.alignItems = 'center';
+    empty.style.justifyContent = 'center';
+    empty.style.textAlign = 'center';
+    empty.innerHTML = `Empty<br>${emptyTotal} ft`;
+    container.appendChild(empty);
+  }
+
+  if (safetyClearance > 0) {
+    const clearance = document.createElement('div');
+    clearance.style.width = `${(safetyClearance / physicalKilnLength) * 100}%`;
+    clearance.style.height = '100%';
+    clearance.style.background = 'repeating-linear-gradient(135deg, #f5d58a 0 12px, #fff4d9 12px 24px)';
+    clearance.style.display = 'flex';
+    clearance.style.alignItems = 'center';
+    clearance.style.justifyContent = 'center';
+    clearance.style.textAlign = 'center';
+    clearance.innerHTML = `Safety<br>${safetyClearance} ft`;
+    container.appendChild(clearance);
+  }
+
+  $('visualTitle').textContent = `4. Kiln Load ${currentLoadNumber} — Kiln and Lift Visualization`;
+  $('visualMeta').innerHTML = `
+    <span><b>Kiln Load ${currentLoadNumber}</b> of ${Math.max(1, globalOrderPlans.length)}</span>
+    <span><b>${activeStates.length}</b> lifts · loaded left → right</span>
+    <span>Lifts: <b>${activeStates.map((state) => `${state.length} ft${new Set(state.rowSequence.map((row) => row.type)).size > 1 ? ' alternating' : ''}`).join(' → ') || '—'}</b></span>
+    <span>Metal: <b>${metalBox} ft</b></span>
+    <span>Physical kiln: <b>${physicalKilnLength} ft</b></span>
+    <span>Usable length: <b>${kilnLength} ft</b></span>
+    ${safetyClearance ? `<span>Supplier clearance: <b>${safetyClearance} ft</b></span>` : ''}
+    <span>Calculated height: <b>${fmtMeasure(geometry.usedHeight)} / ${fmtMeasure(num('height'))}</b></span>
+    ${woodGap >= kilnLength / 2 ? `<span class="pill warn"><b>LOW-EFFICIENCY FINAL CYCLE:</b> ${woodGap} ft without lumber${metalBox ? ` · closed by ${metalBox} ft metal` : ' · consolidate before running'}</span>` : ''}
+  `;
+}
+
+function renderFinalInventory(plans, originalStock, geometry) {
+  const container = $('finalInventoryVisual');
+  const finalStock = plans.length ? plans[plans.length - 1].stock : originalStock;
+  const remaining = [...finalStock.entries()].filter(([, quantity]) => quantity > 0).sort(([left], [right]) => right - left);
+  const total = remaining.reduce((sum, [, quantity]) => sum + quantity, 0);
+  const originalTotal = [...originalStock.values()].reduce((sum, quantity) => sum + quantity, 0);
+  const completeRows = remaining.reduce((sum, [, quantity]) => sum + Math.floor(quantity / Math.max(1, geometry.across)), 0);
+  const maximumQuantity = Math.max(1, ...remaining.map(([, quantity]) => quantity));
+  const remainderSentence = remaining.length
+    ? remaining.map(([length, quantity]) => `${quantity} board${quantity === 1 ? '' : 's'} at ${length} ft`).join(', ')
+    : 'no boards';
+  container.innerHTML = `
     <div class="final-inventory-heading">
-      <span>${u?`Projected inventory after all ${t.length} planned cycle${t.length===1?"":"s"} \xB7 viewing Kiln Load ${currentLoadNumber}`:"No order entered"}</span>
-      <strong>${fmt(a)} boards remaining</strong>
+      <span>${originalTotal ? `Projected inventory after all ${plans.length} planned cycle${plans.length === 1 ? '' : 's'} · viewing Kiln Load ${currentLoadNumber}` : 'No order entered'}</span>
+      <strong>${fmt(total)} boards remaining</strong>
     </div>
-    <p class="final-inventory-comment"><b>Calculated remainder:</b> ${S}.</p>
+    <p class="final-inventory-comment"><b>Calculated remainder:</b> ${remainderSentence}.</p>
     <div class="final-inventory-bars">
-      ${r.length?r.map(([l,o])=>`
+      ${remaining.length ? remaining.map(([length, quantity]) => `
         <div class="remainder-item">
-          <span><b>${o}</b> boards \xD7 ${l} ft</span>
-          <i style="width:${Math.max(3,o/f*100)}%"></i>
+          <span><b>${quantity}</b> boards × ${length} ft</span>
+          <i style="width:${Math.max(3, (quantity / maximumQuantity) * 100)}%"></i>
         </div>
-      `).join(""):'<div class="remainder-item"><span><b>0</b> \xB7 order completed</span></div>'}
+      `).join('') : '<div class="remainder-item"><span><b>0</b> · order completed</span></div>'}
     </div>
-    <div class="carryover-decision ${a?"hold":"complete"}">
-      <b>${u?a?"HOLD FOR NEXT COMPATIBLE ORDER":"ORDER COMPLETED":"AWAITING ORDER"}</b>
-      <span>${u?a?`${c} complete full-width rows are available, but the remainder is below the efficient-cycle threshold. Keep it by length and combine only with the same species, board size, and drying program.`:"No carry-over inventory remains.":"Enter board quantities from 3 to 20 ft to generate an optimized kiln plan."}</span>
+    <div class="carryover-decision ${total ? 'hold' : 'complete'}">
+      <b>${!originalTotal ? 'AWAITING ORDER' : total ? 'HOLD FOR NEXT COMPATIBLE ORDER' : 'ORDER COMPLETED'}</b>
+      <span>${!originalTotal ? 'Enter board quantities from 3 to 20 ft to generate an optimized kiln plan.' : total ? `${completeRows} complete full-width rows are available, but the remainder is below the efficient-cycle threshold. Keep it by length and combine only with the same species, board size, and drying program.` : 'No carry-over inventory remains.'}</span>
     </div>
-  `}function calculate(){const t=Math.floor(num("kiln")),e=Math.min(Math.max(0,t-1),Math.floor(num("supplierClearance"))),n=Math.max(1,t-e),s=Math.floor(Number($("metalBox").value)),i=s<0?[0,4,5,6]:[s],r=Math.floor(num("maxStack")),a=computeGeometry(),u=readInventory(),c=[...u.keys()].filter(w=>w<=r),f=$("supplier").value.trim()||"Not specified";saveSupplierProfile(),$("reportMeta").textContent=`Supplier: ${f} \xB7 Ordered size: ${materialSizeLabel()} \xB7 Physical: ${fmtMeasure(num("actualT"))} \xD7 ${fmtMeasure(num("actualW"))} \xB7 Kiln: ${t} ft physical / ${n} ft usable`,$("geometryPreview").innerHTML=`<strong>Live physical capacity:</strong> ${a.across} boards across \xD7 ${a.rows} rows high = ${a.lines} board positions per full lift. Physical batch: ${fmtMeasure(num("actualT"))} \xD7 ${fmtMeasure(num("actualW"))}.`;const S=orderSignature(u,a,n,r,s);S!==globalOrderSignature&&(globalOrderSignature=S,globalOrderPlans=solveSequentialFallback(u,a,n,r,s),loadRecords.clear(),currentLoadNumber=1);let l=globalOrderPlans[currentLoadNumber-1]||null;for(const w of l?[]:i){const E=Math.max(0,n-w),P=schemesForInventory(E,c);for(const H of P){const x=runSchemeOptimal(H,u,a,c);if(!x)continue;x.metal=w,x.target=E,x.activeStates=sortStatesByHeight(x.states.filter(B=>B.rowSequence.length>0)),x.activeLength=x.activeStates.reduce((B,Q)=>B+Q.length,0),x.chamberGap=Math.max(0,E-x.activeLength),x.inactiveLifts=x.states.length-x.activeStates.length,x.completeLoad=x.chamberGap===0&&x.activeStates.length>0&&x.activeStates.every(B=>B.rowSequence.length===a.rows),x.remainingFt=inventoryFeet(x.stock),x.remainingUsableFt=usableInventoryFeet(x.stock,a.across),x.strandedFt=Math.max(0,x.remainingFt-x.remainingUsableFt),x.orderUsableFt=x.usedFt+x.remainingUsableFt;const W=x.activeStates.map(B=>B.rowSequence.length);x.heightSpread=W.length?Math.max(...W)-Math.min(...W):a.rows,isBetterKilnPlan(x,l)&&(l=x)}}l||(l={scheme:[],stock:new Map(u),states:[],usedFt:0,complete:0,gaps:0,fullLifts:0,minRows:0,maxRows:0,metal:0,target:n,chamberGap:n,activeStates:[],activeLength:0,inactiveLifts:0,stability:{valid:!1,label:"no stable structure"},valid:!1,completeLoad:!1,remainingFt:inventoryFeet(u),remainingUsableFt:usableInventoryFeet(u,a.across),strandedFt:inventoryFeet(u)-usableInventoryFeet(u,a.across),orderUsableFt:usableInventoryFeet(u,a.across),heightSpread:a.rows});const o=l.metal,g=l.target,y=[...u.entries()].reduce((w,[E,P])=>w+bf(E,P),0),p=bf(1,l.usedFt||0),L=globalOrderPlans.includes(l),v=L?new Map(l.usedMap):new Map([...u.entries()].map(([w,E])=>[w,l.stock.get(w)===void 0?0:Math.max(0,E-(l.stock.get(w)||0))])),b=L?new Map(l.stock):new Map([...u.entries()].map(([w,E])=>[w,Math.max(0,E-(v.get(w)||0))])),h=L?new Map(l.availableStock||u):new Map(u),M=[...u.values()].reduce((w,E)=>w+E,0),d=[...v.values()].reduce((w,E)=>w+E,0),F=Math.max(0,M-d),m=l.activeStates||l.states.filter(w=>w.rowSequence.length>0),q=a.lines*m.length,C=l.chamberGap===0&&m.length>0,k=C&&q>0&&l.complete===q,_=bf(n,a.lines),O=bf(l.activeLength||0,a.lines),N=Math.max(0,O-p),T=Math.max(0,y-p),R=bf(1,usableInventoryFeet(u,a.across)),K=R>0&&_>0?Math.ceil(R/_):0,U=globalOrderPlans.length||K,J=globalOrderPlans.length?globalOrderPlans.reduce((w,E)=>w+[...E.usedMap.values()].reduce((P,H)=>P+H,0),0):d,j=globalOrderPlans.length?globalOrderPlans.reduce((w,E)=>w+E.activeStates.length,0):m.length,A=k;$("reportMeta").textContent=`${U} planned kiln cycle${U===1?"":"s"} \xB7 ${j} lifts \xB7 ${J} boards scheduled \xB7 Supplier: ${f}`,$("rows").textContent=a.rows,$("lines").textContent=fmt(a.lines),$("needPieces").textContent=m.length||"\u2014",$("capacity").textContent=fmt(a.lines*m.length),$("capacityLabel").textContent="board positions in current layout";let D=0,I=0,z=0;document.querySelectorAll("#inventory tr").forEach(w=>{const E=Math.floor(Number(w.querySelector(".len").value)||0),P=Math.floor(Number(w.querySelector(".qty").value)||0),H=v.get(E)||0,x=h.get(E)||0;D+=P,I+=H,z+=x,w.querySelector(".before").textContent=x,w.querySelector(".used").textContent=H,w.querySelector(".remain").textContent=b.get(E)||0}),$("qtyTotal").textContent=fmt(D),$("beforeTotal").textContent=fmt(z),$("usedTotal").textContent=fmt(I),$("remainTotal").textContent=fmt([...b.values()].reduce((w,E)=>w+E,0)),$("loadBF").textContent=fmt(I),$("fillPct").textContent=fmt(m.length),$("missingBF").textContent=fmt(U),$("unusedBF").textContent=fmt([...b.values()].reduce((w,E)=>w+E,0)),renderResidualTable(h,v);const G=[...u.values()].reduce((w,E)=>w+E,0);renderLiftEditor(m,a);const X=[...requiredBoardsForTargetHeight(m,a).entries()].sort(([w],[E])=>E-w).map(([w,E])=>`${E}\xD7${w} ft`).join(", ")||"none",Z=m.map((w,E)=>{const P=w.rowSequence.map((H,x)=>`${x+1}: ${makePatternLabel(H.pattern)}`).join(" \xB7 ");return`<p><b>Lift ${E+1} (${w.length} ft):</b> ${P||"empty"}</p>`}).join("");$("productionNeed").innerHTML=`
-    <strong>Maximum lift capacity:</strong> ${fmt(a.lines)} board positions \xB7
-    <strong>active lifts in this kiln:</strong> ${fmt(m.length)} \xB7
-    <strong>boards committed to this load:</strong> ${fmt(I)}<br>
-    <strong>Recommended production plan:</strong> ${U} kiln cycle${U===1?"":"s"} \xB7 ${j} total lifts \xB7 ${fmt(J)} boards scheduled \xB7
-    <strong>cycle decision:</strong> <span class="pill ${A?"good":"warn"}">${A?"READY / EFFICIENT LOAD":"DO NOT RUN \u2014 CONSOLIDATE OR ADD FILL"}</span><br>
-    <strong>Boards required to complete every selected lift:</strong> ${X}
-    <details><summary>Exact row-by-row stacking sequence</summary>${Z}</details>
-  `,$("orderLoads").innerHTML=`
-    <strong>Original order:</strong> ${fmt(G)} boards \u2192
-    <strong>processed before this load:</strong> ${fmt(Math.max(0,G-z))} \u2192
-    <strong>entering Kiln Load ${currentLoadNumber}:</strong> ${fmt(z)} \u2192
-    <strong>processed now:</strong> ${fmt(I)} \u2192
-    <strong>remaining after this load:</strong> ${fmt([...b.values()].reduce((w,E)=>w+E,0))} boards
-  `,$("orderRemaining").innerHTML=`
-    <strong>Inventory remaining after Kiln Load ${currentLoadNumber}:</strong> ${summarizeStock(b)}
-  `,$("condLength").innerHTML=`<span class="pill ${C?"good":"warn"}">${C?"\u2713":"!"} ${n-l.chamberGap} / ${n} ft occupied</span>`,$("condHeight").innerHTML=`<span class="pill ${l.fullLifts?"good":"warn"}">${l.fullLifts?`\u2713 ${l.fullLifts} full lift${l.fullLifts===1?"":"s"}`:`Partial lifts: ${l.minRows}\u2013${l.maxRows} / ${a.rows} rows`}</span>`,$("condMetal").innerHTML=`<span class="pill ${o?"warn":"good"}">${o?`Metal box: ${o} ft`:"No metal box"}</span>`;const Y=q>0?l.complete/q*100:0;$("condBF").innerHTML=`<span class="pill ${Y>=15?"good":"warn"}">${fmt(I)} boards \xB7 ${fmt(Y,1)}% of planned row positions</span>`,$("status").innerHTML=`
-    <p><span class="pill ${a.rows&&g&&r&&l.valid?"good":"warn"}">${a.rows&&g&&r&&l.valid?"Valid layout":"Layout check required"}</span></p>
-    <p>Physical board: <b>${fmtMeasure(num("actualT"))} \xD7 ${fmtMeasure(num("actualW"))}</b>; row pitch <b>${fmtMeasure(num("actualT")+num("sticker"))}</b>.</p>
-    <p><b>${a.rows}</b> complete rows \xD7 <b>${a.across}</b> positions across = <b>${a.lines}</b> board positions per lift.</p>
-    <p>Height: <b>${fmtMeasure(a.usedHeight)}</b> / ${fmtMeasure(num("height"))}.</p>
-    <p>Width: <b>${fmtMeasure(a.usedWidth)}</b> / ${fmtMeasure(num("liftWidth"))}; <b>${fmtMeasure(a.widthWaste)}</b> unused.</p>
-    <p>Supplier: <b>${escapeHtml(f)}</b>.</p>
-    <p>Material: <b>${escapeHtml($("species").value||"\u2014")} \xB7 ordered ${materialSizeLabel()} \xB7 ${fmtMeasure(num("actualT"))} \xD7 ${fmtMeasure(num("actualW"))} physical</b>.</p>
-  `,$("resultIntro").innerHTML=`
+  `;
+}
+
+function calculate() {
+  const physicalKilnLength = Math.floor(num('kiln'));
+  const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
+  const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
+  const selectedMetal = Math.floor(Number($('metalBox').value));
+  const metalOptions = selectedMetal < 0 ? [0, 4, 5, 6] : [selectedMetal];
+  const maxStack = Math.floor(num('maxStack'));
+  const geometry = computeGeometry();
+  const originalStock = readInventory();
+  const lengths = [...originalStock.keys()].filter((length) => length <= maxStack);
+  const supplier = $('supplier').value.trim() || 'Not specified';
+  saveSupplierProfile();
+  $('reportMeta').textContent = `Supplier: ${supplier} · Ordered size: ${materialSizeLabel()} · Physical: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))} · Kiln: ${physicalKilnLength} ft physical / ${kilnLength} ft usable`;
+  $('geometryPreview').innerHTML = `<strong>Live physical capacity:</strong> ${geometry.across} boards across × ${geometry.rows} rows high = ${geometry.lines} board positions per full lift. Physical batch: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))}.`;
+
+  const signature = orderSignature(originalStock, geometry, kilnLength, maxStack, selectedMetal);
+  if (signature !== globalOrderSignature) {
+    globalOrderSignature = signature;
+    // Use the same proven sequential planner in local files and on the web.
+    // The HiGHS global model produced a different plan only after deployment,
+    // because its WASM module cannot initialize from file:// URLs.
+    globalOrderPlans = solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal);
+    loadRecords.clear();
+    currentLoadNumber = 1;
+  }
+
+  let bestPlan = globalOrderPlans[currentLoadNumber - 1] || null;
+
+  for (const metalBox of bestPlan ? [] : metalOptions) {
+    const woodTarget = Math.max(0, kilnLength - metalBox);
+    const schemes = schemesForInventory(woodTarget, lengths);
+
+    for (const scheme of schemes) {
+        const candidate = runSchemeOptimal(scheme, originalStock, geometry, lengths);
+        if (!candidate) continue;
+        candidate.metal = metalBox;
+        candidate.target = woodTarget;
+        candidate.activeStates = sortStatesByHeight(candidate.states.filter((state) => state.rowSequence.length > 0));
+        candidate.activeLength = candidate.activeStates.reduce((sum, state) => sum + state.length, 0);
+        candidate.chamberGap = Math.max(0, woodTarget - candidate.activeLength);
+        candidate.inactiveLifts = candidate.states.length - candidate.activeStates.length;
+        candidate.completeLoad = candidate.chamberGap === 0 && candidate.activeStates.length > 0 && candidate.activeStates.every((state) => state.rowSequence.length === geometry.rows);
+        candidate.remainingFt = inventoryFeet(candidate.stock);
+        candidate.remainingUsableFt = usableInventoryFeet(candidate.stock, geometry.across);
+        candidate.strandedFt = Math.max(0, candidate.remainingFt - candidate.remainingUsableFt);
+        candidate.orderUsableFt = candidate.usedFt + candidate.remainingUsableFt;
+        const rowHeights = candidate.activeStates.map((state) => state.rowSequence.length);
+        candidate.heightSpread = rowHeights.length ? Math.max(...rowHeights) - Math.min(...rowHeights) : geometry.rows;
+        if (isBetterKilnPlan(candidate, bestPlan)) {
+          bestPlan = candidate;
+        }
+    }
+  }
+
+  if (!bestPlan) {
+    bestPlan = {
+      scheme: [],
+      stock: new Map(originalStock),
+      states: [],
+      usedFt: 0,
+      complete: 0,
+      gaps: 0,
+      fullLifts: 0,
+      minRows: 0,
+      maxRows: 0,
+      metal: 0,
+      target: kilnLength,
+      chamberGap: kilnLength,
+      activeStates: [],
+      activeLength: 0,
+      inactiveLifts: 0,
+      stability: { valid: false, label: 'no stable structure' },
+      valid: false,
+      completeLoad: false,
+      remainingFt: inventoryFeet(originalStock),
+      remainingUsableFt: usableInventoryFeet(originalStock, geometry.across),
+      strandedFt: inventoryFeet(originalStock) - usableInventoryFeet(originalStock, geometry.across),
+      orderUsableFt: usableInventoryFeet(originalStock, geometry.across),
+      heightSpread: geometry.rows,
+    };
+  }
+
+  const metalBox = bestPlan.metal;
+  const target = bestPlan.target;
+  const totalBf = [...originalStock.entries()].reduce((sum, [length, qty]) => sum + bf(length, qty), 0);
+  const usedBf = bf(1, bestPlan.usedFt || 0);
+  const globalPlanSelected = globalOrderPlans.includes(bestPlan);
+  const usedByLength = globalPlanSelected
+    ? new Map(bestPlan.usedMap)
+    : new Map([...originalStock.entries()].map(([length, qty]) => [
+      length,
+      bestPlan.stock.get(length) === undefined ? 0 : Math.max(0, qty - (bestPlan.stock.get(length) || 0)),
+    ]));
+  const remainingByLength = globalPlanSelected
+    ? new Map(bestPlan.stock)
+    : new Map([...originalStock.entries()].map(([length, quantity]) => [length, Math.max(0, quantity - (usedByLength.get(length) || 0))]));
+  const cycleAvailableByLength = globalPlanSelected
+    ? new Map(bestPlan.availableStock || originalStock)
+    : new Map(originalStock);
+
+  const inventoryTotalQty = [...originalStock.values()].reduce((sum, count) => sum + count, 0);
+  const usedTotalQty = [...usedByLength.values()].reduce((sum, count) => sum + count, 0);
+  const remainTotalQty = Math.max(0, inventoryTotalQty - usedTotalQty);
+
+  const activeStates = bestPlan.activeStates || bestPlan.states.filter((state) => state.rowSequence.length > 0);
+  const planLines = geometry.lines * activeStates.length;
+  const lengthFilled = bestPlan.chamberGap === 0 && activeStates.length > 0;
+  const fullLoad = lengthFilled && planLines > 0 && bestPlan.complete === planLines;
+  const kilnCapacity = bf(kilnLength, geometry.lines);
+  const layoutCapacity = bf(bestPlan.activeLength || 0, geometry.lines);
+  const missingBf = Math.max(0, layoutCapacity - usedBf);
+  const unusedBf = Math.max(0, totalBf - usedBf);
+  const usableOrderBf = bf(1, usableInventoryFeet(originalStock, geometry.across));
+  const minimumCycles = usableOrderBf > 0 && kilnCapacity > 0 ? Math.ceil(usableOrderBf / kilnCapacity) : 0;
+  const plannedCycles = globalOrderPlans.length || minimumCycles;
+  const plannedBoards = globalOrderPlans.length
+    ? globalOrderPlans.reduce((sum, plan) => sum + [...plan.usedMap.values()].reduce((loadSum, quantity) => loadSum + quantity, 0), 0)
+    : usedTotalQty;
+  const plannedLifts = globalOrderPlans.length
+    ? globalOrderPlans.reduce((sum, plan) => sum + plan.activeStates.length, 0)
+    : activeStates.length;
+  // A kiln with an open longitudinal chamber gap is never production-ready,
+  // regardless of how many rows happen to be present in the selected lifts.
+  const efficientCycle = fullLoad;
+  $('reportMeta').textContent = `${plannedCycles} planned kiln cycle${plannedCycles === 1 ? '' : 's'} · ${plannedLifts} lifts · ${plannedBoards} boards scheduled · Supplier: ${supplier}`;
+
+  $('rows').textContent = geometry.rows;
+  $('lines').textContent = fmt(geometry.lines);
+  $('needPieces').textContent = activeStates.length || '—';
+  $('capacity').textContent = fmt(geometry.lines * activeStates.length);
+  $('capacityLabel').textContent = 'board positions in current layout';
+
+  let totalQty = 0;
+  let totalUsed = 0;
+  let totalBefore = 0;
+
+  document.querySelectorAll('#inventory tr').forEach((row) => {
+    const length = Math.floor(Number(row.querySelector('.len').value) || 0);
+    const quantity = Math.floor(Number(row.querySelector('.qty').value) || 0);
+    const used = usedByLength.get(length) || 0;
+    const before = cycleAvailableByLength.get(length) || 0;
+
+    totalQty += quantity;
+    totalUsed += used;
+    totalBefore += before;
+
+    row.querySelector('.before').textContent = before;
+    row.querySelector('.used').textContent = used;
+    row.querySelector('.remain').textContent = remainingByLength.get(length) || 0;
+  });
+
+  $('qtyTotal').textContent = fmt(totalQty);
+  $('beforeTotal').textContent = fmt(totalBefore);
+  $('usedTotal').textContent = fmt(totalUsed);
+  $('remainTotal').textContent = fmt([...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0));
+
+  $('loadBF').textContent = fmt(totalUsed);
+  $('fillPct').textContent = fmt(activeStates.length);
+  $('missingBF').textContent = fmt(plannedCycles);
+  $('unusedBF').textContent = fmt([...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0));
+
+  renderResidualTable(cycleAvailableByLength, usedByLength);
+
+  const orderQty = [...originalStock.values()].reduce((sum, item) => sum + item, 0);
+  renderLiftEditor(activeStates, geometry);
+  const requiredFill = requiredBoardsForTargetHeight(activeStates, geometry);
+  const requiredFillLabel = [...requiredFill.entries()]
+    .sort(([left], [right]) => right - left)
+    .map(([length, quantity]) => `${quantity}×${length} ft`)
+    .join(', ') || 'none';
+  const rowSchedule = activeStates.map((state, liftIndex) => {
+    const rows = state.rowSequence.map((row, rowIndex) => `${rowIndex + 1}: ${makePatternLabel(row.pattern)}`).join(' · ');
+    return `<p><b>Lift ${liftIndex + 1} (${state.length} ft):</b> ${rows || 'empty'}</p>`;
+  }).join('');
+  $('productionNeed').innerHTML = `
+    <strong>Maximum lift capacity:</strong> ${fmt(geometry.lines)} board positions ·
+    <strong>active lifts in this kiln:</strong> ${fmt(activeStates.length)} ·
+    <strong>boards committed to this load:</strong> ${fmt(totalUsed)}<br>
+    <strong>Recommended production plan:</strong> ${plannedCycles} kiln cycle${plannedCycles === 1 ? '' : 's'} · ${plannedLifts} total lifts · ${fmt(plannedBoards)} boards scheduled ·
+    <strong>cycle decision:</strong> <span class="pill ${efficientCycle ? 'good' : 'warn'}">${efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — CONSOLIDATE OR ADD FILL'}</span><br>
+    <strong>Boards required to complete every selected lift:</strong> ${requiredFillLabel}
+    <details><summary>Exact row-by-row stacking sequence</summary>${rowSchedule}</details>
+  `;
+
+  $('orderLoads').innerHTML = `
+    <strong>Original order:</strong> ${fmt(orderQty)} boards →
+    <strong>processed before this load:</strong> ${fmt(Math.max(0, orderQty - totalBefore))} →
+    <strong>entering Kiln Load ${currentLoadNumber}:</strong> ${fmt(totalBefore)} →
+    <strong>processed now:</strong> ${fmt(totalUsed)} →
+    <strong>remaining after this load:</strong> ${fmt([...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0))} boards
+  `;
+
+  $('orderRemaining').innerHTML = `
+    <strong>Inventory remaining after Kiln Load ${currentLoadNumber}:</strong> ${summarizeStock(remainingByLength)}
+  `;
+
+  $('condLength').innerHTML = `<span class="pill ${lengthFilled ? 'good' : 'warn'}">${lengthFilled ? '✓' : '!'} ${kilnLength - bestPlan.chamberGap} / ${kilnLength} ft occupied</span>`;
+  $('condHeight').innerHTML = `<span class="pill ${bestPlan.fullLifts ? 'good' : 'warn'}">${bestPlan.fullLifts ? `✓ ${bestPlan.fullLifts} full lift${bestPlan.fullLifts === 1 ? '' : 's'}` : `Partial lifts: ${bestPlan.minRows}–${bestPlan.maxRows} / ${geometry.rows} rows`}</span>`;
+  $('condMetal').innerHTML = `<span class="pill ${metalBox ? 'warn' : 'good'}">${metalBox ? `Metal box: ${metalBox} ft` : 'No metal box'}</span>`;
+  const physicalFill = planLines > 0 ? (bestPlan.complete / planLines) * 100 : 0;
+  $('condBF').innerHTML = `<span class="pill ${physicalFill >= 15 ? 'good' : 'warn'}">${fmt(totalUsed)} boards · ${fmt(physicalFill, 1)}% of planned row positions</span>`;
+
+  $('status').innerHTML = `
+    <p><span class="pill ${geometry.rows && target && maxStack && bestPlan.valid ? 'good' : 'warn'}">${geometry.rows && target && maxStack && bestPlan.valid ? 'Valid layout' : 'Layout check required'}</span></p>
+    <p>Physical board: <b>${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))}</b>; row pitch <b>${fmtMeasure(num('actualT') + num('sticker'))}</b>.</p>
+    <p><b>${geometry.rows}</b> complete rows × <b>${geometry.across}</b> positions across = <b>${geometry.lines}</b> board positions per lift.</p>
+    <p>Height: <b>${fmtMeasure(geometry.usedHeight)}</b> / ${fmtMeasure(num('height'))}.</p>
+    <p>Width: <b>${fmtMeasure(geometry.usedWidth)}</b> / ${fmtMeasure(num('liftWidth'))}; <b>${fmtMeasure(geometry.widthWaste)}</b> unused.</p>
+    <p>Supplier: <b>${escapeHtml(supplier)}</b>.</p>
+    <p>Material: <b>${escapeHtml($('species').value || '—')} · ordered ${materialSizeLabel()} · ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))} physical</b>.</p>
+  `;
+
+  $('resultIntro').innerHTML = `
     <p>
-      <span class="pill ${l.valid?"good":"warn"}">
-        Layout: ${m.length?m.map(w=>`${w.length} ft lift`).join(" | "):"no valid layout"}${o?` | ${o} ft metal`:""}${l.chamberGap?` | ${l.chamberGap} ft empty`:""}
+      <span class="pill ${bestPlan.valid ? 'good' : 'warn'}">
+        Layout: ${activeStates.length ? activeStates.map((state) => `${state.length} ft lift`).join(' | ') : 'no valid layout'}${metalBox ? ` | ${metalBox} ft metal` : ''}${bestPlan.chamberGap ? ` | ${bestPlan.chamberGap} ft empty` : ''}
       </span>
     </p>
     <p>
-      <b>${l.fullLifts} of ${m.length} lifts filled to maximum height.</b>
-      ${k?"Maximum load height reached in every lift.":`Individual lift heights: ${m.map(w=>`${w.rowSequence.length}/${a.rows} rows`).join(" \xB7 ")}.`}
-      <b>Structure:</b> ${l.stability.label}.
+      <b>${bestPlan.fullLifts} of ${activeStates.length} lifts filled to maximum height.</b>
+      ${fullLoad ? 'Maximum load height reached in every lift.' : `Individual lift heights: ${activeStates.map((state) => `${state.rowSequence.length}/${geometry.rows} rows`).join(' · ')}.`}
+      <b>Structure:</b> ${bestPlan.stability.label}.
     </p>
-  `,$("plan").innerHTML="",m.forEach((w,E)=>{w.groups.forEach((P,H)=>{const[x,W]=H.split("|"),B=x,Q=Number(W)||0,ee=B.split(" + ").length,V=document.createElement("tr");V.innerHTML=`
-        <td>Lift ${E+1} (${w.length} ft)</td>
-        <td>${B.split(" + ").length===1?`${a.across} \xD7 ${B} ft (full-width solid row)`:`${a.across} positions \xD7 (${makePatternLabel(B.split(" + ").map(Number))}) (full-width joined row)`}</td>
-        <td>${P}</td>
-        <td>${ee*a.across*P}</td>
-        <td>${Q} ft</td>
+  `;
+
+  $('plan').innerHTML = '';
+  activeStates.forEach((state, activeIndex) => {
+    state.groups.forEach((count, key) => {
+      const [comboPart, gapPart] = key.split('|');
+      const combo = comboPart;
+      const gap = Number(gapPart) || 0;
+      const pieces = combo.split(' + ').length;
+
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>Lift ${activeIndex + 1} (${state.length} ft)</td>
+        <td>${combo.split(' + ').length === 1 ? `${geometry.across} × ${combo} ft (full-width solid row)` : `${geometry.across} positions × (${makePatternLabel(combo.split(' + ').map(Number))}) (full-width joined row)`}</td>
+        <td>${count}</td>
+        <td>${pieces * geometry.across * count}</td>
+        <td>${gap} ft</td>
         <td>Full-width row</td>
-      `,$("plan").appendChild(V)})}),$("shortage").innerHTML=k?'<p class="note">A full kiln load has been assembled; remaining inventory is available for the next load.</p>':l.valid?`<p class="note"><b>Maximum inventory utilization:</b> ${l.fullLifts} lift${l.fullLifts===1?"":"s"} at full height; remaining lifts use every available complete stable row. Partial rows are prohibited.</p>`:"<p><b>No stable load:</b> inventory cannot form equal-height lifts across the selected kiln layout.</p>",$("cycleYield").innerHTML=G?`
-      <span>Production output \xB7 Kiln Load ${currentLoadNumber}</span>
-      <strong>${fmt(I)} boards</strong>
-      <b>${fmt(p,1)} BF total output</b>
-    `:"<span>Enter an order to calculate production output.</span>",renderVisual(l,a,n,o,e),renderFinalInventory(globalOrderPlans,u,a),globalOrderPlans.length>0?(loadRecords.clear(),globalOrderPlans.forEach((w,E)=>{const P=E+1,H=[...w.usedMap.values()].reduce((x,W)=>x+W,0);loadRecords.set(P,{number:P,available:new Map(w.availableStock||u),used:new Map(w.usedMap),remaining:new Map(w.stock),usedBoards:H,remainingBoards:[...w.stock.values()].reduce((x,W)=>x+W,0),usedBf:bf(1,w.usedFt),valid:w.valid,layout:w.activeStates.map(x=>`${x.length} ft`).join(" \u2192 ")||"\u2014",global:!0})}),currentLoadSnapshot=loadRecords.get(currentLoadNumber)||loadRecords.get(1)):(currentLoadSnapshot={number:currentLoadNumber,available:new Map(u),used:new Map(v),remaining:new Map(b),usedBoards:I,remainingBoards:[...b.values()].reduce((w,E)=>w+E,0),usedBf:p,valid:l.valid,layout:m.map(w=>`${w.length} ft`).join(" \u2192 ")||"\u2014",global:!1},G>0&&currentLoadSnapshot.valid&&currentLoadSnapshot.usedBoards>0?loadRecords.set(currentLoadNumber,currentLoadSnapshot):loadRecords.clear()),$("loadNumber").textContent=currentLoadNumber,$("nextLoad").disabled=!loadRecords.has(currentLoadNumber+1),renderLoadNavigation()}function renderLoadNavigation(){const t=$("loadHistory");t.innerHTML="",[...loadRecords.values()].sort((e,n)=>e.number-n.number).forEach(e=>{const n=document.createElement("article");n.className=e.number===currentLoadNumber?"current":"",n.dataset.load=e.number;const s=isLoadCompleted(e.number);n.innerHTML=`<button class="complete-cycle ${s?"is-complete":""}" type="button" ${s?"disabled":""}>${s?"\u2713 Completed":"Cycle completed"}</button><b>Kiln Load ${e.number}</b><span>${e.layout}</span><span>${fmt(e.usedBoards)} boards \xB7 ${fmt(e.usedBf,1)} BF</span><span>${fmt(e.remainingBoards)} order boards remaining</span>`,n.querySelector(".complete-cycle").addEventListener("click",i=>{i.stopPropagation(),openCycleCompletion(e.number)}),n.addEventListener("click",()=>selectSavedLoad(e.number)),t.appendChild(n)}),$("previousLoad").disabled=!loadRecords.has(currentLoadNumber-1),$("nextSavedLoad").disabled=!loadRecords.has(currentLoadNumber+1)}function openCycleCompletion(t){const e=loadRecords.get(t);if(!e||isLoadCompleted(t))return;completingLoadNumber=t,$("completeCycleTitle").textContent=`Kiln Load ${t} completed`,$("completeSupplier").value=$("supplier").value.trim()||"New Westminster",$("completeDate").value=new Date().toISOString().slice(0,10),$("completeMarking").value="",$("finalProcessDate").value="";const n=[...e.used.entries()].sort((s,i)=>s[0]-i[0]);$("completeCycleSummary").innerHTML=`<b>${fmt(e.usedBoards)} boards \xB7 ${fmt(e.usedBf,1)} BF</b><span>${n.map(([s,i])=>`${i} \xD7 ${s} ft`).join(" \xB7 ")}</span>`,$("completeCycleDialog").showModal()}function saveCompletedCycle(t){t.preventDefault();const e=loadRecords.get(completingLoadNumber);if(!e)return;const n=readCompletedCycles(),s=completionRecordId(completingLoadNumber),i={id:s,orderId:globalOrderSignature||"current-order",loadNumber:completingLoadNumber,supplier:$("completeSupplier").value.trim(),marking:$("completeMarking").value.trim(),completedDate:$("completeDate").value,finalProcessDate:$("finalProcessDate").value,species:$("species").value.trim(),size:materialSizeLabel(),quantities:Object.fromEntries(e.used),boards:e.usedBoards,bf:e.usedBf,createdAt:new Date().toISOString()},r=n.findIndex(a=>a.id===s);r>=0?n[r]=i:n.push(i),writeCompletedCycles(n),$("completeCycleDialog").close(),renderLoadNavigation()}function selectSavedLoad(t){if(!loadRecords.get(t)||t===currentLoadNumber)return;const n=window.scrollY;currentLoadNumber=t,calculate(),requestAnimationFrame(()=>window.scrollTo({top:n,behavior:"auto"}))}function loadRemainingInventory(){const t=currentLoadNumber+1;loadRecords.has(t)&&selectSavedLoad(t)}function bindEvents(){const t=()=>{loadRecords.clear(),currentLoadNumber=1,document.querySelectorAll(".qty").forEach(e=>{e.value=0}),$("loadNumber").textContent="1",renderLoadNavigation(),markCalculationPending()};$("calc").addEventListener("click",runCalculation),$("nextLoad").addEventListener("click",loadRemainingInventory),$("previousLoad").addEventListener("click",()=>selectSavedLoad(currentLoadNumber-1)),$("nextSavedLoad").addEventListener("click",()=>selectSavedLoad(currentLoadNumber+1)),$("completeCycleForm").addEventListener("submit",saveCompletedCycle),$("cancelCompleteCycle").addEventListener("click",()=>$("completeCycleDialog").close()),$("addLength").addEventListener("click",()=>{addRow(8,0),markCalculationPending()}),$("clear").addEventListener("click",t),$("clearTop").addEventListener("click",t),$("downloadPdf").addEventListener("click",()=>{if(calculationDirty){const s=$("calculationStatus");s.className="calculation-status pending",s.textContent="Calculate the changed order before downloading the report.";return}const e=$("supplier").value.trim()||"Supplier",n=document.title;document.title=`Kiln Load Report - ${e} - ${new Date().toISOString().slice(0,10)}`,window.print(),window.setTimeout(()=>{document.title=n},500)}),["supplier","supplierClearance","species","size","batchProfile","kiln","height","maxStack","metalBox","liftWidth","sticker","topSticker"].forEach(e=>{$(e).addEventListener("input",markCalculationPending),$(e).addEventListener("change",markCalculationPending)}),$("supplier").addEventListener("change",()=>{loadSupplierProfile(),markCalculationPending()}),$("supplier").addEventListener("input",()=>{applySupplierClearanceRule(),markCalculationPending()}),$("supplierClearance").addEventListener("change",saveSupplierProfile),$("size").addEventListener("change",()=>{const e=$("size").value==="custom";$("customT").disabled=!e,$("customW").disabled=!e,e&&($("batchProfile").value="manual"),applyPhysicalProfile(),markCalculationPending()}),$("batchProfile").addEventListener("change",()=>{applyPhysicalProfile(),markCalculationPending()}),["actualT","actualW"].forEach(e=>{$(e).addEventListener("input",()=>{$("batchProfile").value="manual",markCalculationPending()})}),["customT","customW"].forEach(e=>{$(e).addEventListener("input",()=>{$("size").value==="custom"&&($("batchProfile").value!=="manual"&&($("actualT").value=$("customT").value,$("actualW").value=$("customW").value),markCalculationPending())})})}function init(){try{const t=localStorage.getItem(LAST_SUPPLIER_STORAGE)||"";t&&($("supplier").value=t)}catch{}loadSupplierProfile(),buildInventoryRows(),bindEvents(),applyPhysicalProfile()}init();
+      `;
+      $('plan').appendChild(row);
+    });
+  });
+
+  $('shortage').innerHTML = fullLoad
+    ? '<p class="note">A full kiln load has been assembled; remaining inventory is available for the next load.</p>'
+    : bestPlan.valid
+      ? `<p class="note"><b>Maximum inventory utilization:</b> ${bestPlan.fullLifts} lift${bestPlan.fullLifts === 1 ? '' : 's'} at full height; remaining lifts use every available complete stable row. Partial rows are prohibited.</p>`
+      : '<p><b>No stable load:</b> inventory cannot form equal-height lifts across the selected kiln layout.</p>';
+
+  $('cycleYield').innerHTML = orderQty ? `
+      <span>Production output · Kiln Load ${currentLoadNumber}</span>
+      <strong>${fmt(totalUsed)} boards</strong>
+      <b>${fmt(usedBf, 1)} BF total output</b>
+    ` : '<span>Enter an order to calculate production output.</span>';
+
+  renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance);
+  renderFinalInventory(globalOrderPlans, originalStock, geometry);
+
+  if (globalOrderPlans.length > 0) {
+    loadRecords.clear();
+    globalOrderPlans.forEach((plan, index) => {
+      const number = index + 1;
+      const usedBoards = [...plan.usedMap.values()].reduce((sum, quantity) => sum + quantity, 0);
+      loadRecords.set(number, {
+        number,
+        available: new Map(plan.availableStock || originalStock),
+        used: new Map(plan.usedMap),
+        remaining: new Map(plan.stock),
+        usedBoards,
+        remainingBoards: [...plan.stock.values()].reduce((sum, quantity) => sum + quantity, 0),
+        usedBf: bf(1, plan.usedFt),
+        valid: plan.valid,
+        layout: plan.activeStates.map((state) => `${state.length} ft`).join(' → ') || '—',
+        global: true,
+      });
+    });
+    currentLoadSnapshot = loadRecords.get(currentLoadNumber) || loadRecords.get(1);
+  } else {
+    currentLoadSnapshot = {
+      number: currentLoadNumber,
+      available: new Map(originalStock),
+      used: new Map(usedByLength),
+      remaining: new Map(remainingByLength),
+      usedBoards: totalUsed,
+      remainingBoards: [...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0),
+      usedBf,
+      valid: bestPlan.valid,
+      layout: activeStates.map((state) => `${state.length} ft`).join(' → ') || '—',
+      global: false,
+    };
+    if (orderQty > 0 && currentLoadSnapshot.valid && currentLoadSnapshot.usedBoards > 0) loadRecords.set(currentLoadNumber, currentLoadSnapshot);
+    else loadRecords.clear();
+  }
+  $('loadNumber').textContent = currentLoadNumber;
+  $('nextLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
+  renderLoadNavigation();
+}
+
+function renderLoadNavigation() {
+  const history = $('loadHistory');
+  history.innerHTML = '';
+  [...loadRecords.values()].sort((left, right) => left.number - right.number).forEach((snapshot) => {
+    const historyRow = document.createElement('article');
+    historyRow.className = snapshot.number === currentLoadNumber ? 'current' : '';
+    historyRow.dataset.load = snapshot.number;
+    const completed = isLoadCompleted(snapshot.number);
+    historyRow.innerHTML = `<button class="complete-cycle ${completed ? 'is-complete' : ''}" type="button" ${completed ? 'disabled' : ''}>${completed ? '✓ Completed' : 'Cycle completed'}</button><b>Kiln Load ${snapshot.number}</b><span>${snapshot.layout}</span><span>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</span><span>${fmt(snapshot.remainingBoards)} order boards remaining</span>`;
+    historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
+      event.stopPropagation();
+      openCycleCompletion(snapshot.number);
+    });
+    historyRow.addEventListener('click', () => selectSavedLoad(snapshot.number));
+    history.appendChild(historyRow);
+  });
+  $('previousLoad').disabled = !loadRecords.has(currentLoadNumber - 1);
+  $('nextSavedLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
+}
+
+function openCycleCompletion(loadNumber) {
+  const snapshot = loadRecords.get(loadNumber);
+  if (!snapshot || isLoadCompleted(loadNumber)) return;
+  completingLoadNumber = loadNumber;
+  $('completeCycleTitle').textContent = `Kiln Load ${loadNumber} completed`;
+  $('completeSupplier').value = $('supplier').value.trim() || 'New Westminster';
+  $('completeDate').value = new Date().toISOString().slice(0, 10);
+  $('completeMarking').value = '';
+  $('finalProcessDate').value = '';
+  const lengths = [...snapshot.used.entries()].sort((a, b) => a[0] - b[0]);
+  $('completeCycleSummary').innerHTML = `<b>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</b><span>${lengths.map(([length, quantity]) => `${quantity} × ${length} ft`).join(' · ')}</span>`;
+  $('completeCycleDialog').showModal();
+}
+
+function saveCompletedCycle(event) {
+  event.preventDefault();
+  const snapshot = loadRecords.get(completingLoadNumber);
+  if (!snapshot) return;
+  const records = readCompletedCycles();
+  const id = completionRecordId(completingLoadNumber);
+  const record = {
+    id,
+    orderId: activeOrder?.id || globalOrderSignature || 'current-order',
+    orderNumber: activeOrder?.number || $('orderNumber').value.trim(),
+    loadNumber: completingLoadNumber,
+    supplier: $('completeSupplier').value.trim(),
+    marking: $('completeMarking').value.trim(),
+    completedDate: $('completeDate').value,
+    finalProcessDate: $('finalProcessDate').value,
+    species: $('species').value.trim(),
+    size: materialSizeLabel(),
+    quantities: Object.fromEntries(snapshot.used),
+    boards: snapshot.usedBoards,
+    bf: snapshot.usedBf,
+    createdAt: new Date().toISOString(),
+  };
+  const existingIndex = records.findIndex((item) => item.id === id);
+  if (existingIndex >= 0) records[existingIndex] = record;
+  else records.push(record);
+  writeCompletedCycles(records);
+  $('completeCycleDialog').close();
+  renderLoadNavigation();
+}
+
+function selectSavedLoad(loadNumber) {
+  const snapshot = loadRecords.get(loadNumber);
+  if (!snapshot || loadNumber === currentLoadNumber) return;
+  const scrollPosition = window.scrollY;
+  currentLoadNumber = loadNumber;
+  calculate();
+  requestAnimationFrame(() => window.scrollTo({ top: scrollPosition, behavior: 'auto' }));
+}
+
+function loadRemainingInventory() {
+  const nextNumber = currentLoadNumber + 1;
+  if (loadRecords.has(nextNumber)) {
+    selectSavedLoad(nextNumber);
+  }
+}
+
+function bindEvents() {
+  const clearInventory = () => {
+    loadRecords.clear();
+    currentLoadNumber = 1;
+    document.querySelectorAll('.qty').forEach((input) => {
+      input.value = 0;
+    });
+    $('loadNumber').textContent = '1';
+    renderLoadNavigation();
+    markCalculationPending();
+  };
+
+  $('calc').addEventListener('click', runCalculation);
+  $('orderNumber').addEventListener('change', () => persistActiveOrder(false));
+  $('nextLoad').addEventListener('click', loadRemainingInventory);
+  $('previousLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber - 1));
+  $('nextSavedLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber + 1));
+  $('completeCycleForm').addEventListener('submit', saveCompletedCycle);
+  $('cancelCompleteCycle').addEventListener('click', () => $('completeCycleDialog').close());
+  $('addLength').addEventListener('click', () => {
+    addRow(8, 0);
+    markCalculationPending();
+  });
+  $('clear').addEventListener('click', clearInventory);
+  $('clearTop').addEventListener('click', clearInventory);
+  $('downloadPdf').addEventListener('click', () => {
+    if (calculationDirty) {
+      const status = $('calculationStatus');
+      status.className = 'calculation-status pending';
+      status.textContent = 'Calculate the changed order before downloading the report.';
+      return;
+    }
+    const supplier = $('supplier').value.trim() || 'Supplier';
+    const previousTitle = document.title;
+    document.title = `Kiln Load Report - ${supplier} - ${new Date().toISOString().slice(0, 10)}`;
+    window.print();
+    window.setTimeout(() => { document.title = previousTitle; }, 500);
+  });
+
+  ['supplier', 'supplierClearance', 'species', 'size', 'batchProfile', 'kiln', 'height', 'maxStack', 'metalBox', 'liftWidth', 'sticker', 'topSticker']
+    .forEach((id) => {
+      $(id).addEventListener('input', markCalculationPending);
+      $(id).addEventListener('change', markCalculationPending);
+    });
+
+  $('supplier').addEventListener('change', () => {
+    loadSupplierProfile();
+    markCalculationPending();
+  });
+  $('supplier').addEventListener('input', () => {
+    applySupplierClearanceRule();
+    markCalculationPending();
+  });
+  $('supplierClearance').addEventListener('change', saveSupplierProfile);
+
+  $('size').addEventListener('change', () => {
+    const custom = $('size').value === 'custom';
+    $('customT').disabled = !custom;
+    $('customW').disabled = !custom;
+    if (custom) $('batchProfile').value = 'manual';
+    applyPhysicalProfile();
+    markCalculationPending();
+  });
+
+  $('batchProfile').addEventListener('change', () => {
+    applyPhysicalProfile();
+    markCalculationPending();
+  });
+
+  ['actualT', 'actualW'].forEach((id) => {
+    $(id).addEventListener('input', () => {
+      $('batchProfile').value = 'manual';
+      markCalculationPending();
+    });
+  });
+
+  ['customT', 'customW'].forEach((id) => {
+    $(id).addEventListener('input', () => {
+      if ($('size').value !== 'custom') return;
+      if ($('batchProfile').value !== 'manual') {
+        $('actualT').value = $('customT').value;
+        $('actualW').value = $('customW').value;
+      }
+      markCalculationPending();
+    });
+  });
+}
+
+function init() {
+  activeOrder = readActiveOrder();
+  if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, number: newOrderNumber(), status: 'active', createdAt: new Date().toISOString(), inventory: {} };
+  $('orderNumber').value = activeOrder.number || newOrderNumber();
+  if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
+  try {
+    const lastSupplier = localStorage.getItem(LAST_SUPPLIER_STORAGE) || '';
+    if (lastSupplier) $('supplier').value = lastSupplier;
+  } catch (_) {
+    // Ignore unavailable browser storage.
+  }
+  loadSupplierProfile();
+  buildInventoryRows();
+  bindEvents();
+  applyPhysicalProfile();
+  persistActiveOrder(false);
+  if (activeOrder.calculated && Object.values(activeOrder.inventory || {}).some(Number)) runCalculation();
+}
+
+init();

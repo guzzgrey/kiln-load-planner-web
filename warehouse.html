@@ -32,6 +32,7 @@
         <p class="note">Before physical sorting and packing there is no YARD TAG yet, so this intake register starts with the kiln-cycle completion date. Quantities come directly from the confirmed kiln plan.</p>
         <div class="scroll"><table class="matrix-table" id="completedTable"></table></div>
         <div id="emptyCompleted" class="empty-state">No completed cycles yet. Return to the planner and press “Cycle completed”.</div>
+        <div id="completedMessage" class="calculation-status idle">Completed records are protected once their boards are assigned to a YARD TAG.</div>
       </section>
 
       <section class="card warehouse-section">
@@ -54,6 +55,7 @@
           <label>Shipping date<input id="shipmentDate" type="date" /></label>
         </div>
         <div id="shippingTagSelection" class="tag-selection"></div>
+        <div id="shipmentMessage" class="calculation-status idle">Select registered YARD TAGs, enter a unique Shipping order number and date.</div>
         <div id="shipmentHistory" class="shipment-history"></div>
       </section>
     </main>
@@ -78,6 +80,6 @@
       </form>
     </dialog>
 
-    <script src="warehouse.js?v=yard-builder-v4"></script>
+    <script src="warehouse.js?v=protected-registers-v5"></script>
   </body>
 </html>

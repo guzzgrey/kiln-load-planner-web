@@ -21,8 +21,9 @@
       </header>
 
       <section class="card warehouse-summary">
-        <div><b id="cycleCount">0</b><span>completed cycles</span></div>
-        <div><b id="processedBoards">0</b><span>processed boards</span></div>
+        <div><b id="cycleCount">0 / 0</b><span>completed kiln cycles</span></div>
+        <div><b id="processedBoards">0 / 0</b><span>processed / planned boards</span><small id="processedFormula">0 received − 0 unprocessed</small></div>
+        <div><b id="completionPercent">0%</b><span>thermal-cycle completion</span></div>
         <div><b id="availableBoards">0</b><span>untagged processed boards</span></div>
         <label>Final process date<input id="warehouseFinalDate" type="date" /><small>One final date for the complete production order.</small></label>
       </section>
@@ -94,6 +95,6 @@
       </form>
     </dialog>
 
-    <script src="warehouse.js?v=order-ledger-v1"></script>
+    <script src="warehouse.js?v=order-progress-v2"></script>
   </body>
 </html>

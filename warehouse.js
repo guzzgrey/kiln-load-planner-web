@@ -87,8 +87,17 @@ function renderCompleted() {
   const rows = records.map((record) => `<tr><td><b>${esc(record.completedDate)}</b><small>Kiln Load ${record.loadNumber}</small></td><td>${esc(record.supplier)}</td><td>${esc(record.marking)}</td>${LENGTHS.map((l) => `<td>${record.quantities?.[l] ? fmt(record.quantities[l]) : ''}</td>`).join('')}<td><b>${fmt(record.boards)}</b></td><td>${fmt(record.bf, 1)}</td><td><button class="danger small-action delete-completed" type="button" data-id="${esc(record.id)}">Delete</button></td></tr>`).join('');
   const footer = `<tfoot><tr><th colspan="3">TOTAL PROCESSED</th>${LENGTHS.map((l) => `<th>${totals[l] ? fmt(totals[l]) : ''}</th>`).join('')}<th>${fmt(totalBoards(totals))}</th><th>${fmt(records.reduce((sum, record) => sum + Number(record.bf || 0), 0), 1)}</th><th></th></tr></tfoot>`;
   $('completedTable').innerHTML = `${completedHeader()}<tbody>${rows}</tbody>${footer}`;
-  $('cycleCount').textContent = fmt(records.length);
-  $('processedBoards').textContent = fmt(totalBoards(totals));
+  const order = activeOrder();
+  const received = totalBoards(order?.inventory || {});
+  const plannedCycles = Number(order?.plannedCycles || 0);
+  const plannedBoards = Number(order?.plannedBoards || Math.max(0, received));
+  const processed = totalBoards(totals);
+  const unprocessed = Math.max(0, received - plannedBoards);
+  const completion = plannedBoards > 0 ? processed / plannedBoards * 100 : 0;
+  $('cycleCount').textContent = `${fmt(records.length)} / ${fmt(plannedCycles)}`;
+  $('processedBoards').textContent = `${fmt(processed)} / ${fmt(plannedBoards)}`;
+  $('processedFormula').textContent = `${fmt(received)} received − ${fmt(unprocessed)} unprocessed outside thermal cycles`;
+  $('completionPercent').textContent = `${fmt(completion, 1)}%`;
   document.querySelectorAll('.delete-completed').forEach((button) => button.addEventListener('click', () => deleteCompletedRecord(button.dataset.id)));
   return totals;
 }

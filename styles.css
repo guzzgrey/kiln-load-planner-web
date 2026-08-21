@@ -397,10 +397,11 @@ button.is-loading::after {
 .dialog-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
 
 .warehouse-page { max-width: 1800px; }
-.warehouse-summary { display: grid; grid-template-columns: repeat(3, 1fr) minmax(240px, 1.2fr); gap: 14px; margin-bottom: 14px; }
+.warehouse-summary { display: grid; grid-template-columns: repeat(4, 1fr) minmax(240px, 1.2fr); gap: 14px; margin-bottom: 14px; }
 .warehouse-summary > div { padding: 12px; border-radius: 10px; background: var(--pale); }
 .warehouse-summary b { display: block; font-size: 24px; }
 .warehouse-summary span { color: var(--muted); }
+.warehouse-summary small { display:block; margin-top:4px; color:var(--muted); line-height:1.25; }
 .order-control { display:grid; grid-template-columns:minmax(260px,1fr) 1fr; gap:18px; padding:16px; margin:0 0 18px; background:var(--pale); border:1px solid var(--line); border-radius:10px; }
 .order-control > div { display:flex; flex-direction:column; justify-content:center; gap:4px; }
 .order-control span { color:var(--muted); }

@@ -1657,25 +1657,30 @@ function calculate() {
     return `<p><b>Lift ${liftIndex + 1} (${state.length} ft):</b> ${rows || 'empty'}</p>`;
   }).join('');
   $('productionNeed').innerHTML = `
-    <strong>Maximum lift capacity:</strong> ${fmt(geometry.lines)} board positions ·
-    <strong>active lifts in this kiln:</strong> ${fmt(activeStates.length)} ·
-    <strong>boards committed to this load:</strong> ${fmt(totalUsed)}<br>
-    <strong>Recommended production plan:</strong> ${plannedCycles} kiln cycle${plannedCycles === 1 ? '' : 's'} · ${plannedLifts} total lifts · ${fmt(plannedBoards)} boards scheduled ·
-    <strong>cycle decision:</strong> <span class="pill ${efficientCycle ? 'good' : 'warn'}">${efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — CONSOLIDATE OR ADD FILL'}</span><br>
-    <strong>Boards required to complete every selected lift:</strong> ${requiredFillLabel}
-    <details><summary>Exact row-by-row stacking sequence</summary>${rowSchedule}</details>
+    <div class="plan-status-row">
+      <span class="pill ${efficientCycle ? 'good' : 'warn'}">${efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — ADD MATERIAL'}</span>
+      <span><b>${plannedCycles}</b> kiln cycles</span>
+      <span><b>${plannedLifts}</b> total lifts</span>
+      <span><b>${fmt(plannedBoards)}</b> boards scheduled</span>
+    </div>
+    ${requiredFillLabel === 'none' ? '' : `<div class="fill-warning"><b>Material required to complete selected lifts:</b> ${requiredFillLabel}</div>`}
+    <details class="technical-details"><summary>Exact row-by-row stacking sequence</summary>${rowSchedule}</details>
   `;
 
   $('orderLoads').innerHTML = `
-    <strong>Original order:</strong> ${fmt(orderQty)} boards →
-    <strong>processed before this load:</strong> ${fmt(Math.max(0, orderQty - totalBefore))} →
-    <strong>entering Kiln Load ${currentLoadNumber}:</strong> ${fmt(totalBefore)} →
-    <strong>processed now:</strong> ${fmt(totalUsed)} →
-    <strong>remaining after this load:</strong> ${fmt([...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0))} boards
+    <div class="order-flow">
+      <div><small>ORIGINAL ORDER</small><b>${fmt(orderQty)}</b><span>boards</span></div>
+      <i>→</i>
+      <div><small>BEFORE LOAD ${currentLoadNumber}</small><b>${fmt(totalBefore)}</b><span>available</span></div>
+      <i>→</i>
+      <div class="current"><small>PROCESS NOW</small><b>${fmt(totalUsed)}</b><span>boards</span></div>
+      <i>→</i>
+      <div><small>REMAINING</small><b>${fmt([...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0))}</b><span>boards</span></div>
+    </div>
   `;
 
   $('orderRemaining').innerHTML = `
-    <strong>Inventory remaining after Kiln Load ${currentLoadNumber}:</strong> ${summarizeStock(remainingByLength)}
+    <details class="remaining-details"><summary><b>Remaining inventory after Kiln Load ${currentLoadNumber}</b><span>View quantities by length</span></summary><p>${summarizeStock(remainingByLength)}</p></details>
   `;
 
   $('condLength').innerHTML = `<span class="pill ${lengthFilled ? 'good' : 'warn'}">${lengthFilled ? '✓' : '!'} ${kilnLength - bestPlan.chamberGap} / ${kilnLength} ft occupied</span>`;
@@ -1707,26 +1712,30 @@ function calculate() {
     </p>
   `;
 
-  $('plan').innerHTML = '';
-  activeStates.forEach((state, activeIndex) => {
+  $('plan').innerHTML = activeStates.map((state, activeIndex) => {
+    const patterns = [];
+    let liftBoards = 0;
     state.groups.forEach((count, key) => {
       const [comboPart, gapPart] = key.split('|');
       const combo = comboPart;
       const gap = Number(gapPart) || 0;
       const pieces = combo.split(' + ').length;
-
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>Lift ${activeIndex + 1} (${state.length} ft)</td>
-        <td>${combo.split(' + ').length === 1 ? `${geometry.across} × ${combo} ft (full-width solid row)` : `${geometry.across} positions × (${makePatternLabel(combo.split(' + ').map(Number))}) (full-width joined row)`}</td>
-        <td>${count}</td>
-        <td>${pieces * geometry.across * count}</td>
-        <td>${gap} ft</td>
-        <td>Full-width row</td>
-      `;
-      $('plan').appendChild(row);
+      const boards = pieces * geometry.across * count;
+      liftBoards += boards;
+      const type = pieces === 1 ? 'Solid' : pieces === 2 ? 'Double mix' : 'Triple mix';
+      patterns.push(`<div class="lift-pattern">
+        <span class="pattern-type">${type}</span>
+        <b>${makePatternLabel(combo.split(' + ').map(Number))}</b>
+        <span>${count} row${count === 1 ? '' : 's'}</span>
+        <strong>${fmt(boards)} boards</strong>
+        ${gap ? `<em>${gap} ft step</em>` : ''}
+      </div>`);
     });
-  });
+    return `<article class="lift-plan-card">
+      <header><div><small>LIFT ${activeIndex + 1}</small><h3>${state.length} ft maximum</h3></div><div class="lift-total"><b>${state.rowSequence.length}/${geometry.rows}</b><span>rows</span><strong>${fmt(liftBoards)} boards</strong></div></header>
+      <div class="lift-patterns">${patterns.join('')}</div>
+    </article>`;
+  }).join('');
 
   $('shortage').innerHTML = fullLoad
     ? '<p class="note">A full kiln load has been assembled; remaining inventory is available for the next load.</p>'

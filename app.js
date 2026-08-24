@@ -1952,7 +1952,8 @@ function bindEvents() {
 }
 
 function init() {
-  activeOrder = readActiveOrder();
+  const savedOrder = readActiveOrder();
+  activeOrder = savedOrder;
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, number: newOrderNumber(), status: 'active', createdAt: new Date().toISOString(), inventory: {} };
   $('orderNumber').value = activeOrder.number || newOrderNumber();
   if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
@@ -1966,7 +1967,11 @@ function init() {
   buildInventoryRows();
   bindEvents();
   applyPhysicalProfile();
-  persistActiveOrder(false);
+  // Opening or refreshing the page must be read-only. Re-saving an unchanged
+  // order here creates a new cloud revision and can make two open clients
+  // continuously refresh one another.
+  if (!savedOrder) persistActiveOrder(false);
+  else $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
   if (activeOrder.calculated && !restoreRenderedCalculation()) runCalculation();
 }
 

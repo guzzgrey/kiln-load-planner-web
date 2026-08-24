@@ -20,6 +20,8 @@
   let userId = '';
   let appLoaded = false;
   let cloudReady = false;
+  let reloadScheduled = false;
+  const seenRevisions = new Map();
 
   function setLocal(key, value) { nativeSet.call(localStorage, key, value); }
   function removeLocal(key) { nativeRemove.call(localStorage, key); }
@@ -88,8 +90,9 @@
 
   function patchStorage() {
     Storage.prototype.setItem = function (key, value) {
+      const previous = this === localStorage ? localStorage.getItem(key) : null;
       nativeSet.call(this, key, value);
-      if (this === localStorage && syncKeys.has(key)) pushState(key, parseLocal(key));
+      if (this === localStorage && syncKeys.has(key) && previous !== String(value)) pushState(key, parseLocal(key));
     };
     Storage.prototype.removeItem = function (key) {
       nativeRemove.call(this, key);
@@ -102,7 +105,7 @@
   }
 
   async function pullSharedState() {
-    const { data, error } = await client.from(config.table).select('key,value');
+    const { data, error } = await client.from(config.table).select('key,value,updated_at');
     if (error) throw error;
     if (!data.length) {
       const seed = [...syncKeys].filter((key) => localStorage.getItem(key) !== null).map((key) => ({ key, value: parseLocal(key), updated_by: userId, updated_at: new Date().toISOString() }));
@@ -113,18 +116,26 @@
       return;
     }
     syncKeys.forEach(removeLocal);
-    data.forEach((row) => setLocal(row.key, typeof row.value === 'string' ? row.value : json(row.value)));
+    data.forEach((row) => {
+      seenRevisions.set(row.key, row.updated_at || '');
+      setLocal(row.key, typeof row.value === 'string' ? row.value : json(row.value));
+    });
   }
 
   function subscribe() {
     client.channel('kiln-shared-state').on('postgres_changes', { event: '*', schema: 'public', table: config.table }, (payload) => {
       const key = payload.new?.key || payload.old?.key;
       if (!syncKeys.has(key)) return;
+      const revision = payload.new?.updated_at || '';
+      if (revision && revision <= (seenRevisions.get(key) || '')) return;
+      if (revision) seenRevisions.set(key, revision);
       const remoteValue = payload.new ? (typeof payload.new.value === 'string' ? payload.new.value : json(payload.new.value)) : null;
       const localValue = localStorage.getItem(key);
       if (remoteValue === localValue || (remoteValue === null && localValue === null)) return;
       if (remoteValue === null) removeLocal(key); else setLocal(key, remoteValue);
       addStatus('Updated on another computer — refreshing…', 'online');
+      if (reloadScheduled) return;
+      reloadScheduled = true;
       window.setTimeout(() => window.location.reload(), 700);
     }).subscribe();
   }

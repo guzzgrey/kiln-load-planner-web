@@ -12,6 +12,7 @@ const $ = (id) => document.getElementById(id);
 let currentLoadNumber = 1;
 let currentLoadSnapshot = null;
 const manualLiftTargets = new Map();
+const manualLiftStickers = new Map();
 const loadRecords = new Map();
 let globalOrderSignature = '';
 let globalOrderPlans = [];
@@ -71,6 +72,7 @@ function persistActiveOrder(calculated = false) {
   activeOrder.updatedAt = new Date().toISOString();
   activeOrder.inputs = inputSnapshot();
   activeOrder.inventory = inventorySnapshot();
+  activeOrder.liftStickerOverrides = Object.fromEntries(manualLiftStickers);
   if (calculated) {
     activeOrder.calculated = true;
     activeOrder.planSignature = globalOrderSignature;
@@ -372,6 +374,93 @@ function computeGeometry() {
     widthWaste: Math.max(0, liftWidth - across * actualW),
     lines: rows * across,
   };
+}
+
+function geometryForSticker(sticker, baseGeometry = computeGeometry()) {
+  const height = num('height');
+  const actualT = num('actualT');
+  const topSticker = Number($('topSticker').value);
+  let rows = 0;
+  let usedHeight = 0;
+  for (let n = 1; n < 500; n += 1) {
+    const nextHeight = n * actualT + (topSticker ? n * sticker : Math.max(0, n - 1) * sticker);
+    if (nextHeight > height + 1e-9) break;
+    rows = n;
+    usedHeight = nextHeight;
+  }
+  return { ...baseGeometry, rows, usedHeight, lines: rows * baseGeometry.across, sticker };
+}
+
+function liftStickerKey(loadNumber, state, index) {
+  return `${loadNumber}:${index}:${state.length}`;
+}
+
+function liftGeometry(state, index, geometry, loadNumber = currentLoadNumber) {
+  const saved = manualLiftStickers.get(liftStickerKey(loadNumber, state, index));
+  const sticker = Number.isFinite(saved) && saved > 0 ? saved : num('sticker');
+  return geometryForSticker(sticker, geometry);
+}
+
+function rebuildGroups(state) {
+  const groups = new Map();
+  state.rowSequence.forEach((row) => {
+    const usedLength = row.pattern.reduce((sum, length) => sum + length, 0);
+    const key = `${patternKey(row.pattern)}|${Math.max(0, state.length - usedLength)}`;
+    groups.set(key, (groups.get(key) || 0) + 1);
+  });
+  return groups;
+}
+
+function canTakePattern(stock, pattern, across) {
+  const needed = new Map();
+  pattern.forEach((length) => needed.set(length, (needed.get(length) || 0) + across));
+  return [...needed].every(([length, quantity]) => (stock.get(length) || 0) >= quantity);
+}
+
+function takePattern(stock, pattern, across) {
+  pattern.forEach((length) => stock.set(length, (stock.get(length) || 0) - across));
+}
+
+function applyLiftStickerOverrides(plans, sourceStock, geometry) {
+  if (!manualLiftStickers.size) return plans;
+  const stock = new Map(sourceStock);
+  return plans.map((plan, planIndex) => {
+    const availableStock = new Map(stock);
+    const usedMap = new Map();
+    const activeStates = (plan.activeStates || []).map((sourceState, stateIndex) => {
+      const overrideKey = liftStickerKey(planIndex + 1, sourceState, stateIndex);
+      const hasOverride = manualLiftStickers.has(overrideKey);
+      const stateGeometry = liftGeometry(sourceState, stateIndex, geometry, planIndex + 1);
+      const rowSequence = [];
+      for (const row of sourceState.rowSequence.slice(0, stateGeometry.rows)) {
+        if (!canTakePattern(stock, row.pattern, geometry.across)) break;
+        takePattern(stock, row.pattern, geometry.across);
+        rowSequence.push({ ...row, pattern: [...row.pattern] });
+      }
+      while (hasOverride && rowSequence.length < stateGeometry.rows) {
+        const pattern = [sourceState.length];
+        if (!canTakePattern(stock, pattern, geometry.across)) break;
+        takePattern(stock, pattern, geometry.across);
+        rowSequence.push({ type: 'solid', pattern });
+      }
+      rowSequence.forEach((row) => row.pattern.forEach((length) => {
+        usedMap.set(length, (usedMap.get(length) || 0) + geometry.across);
+      }));
+      const state = { ...sourceState, rowSequence, rowCapacity: stateGeometry.rows, stickerThickness: stateGeometry.sticker, usedHeight: stateGeometry.usedHeight };
+      state.rowsLeft = stateGeometry.rows - rowSequence.length;
+      state.linesLeft = state.rowsLeft * geometry.across;
+      state.groups = rebuildGroups(state);
+      return state;
+    }).filter((state) => state.rowSequence.length);
+    const rowCounts = activeStates.map((state) => state.rowSequence.length);
+    const complete = rowCounts.reduce((sum, rows) => sum + rows * geometry.across, 0);
+    const usedFt = [...usedMap].reduce((sum, [length, quantity]) => sum + length * quantity, 0);
+    return { ...plan, states: activeStates, activeStates, availableStock, usedMap, stock: new Map(stock), complete, usedFt,
+      fullLifts: activeStates.filter((state) => state.rowSequence.length === state.rowCapacity).length,
+      completeLoad: plan.chamberGap === 0 && activeStates.length > 0 && activeStates.every((state) => state.rowSequence.length === state.rowCapacity),
+      minRows: rowCounts.length ? Math.min(...rowCounts) : 0,
+      maxRows: rowCounts.length ? Math.max(...rowCounts) : 0 };
+  }).filter((plan) => plan.usedFt > 0);
 }
 
 function makePatternLabel(parts) {
@@ -866,7 +955,7 @@ function usableInventoryFeet(stock, across) {
 }
 
 function orderSignature(stock, geometry, kilnLength, maxStack, selectedMetal) {
-  return JSON.stringify({ stock: [...stock.entries()], rows: geometry.rows, across: geometry.across, kilnLength, maxStack, selectedMetal });
+  return JSON.stringify({ stock: [...stock.entries()], rows: geometry.rows, across: geometry.across, kilnLength, maxStack, selectedMetal, liftStickers: [...manualLiftStickers] });
 }
 
 function linearModelToLp(constraints, variables, ints) {
@@ -1301,13 +1390,14 @@ function repackPlansGlobally(plans, sourceStock, geometry, kilnLength, selectedM
 }
 
 function liftTargetKey(state, index) {
-  return `${index}:${state.length}`;
+  return `${currentLoadNumber}:${index}:${state.length}`;
 }
 
 function targetRowsForLift(state, index, geometry) {
   const availableRows = state.rowSequence.length;
+  const capacity = state.rowCapacity || liftGeometry(state, index, geometry).rows;
   const saved = manualLiftTargets.get(liftTargetKey(state, index));
-  return Math.max(availableRows, Math.min(geometry.rows, Number.isFinite(saved) ? saved : geometry.rows));
+  return Math.max(availableRows, Math.min(capacity, Number.isFinite(saved) ? saved : capacity));
 }
 
 function requiredBoardsForTargetHeight(states, geometry) {
@@ -1337,18 +1427,36 @@ function renderLiftEditor(states, geometry) {
   body.innerHTML = '';
   states.forEach((state, index) => {
     const availableRows = state.rowSequence.length;
+    const stateGeometry = liftGeometry(state, index, geometry);
     const targetRows = targetRowsForLift(state, index, geometry);
     const rowsToAdd = Math.max(0, targetRows - availableRows);
     const row = document.createElement('tr');
     row.innerHTML = `
       <td>Lift ${index + 1} (${state.length} ft)</td>
-      <td>${availableRows} / ${geometry.rows}</td>
-      <td><input class="lift-target-rows" type="number" min="${availableRows}" max="${geometry.rows}" step="1" value="${targetRows}" data-key="${liftTargetKey(state, index)}"></td>
+      <td><input class="lift-sticker" type="number" min="0.25" max="2" step="0.03125" value="${stateGeometry.sticker}" data-key="${liftStickerKey(currentLoadNumber, state, index)}"></td>
+      <td>${availableRows} / ${stateGeometry.rows}</td>
+      <td>${fmtMeasure(stateGeometry.usedHeight)}</td>
+      <td><input class="lift-target-rows" type="number" min="${availableRows}" max="${stateGeometry.rows}" step="1" value="${targetRows}" data-key="${liftTargetKey(state, index)}"></td>
       <td>${rowsToAdd}</td>
       <td>${rowsToAdd * geometry.across}</td>
       <td><span class="pill ${rowsToAdd ? 'warn' : 'good'}">${rowsToAdd ? 'Fill required' : 'Complete'}</span></td>
     `;
     body.appendChild(row);
+  });
+  body.querySelectorAll('.lift-sticker').forEach((input) => {
+    input.addEventListener('change', () => {
+      const base = num('sticker');
+      const value = Number(input.value);
+      if (!Number.isFinite(value) || value <= 0) input.value = base;
+      const next = Number(input.value);
+      if (Math.abs(next - base) < 1e-9) manualLiftStickers.delete(input.dataset.key);
+      else manualLiftStickers.set(input.dataset.key, next);
+      globalOrderSignature = '';
+      activeOrder.calculated = false;
+      delete activeOrder.viewCache;
+      persistActiveOrder(false);
+      markCalculationPending();
+    });
   });
   body.querySelectorAll('.lift-target-rows').forEach((input) => {
     input.addEventListener('change', () => {
@@ -1366,15 +1474,19 @@ function renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance 
   container.innerHTML = '';
   const physicalKilnLength = kilnLength + safetyClearance;
 
-  const fillRatio = num('height') > 0 ? geometry.usedHeight / num('height') : 0;
   const activeStates = sortStatesByHeight(bestPlan.activeStates || bestPlan.states.filter((state) => state.rowSequence.length > 0));
   const woodTotal = activeStates.reduce((sum, state) => sum + state.length, 0);
   const woodGap = Math.max(0, kilnLength - woodTotal);
 
   activeStates.forEach((state, index) => {
+    const stateGeometry = liftGeometry(state, index, geometry);
+    const rowCapacity = state.rowCapacity || stateGeometry.rows;
+    const usedHeight = state.usedHeight || stateGeometry.usedHeight;
+    const fillRatio = num('height') > 0 ? usedHeight / num('height') : 0;
     const stackLength = state.length;
-    const readyLines = state ? Math.max(0, geometry.lines - state.linesLeft) : 0;
-    const materialFill = geometry.lines ? readyLines / geometry.lines : 0;
+    const capacityLines = rowCapacity * geometry.across;
+    const readyLines = state.rowSequence.length * geometry.across;
+    const materialFill = capacityLines ? readyLines / capacityLines : 0;
     const fillPercent = 100 * fillRatio * materialFill;
 
     const lift = document.createElement('div');
@@ -1390,7 +1502,7 @@ function renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance 
     const rowBands = state.rowSequence.map((row, rowIndex) => {
       const occupiedLength = row.pattern.reduce((sum, length) => sum + length, 0);
       const width = Math.min(100, (occupiedLength / stackLength) * 100);
-      return `<i class="row-band ${row.type}" style="bottom:${rowIndex * 100 / geometry.rows}%;height:${100 / geometry.rows}%;width:${width}%" title="Row ${rowIndex + 1}: ${makePatternLabel(row.pattern)}"></i>`;
+      return `<i class="row-band ${row.type}" style="bottom:${rowIndex * 100 / rowCapacity}%;height:${100 / rowCapacity}%;width:${width}%" title="Row ${rowIndex + 1}: ${makePatternLabel(row.pattern)} · ${fmtMeasure(state.stickerThickness || stateGeometry.sticker)} stickers"></i>`;
     }).join('');
     lift.innerHTML = `
       <div class="lift-rows">${rowBands}</div>
@@ -1503,7 +1615,11 @@ function calculate() {
     // Use the same proven sequential planner in local files and on the web.
     // The HiGHS global model produced a different plan only after deployment,
     // because its WASM module cannot initialize from file:// URLs.
-    globalOrderPlans = solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal);
+    globalOrderPlans = applyLiftStickerOverrides(
+      solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal),
+      originalStock,
+      geometry,
+    );
     loadRecords.clear();
     currentLoadNumber = 1;
   }
@@ -1587,11 +1703,15 @@ function calculate() {
   const remainTotalQty = Math.max(0, inventoryTotalQty - usedTotalQty);
 
   const activeStates = bestPlan.activeStates || bestPlan.states.filter((state) => state.rowSequence.length > 0);
-  const planLines = geometry.lines * activeStates.length;
+  const planLines = activeStates.reduce((sum, state, index) => sum
+    + (state.rowCapacity || liftGeometry(state, index, geometry).rows) * geometry.across, 0);
   const lengthFilled = bestPlan.chamberGap === 0 && activeStates.length > 0;
   const fullLoad = lengthFilled && planLines > 0 && bestPlan.complete === planLines;
   const kilnCapacity = bf(kilnLength, geometry.lines);
-  const layoutCapacity = bf(bestPlan.activeLength || 0, geometry.lines);
+  const layoutCapacity = activeStates.reduce((sum, state, index) => sum + bf(
+    state.length,
+    (state.rowCapacity || liftGeometry(state, index, geometry).rows) * geometry.across,
+  ), 0);
   const missingBf = Math.max(0, layoutCapacity - usedBf);
   const unusedBf = Math.max(0, totalBf - usedBf);
   const usableOrderBf = bf(1, usableInventoryFeet(originalStock, geometry.across));
@@ -1611,7 +1731,7 @@ function calculate() {
   $('rows').textContent = geometry.rows;
   $('lines').textContent = fmt(geometry.lines);
   $('needPieces').textContent = activeStates.length || '—';
-  $('capacity').textContent = fmt(geometry.lines * activeStates.length);
+  $('capacity').textContent = fmt(planLines);
   $('capacityLabel').textContent = 'board positions in current layout';
 
   let totalQty = 0;
@@ -1684,7 +1804,7 @@ function calculate() {
   `;
 
   $('condLength').innerHTML = `<span class="pill ${lengthFilled ? 'good' : 'warn'}">${lengthFilled ? '✓' : '!'} ${kilnLength - bestPlan.chamberGap} / ${kilnLength} ft occupied</span>`;
-  $('condHeight').innerHTML = `<span class="pill ${bestPlan.fullLifts ? 'good' : 'warn'}">${bestPlan.fullLifts ? `✓ ${bestPlan.fullLifts} full lift${bestPlan.fullLifts === 1 ? '' : 's'}` : `Partial lifts: ${bestPlan.minRows}–${bestPlan.maxRows} / ${geometry.rows} rows`}</span>`;
+  $('condHeight').innerHTML = `<span class="pill ${bestPlan.fullLifts ? 'good' : 'warn'}">${bestPlan.fullLifts ? `✓ ${bestPlan.fullLifts} full lift${bestPlan.fullLifts === 1 ? '' : 's'}` : `Lift rows: ${activeStates.map((state, index) => `${state.rowSequence.length}/${state.rowCapacity || liftGeometry(state, index, geometry).rows}`).join(' · ')}`}</span>`;
   $('condMetal').innerHTML = `<span class="pill ${metalBox ? 'warn' : 'good'}">${metalBox ? `Metal box: ${metalBox} ft` : 'No metal box'}</span>`;
   const physicalFill = planLines > 0 ? (bestPlan.complete / planLines) * 100 : 0;
   $('condBF').innerHTML = `<span class="pill ${physicalFill >= 15 ? 'good' : 'warn'}">${fmt(totalUsed)} boards · ${fmt(physicalFill, 1)}% of planned row positions</span>`;
@@ -1707,7 +1827,7 @@ function calculate() {
     </p>
     <p>
       <b>${bestPlan.fullLifts} of ${activeStates.length} lifts filled to maximum height.</b>
-      ${fullLoad ? 'Maximum load height reached in every lift.' : `Individual lift heights: ${activeStates.map((state) => `${state.rowSequence.length}/${geometry.rows} rows`).join(' · ')}.`}
+      ${fullLoad ? 'Maximum load height reached in every lift.' : `Individual lift heights: ${activeStates.map((state, index) => `${state.rowSequence.length}/${state.rowCapacity || liftGeometry(state, index, geometry).rows} rows`).join(' · ')}.`}
       <b>Structure:</b> ${bestPlan.stability.label}.
     </p>
   `;
@@ -1732,7 +1852,7 @@ function calculate() {
       </div>`);
     });
     return `<article class="lift-plan-card">
-      <header><div><small>LIFT ${activeIndex + 1}</small><h3>${state.length} ft maximum</h3></div><div class="lift-total"><b>${state.rowSequence.length}/${geometry.rows}</b><span>rows</span><strong>${fmt(liftBoards)} boards</strong></div></header>
+      <header><div><small>LIFT ${activeIndex + 1}</small><h3>${state.length} ft maximum</h3><span>${fmtMeasure(state.stickerThickness || num('sticker'))} stickers</span></div><div class="lift-total"><b>${state.rowSequence.length}/${state.rowCapacity || liftGeometry(state, activeIndex, geometry).rows}</b><span>rows</span><strong>${fmt(liftBoards)} boards</strong></div></header>
       <div class="lift-patterns">${patterns.join('')}</div>
     </article>`;
   }).join('');
@@ -1964,6 +2084,10 @@ function init() {
   const savedOrder = readActiveOrder();
   activeOrder = savedOrder;
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, number: newOrderNumber(), status: 'active', createdAt: new Date().toISOString(), inventory: {} };
+  Object.entries(activeOrder.liftStickerOverrides || {}).forEach(([key, value]) => {
+    const sticker = Number(value);
+    if (Number.isFinite(sticker) && sticker > 0) manualLiftStickers.set(key, sticker);
+  });
   $('orderNumber').value = activeOrder.number || newOrderNumber();
   if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
   try {

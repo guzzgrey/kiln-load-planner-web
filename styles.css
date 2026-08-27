@@ -53,6 +53,15 @@ body {
 }
 
 .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.order-workspace { display:grid; grid-template-columns:minmax(300px,1fr) auto auto auto; align-items:end; gap:10px; margin:0 0 14px; padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:0 2px 8px rgba(24,34,29,.05); }
+.order-workspace label { color:var(--green); font-weight:800; }
+.order-workspace select { margin-top:5px; }
+.order-workspace > span { align-self:center; color:var(--muted); font-size:12px; white-space:nowrap; }
+@media (max-width: 850px) {
+  .order-workspace { grid-template-columns:1fr 1fr; }
+  .order-workspace > div, .order-workspace > span { grid-column:1 / -1; }
+  .order-workspace > span { white-space:normal; }
+}
 .button-link { display: inline-flex; align-items: center; min-height: 39px; padding: 10px 13px; border-radius: 8px; background: var(--green); color: #fff; font-weight: 700; text-decoration: none; }
 .secondary-link { background: #e9eeea; color: var(--ink); }
 .eyebrow { margin: 0 0 5px; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .12em; }

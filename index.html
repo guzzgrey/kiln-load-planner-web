@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
-    <link rel="stylesheet" href="styles.css?v=readable-plan-v1" />
+    <link rel="stylesheet" href="styles.css?v=multi-order-v1" />
   </head>
   <body>
     <main class="wrap">
@@ -21,6 +21,16 @@
           <button id="downloadPdf" class="pdf-button" type="button">Download PDF Report</button>
         </div>
       </header>
+
+      <section class="order-workspace" aria-label="Production orders">
+        <div>
+          <label for="orderSelector">Open production order</label>
+          <select id="orderSelector"></select>
+        </div>
+        <button id="saveOrder" class="secondary" type="button">Save current order</button>
+        <button id="newOrder" type="button">+ New order</button>
+        <span id="orderSaveState">Saved locally and synchronized</span>
+      </section>
 
       <section class="conditions">
         <div class="condition">
@@ -331,6 +341,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=shared-production-v2" data-app="app.js?v=readable-plan-v1"></script>
+    <script src="cloud-sync.js?v=multi-order-v1" data-app="app.js?v=multi-order-v1"></script>
   </body>
 </html>

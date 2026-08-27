@@ -24,14 +24,90 @@ const SUPPLIER_PROFILE_STORAGE = 'kiln-planner-supplier-profiles-v1';
 const LAST_SUPPLIER_STORAGE = 'kiln-planner-last-supplier-v1';
 const COMPLETED_CYCLES_STORAGE = 'kiln-planner-completed-cycles-v1';
 const ACTIVE_ORDER_STORAGE = 'kiln-planner-active-order-v1';
+const ORDER_INDEX_STORAGE = 'kiln-planner-order-index-v1';
+const ORDER_STORAGE_PREFIX = 'kiln-planner-order-v1:';
 let completingLoadNumber = null;
 let activeOrder = null;
+let draftSaveTimer = 0;
 
 function newOrderNumber() {
   return `ORD-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${String(Date.now()).slice(-4)}`;
 }
 function readActiveOrder() {
   try { return JSON.parse(localStorage.getItem(ACTIVE_ORDER_STORAGE) || 'null'); } catch (_) { return null; }
+}
+function orderStorageKey(id) { return `${ORDER_STORAGE_PREFIX}${id}`; }
+function readOrderIndex() {
+  try {
+    const value = JSON.parse(localStorage.getItem(ORDER_INDEX_STORAGE) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch (_) { return []; }
+}
+function orderMetadata(order) {
+  return { id: order.id, number: order.number, supplier: order.inputs?.supplier || '', status: order.status || 'active', updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(), plannedCycles: order.plannedCycles || 0 };
+}
+function storeOrder(order) {
+  if (!order?.id) return;
+  localStorage.setItem(orderStorageKey(order.id), JSON.stringify(order));
+  const index = readOrderIndex();
+  const metadata = orderMetadata(order);
+  const position = index.findIndex((item) => item.id === order.id);
+  if (position >= 0) index[position] = metadata; else index.push(metadata);
+  index.sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+  localStorage.setItem(ORDER_INDEX_STORAGE, JSON.stringify(index));
+}
+function readStoredOrder(id) {
+  try { return JSON.parse(localStorage.getItem(orderStorageKey(id)) || 'null'); } catch (_) { return null; }
+}
+function renderOrderSelector() {
+  const selector = $('orderSelector');
+  if (!selector || !activeOrder) return;
+  let index = readOrderIndex();
+  if (!index.some((item) => item.id === activeOrder.id)) {
+    storeOrder(activeOrder);
+    index = readOrderIndex();
+  }
+  selector.innerHTML = index.filter((item) => item.status !== 'completed').map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === activeOrder.id ? 'selected' : ''}>${escapeHtml(item.number || 'Untitled order')} · ${escapeHtml(item.supplier || 'supplier not entered')} · ${item.plannedCycles || 0} loads</option>`).join('');
+}
+function scheduleDraftSave() {
+  window.clearTimeout(draftSaveTimer);
+  $('orderSaveState').textContent = 'Unsaved changes…';
+  draftSaveTimer = window.setTimeout(() => {
+    if (calculationDirty) {
+      activeOrder.calculated = false;
+      delete activeOrder.viewCache;
+    }
+    persistActiveOrder(false);
+    $('orderSaveState').textContent = 'Draft saved and synchronized';
+  }, 450);
+}
+async function switchOrder(id) {
+  if (!id || id === activeOrder?.id) return;
+  window.clearTimeout(draftSaveTimer);
+  persistActiveOrder(false);
+  const next = readStoredOrder(id);
+  if (!next) return;
+  localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(next));
+  $('orderSaveState').textContent = 'Opening order…';
+  if (window.kilnCloudFlush) await window.kilnCloudFlush();
+  window.location.reload();
+}
+async function createOrder() {
+  window.clearTimeout(draftSaveTimer);
+  persistActiveOrder(false);
+  const suggested = newOrderNumber();
+  const number = window.prompt('Enter the new order / batch number:', suggested)?.trim();
+  if (!number) return;
+  if (readOrderIndex().some((item) => String(item.number).toLowerCase() === number.toLowerCase() && item.status !== 'completed')) {
+    window.alert('An active order with this number already exists. Open it from the list.');
+    return;
+  }
+  const order = { id: `order-${Date.now()}`, number, status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inventory: {}, liftStickerOverrides: {} };
+  storeOrder(order);
+  localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(order));
+  $('orderSaveState').textContent = 'Creating and synchronizing order…';
+  if (window.kilnCloudFlush) await window.kilnCloudFlush();
+  window.location.reload();
 }
 function inputSnapshot() {
   const ids = ['supplier','supplierClearance','species','size','customT','customW','batchProfile','kiln','height','maxStack','metalBox','actualT','actualW','liftWidth','sticker','topSticker'];
@@ -82,7 +158,9 @@ function persistActiveOrder(calculated = false) {
     activeOrder.viewCache = cacheRenderedCalculation();
   }
   localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(activeOrder));
+  storeOrder(activeOrder);
   $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
+  renderOrderSelector();
 }
 
 function readCompletedCycles() {
@@ -201,6 +279,7 @@ function markCalculationPending() {
 
 function runCalculation() {
   if (calculationRunning) return;
+  window.clearTimeout(draftSaveTimer);
   calculationRunning = true;
   const button = $('calc');
   const status = $('calculationStatus');
@@ -304,7 +383,10 @@ function addRow(length, quantity = 0) {
 
   $('inventory').appendChild(row);
   row.querySelectorAll('input').forEach((input) => {
-    input.addEventListener('input', markCalculationPending);
+    input.addEventListener('input', () => {
+      markCalculationPending();
+      scheduleDraftSave();
+    });
   });
 
   const quantityInput = row.querySelector('.qty');
@@ -2002,10 +2084,19 @@ function bindEvents() {
     $('loadNumber').textContent = '1';
     renderLoadNavigation();
     markCalculationPending();
+    scheduleDraftSave();
   };
 
   $('calc').addEventListener('click', runCalculation);
+  $('orderNumber').addEventListener('input', scheduleDraftSave);
   $('orderNumber').addEventListener('change', () => persistActiveOrder(false));
+  $('orderSelector').addEventListener('change', (event) => switchOrder(event.target.value));
+  $('newOrder').addEventListener('click', createOrder);
+  $('saveOrder').addEventListener('click', () => {
+    window.clearTimeout(draftSaveTimer);
+    persistActiveOrder(false);
+    $('orderSaveState').textContent = 'Order saved and synchronized';
+  });
   $('nextLoad').addEventListener('click', loadRemainingInventory);
   $('previousLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber - 1));
   $('nextSavedLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber + 1));
@@ -2014,6 +2105,7 @@ function bindEvents() {
   $('addLength').addEventListener('click', () => {
     addRow(8, 0);
     markCalculationPending();
+    scheduleDraftSave();
   });
   $('clear').addEventListener('click', clearInventory);
   $('clearTop').addEventListener('click', clearInventory);
@@ -2033,8 +2125,8 @@ function bindEvents() {
 
   ['supplier', 'supplierClearance', 'species', 'size', 'batchProfile', 'kiln', 'height', 'maxStack', 'metalBox', 'liftWidth', 'sticker', 'topSticker']
     .forEach((id) => {
-      $(id).addEventListener('input', markCalculationPending);
-      $(id).addEventListener('change', markCalculationPending);
+      $(id).addEventListener('input', () => { markCalculationPending(); scheduleDraftSave(); });
+      $(id).addEventListener('change', () => { markCalculationPending(); scheduleDraftSave(); });
     });
 
   $('supplier').addEventListener('change', () => {
@@ -2065,6 +2157,7 @@ function bindEvents() {
     $(id).addEventListener('input', () => {
       $('batchProfile').value = 'manual';
       markCalculationPending();
+      scheduleDraftSave();
     });
   });
 
@@ -2076,6 +2169,7 @@ function bindEvents() {
         $('actualW').value = $('customW').value;
       }
       markCalculationPending();
+      scheduleDraftSave();
     });
   });
 }
@@ -2104,7 +2198,11 @@ function init() {
   // order here creates a new cloud revision and can make two open clients
   // continuously refresh one another.
   if (!savedOrder) persistActiveOrder(false);
-  else $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
+  else {
+    storeOrder(activeOrder);
+    $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
+  }
+  renderOrderSelector();
   if (activeOrder.calculated && !restoreRenderedCalculation()) runCalculation();
 }
 

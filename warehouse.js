@@ -5,6 +5,8 @@ const SHIPMENTS_KEY = 'kiln-planner-shipments-v1';
 const FINAL_DATE_KEY = 'kiln-planner-final-process-date-v1';
 const ACTIVE_ORDER_KEY = 'kiln-planner-active-order-v1';
 const ORDER_ARCHIVE_KEY = 'kiln-planner-order-archive-v1';
+const ORDER_INDEX_KEY = 'kiln-planner-order-index-v1';
+const ORDER_PREFIX = 'kiln-planner-order-v1:';
 const $ = (id) => document.getElementById(id);
 
 function read(key) {
@@ -319,6 +321,13 @@ function completeActiveOrder() {
   const archive = read(ORDER_ARCHIVE_KEY);
   archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, unprocessed: ledger.incoming - ledger.processed, rows: ledger.rows, completedAt: new Date().toISOString() });
   write(ORDER_ARCHIVE_KEY, archive);
+  const completedOrder = { ...ledger.order, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  localStorage.setItem(`${ORDER_PREFIX}${completedOrder.id}`, JSON.stringify(completedOrder));
+  const index = read(ORDER_INDEX_KEY);
+  const position = index.findIndex((item) => item.id === completedOrder.id);
+  const metadata = { id: completedOrder.id, number: completedOrder.number, supplier: completedOrder.inputs?.supplier || '', status: 'completed', updatedAt: completedOrder.updatedAt, plannedCycles: completedOrder.plannedCycles || 0 };
+  if (position >= 0) index[position] = metadata; else index.push(metadata);
+  write(ORDER_INDEX_KEY, index);
   localStorage.removeItem(ACTIVE_ORDER_KEY);
   localStorage.removeItem(FINAL_DATE_KEY);
   renderOrderLedger();

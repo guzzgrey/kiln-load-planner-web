@@ -445,6 +445,56 @@ function runCalculation() {
   }, 30));
 }
 
+function applyManualLiftChanges() {
+  if (calculationRunning) return;
+  if (!globalOrderPlans.length) {
+    runCalculation();
+    return;
+  }
+  window.clearTimeout(draftSaveTimer);
+  calculationRunning = true;
+  const button = $('applyLiftChanges');
+  const status = $('calculationStatus');
+  button.disabled = true;
+  button.classList.add('is-loading');
+  status.className = 'calculation-status loading';
+  status.innerHTML = '<i></i><span>Applying manual lift configuration…</span>';
+
+  requestAnimationFrame(() => window.setTimeout(() => {
+    try {
+      const physicalKilnLength = Math.floor(num('kiln'));
+      const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
+      const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
+      const selectedMetal = Math.floor(Number($('metalBox').value));
+      const maxStack = Math.floor(num('maxStack'));
+      const geometry = computeGeometry();
+      const originalStock = readInventory();
+      const savedPlans = globalOrderPlans.map(restorePlanTypes);
+      globalOrderPlans = applyLiftTargetOverrides(
+        applyLiftStickerOverrides(savedPlans, originalStock, geometry),
+        originalStock,
+        geometry,
+      ).map(restorePlanTypes);
+      globalOrderSignature = orderSignature(originalStock, geometry, kilnLength, maxStack, selectedMetal);
+      currentLoadNumber = Math.min(currentLoadNumber, Math.max(1, globalOrderPlans.length));
+      calculate(false);
+      persistActiveOrder(true);
+      calculationDirty = false;
+      status.className = 'calculation-status ready';
+      status.textContent = 'Manual lift settings applied to calculation, inventory balance, and visualization.';
+      $('calc').textContent = 'Recalculate Load';
+    } catch (error) {
+      console.error('Manual lift configuration failed:', error);
+      status.className = 'calculation-status pending';
+      status.textContent = `Manual changes could not be applied: ${error?.message || 'check the lift settings.'}`;
+    } finally {
+      calculationRunning = false;
+      button.disabled = false;
+      button.classList.remove('is-loading');
+    }
+  }, 30));
+}
+
 function num(id) {
   return Math.max(0, Number($(id).value) || 0);
 }
@@ -1224,7 +1274,7 @@ function usableInventoryFeet(stock, across) {
 }
 
 function orderSignature(stock, geometry, kilnLength, maxStack, selectedMetal) {
-  return JSON.stringify({ stock: [...stock.entries()], rows: geometry.rows, across: geometry.across, kilnLength, maxStack, selectedMetal, liftStickers: [...manualLiftStickers] });
+  return JSON.stringify({ stock: [...stock.entries()], rows: geometry.rows, across: geometry.across, kilnLength, maxStack, selectedMetal, liftStickers: [...manualLiftStickers], liftTargets: [...manualLiftTargets] });
 }
 
 function linearModelToLp(constraints, variables, ints) {
@@ -1719,9 +1769,6 @@ function renderLiftEditor(states, geometry) {
       const next = Number(input.value);
       if (Math.abs(next - base) < 1e-9) manualLiftStickers.delete(input.dataset.key);
       else manualLiftStickers.set(input.dataset.key, next);
-      globalOrderSignature = '';
-      activeOrder.calculated = false;
-      delete activeOrder.viewCache;
       persistActiveOrder(false);
       markCalculationPending();
     });
@@ -1732,8 +1779,6 @@ function renderLiftEditor(states, geometry) {
       const maximum = Number(input.max);
       const value = Math.max(minimum, Math.min(maximum, Math.floor(Number(input.value) || minimum)));
       manualLiftTargets.set(input.dataset.key, value);
-      activeOrder.calculated = false;
-      delete activeOrder.viewCache;
       persistActiveOrder(false);
       markCalculationPending();
     });
@@ -2311,7 +2356,7 @@ function bindEvents() {
   };
 
   $('calc').addEventListener('click', runCalculation);
-  $('applyLiftChanges').addEventListener('click', runCalculation);
+  $('applyLiftChanges').addEventListener('click', applyManualLiftChanges);
   $('orderNumber').addEventListener('input', scheduleDraftSave);
   $('orderNumber').addEventListener('change', () => persistActiveOrder(false));
   $('orderSelector').addEventListener('change', (event) => switchOrder(event.target.value));

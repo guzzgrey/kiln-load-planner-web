@@ -661,6 +661,14 @@ function geometryForSticker(sticker, baseGeometry = computeGeometry()) {
   return { ...baseGeometry, rows, usedHeight, lines: rows * baseGeometry.across, sticker };
 }
 
+function physicalHeightForRows(rows, sticker) {
+  const count = Math.max(0, Math.floor(Number(rows) || 0));
+  if (!count) return 0;
+  const boardThickness = num('actualT');
+  const hasTopSticker = Number($('topSticker').value) > 0;
+  return count * boardThickness + (hasTopSticker ? count : Math.max(0, count - 1)) * sticker;
+}
+
 function liftStickerKey(loadNumber, state, index) {
   return `${loadNumber}:${index}:${state.length}`;
 }
@@ -1793,17 +1801,22 @@ function renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance 
   const activeStates = sortStatesByHeight(bestPlan.activeStates || bestPlan.states.filter((state) => state.rowSequence.length > 0));
   const woodTotal = activeStates.reduce((sum, state) => sum + state.length, 0);
   const woodGap = Math.max(0, kilnLength - woodTotal);
+  const measuredHeights = activeStates.map((state, index) => {
+    const stateGeometry = liftGeometry(state, index, geometry);
+    return physicalHeightForRows(state.rowSequence.length, state.stickerThickness || stateGeometry.sticker);
+  });
+  const tallestMeasuredHeight = measuredHeights.length ? Math.max(...measuredHeights) : 0;
+  const LEVEL_MATCH_TOLERANCE_IN = 1;
 
   activeStates.forEach((state, index) => {
     const stateGeometry = liftGeometry(state, index, geometry);
     const rowCapacity = state.rowCapacity || stateGeometry.rows;
-    const usedHeight = state.usedHeight || stateGeometry.usedHeight;
-    const fillRatio = num('height') > 0 ? usedHeight / num('height') : 0;
+    const measuredHeight = measuredHeights[index];
+    const levelMatched = tallestMeasuredHeight - measuredHeight <= LEVEL_MATCH_TOLERANCE_IN;
+    const displayedHeight = levelMatched ? tallestMeasuredHeight : measuredHeight;
+    const fillRatio = num('height') > 0 ? displayedHeight / num('height') : 0;
     const stackLength = state.length;
-    const capacityLines = rowCapacity * geometry.across;
-    const readyLines = state.rowSequence.length * geometry.across;
-    const materialFill = capacityLines ? readyLines / capacityLines : 0;
-    const fillPercent = 100 * fillRatio * materialFill;
+    const fillPercent = Math.min(100, 100 * fillRatio);
 
     const lift = document.createElement('div');
     lift.className = 'lift';
@@ -1823,7 +1836,7 @@ function renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance 
     lift.innerHTML = `
       <div class="lift-rows">${rowBands}</div>
       <div class="lift-empty" style="height:${100 - fillPercent}%"></div>
-      <div class="lift-label">Lift ${index + 1} · ${stackLength} ft maximum<br>${rowSummary}<br>${geometry.across} boards across</div>
+      <div class="lift-label">Lift ${index + 1} · ${stackLength} ft maximum<br>${rowSummary}<br>${state.rowSequence.length} rows · ${fmtMeasure(measuredHeight)}${levelMatched && activeStates.length > 1 ? ' · level matched' : ''}<br>${geometry.across} boards across</div>
     `;
     container.appendChild(lift);
   });

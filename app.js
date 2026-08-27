@@ -2225,7 +2225,6 @@ function init() {
   // continuously refresh one another.
   if (!savedOrder) persistActiveOrder(false);
   else {
-    storeOrder(activeOrder);
     $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
   }
   renderOrderSelector();

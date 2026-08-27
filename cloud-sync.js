@@ -39,6 +39,22 @@
     try { return JSON.parse(raw); } catch (_) { return raw; }
   }
   function json(value) { return JSON.stringify(value); }
+  function normalizeJson(value) {
+    if (Array.isArray(value)) return value.map(normalizeJson);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalizeJson(value[key])]));
+    }
+    return value;
+  }
+  function sameStoredValue(left, right) {
+    if (left === right) return true;
+    if (left === null || right === null) return false;
+    try {
+      return JSON.stringify(normalizeJson(JSON.parse(left))) === JSON.stringify(normalizeJson(JSON.parse(right)));
+    } catch (_) {
+      return false;
+    }
+  }
 
   function addStatus(text, state = 'online') {
     let bar = document.getElementById('cloudStatusBar');
@@ -160,7 +176,7 @@
       if (revision) seenRevisions.set(key, revision);
       const remoteValue = payload.new ? (typeof payload.new.value === 'string' ? payload.new.value : json(payload.new.value)) : null;
       const localValue = localStorage.getItem(key);
-      if (remoteValue === localValue || (remoteValue === null && localValue === null)) return;
+      if (sameStoredValue(remoteValue, localValue)) return;
       if (remoteValue === null) removeLocal(key); else setLocal(key, remoteValue);
       addStatus('Updated on another computer — refreshing…', 'online');
       if (reloadScheduled) return;

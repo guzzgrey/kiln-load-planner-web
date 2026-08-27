@@ -6,7 +6,7 @@ const DEFAULT_LENGTHS = Array.from(
 );
 const DEFAULT_QUANTITIES = new Map([
   [6, 36], [7, 106], [8, 522], [9, 104], [10, 1079], [11, 88],
-  [12, 320], [13, 78], [14, 240], [16, 240], [18, 264], [19, 184], [20, 328],
+  [12, 320], [13, 78], [14, 240], [16, 226], [18, 264], [19, 184], [20, 328],
 ]);
 const $ = (id) => document.getElementById(id);
 let currentLoadNumber = 1;
@@ -64,6 +64,30 @@ function storeOrder(order) {
 }
 function readStoredOrder(id) {
   try { return JSON.parse(localStorage.getItem(orderStorageKey(id)) || 'null'); } catch (_) { return null; }
+}
+function recoverWestminster334605(order) {
+  if (!order || order.recoveryVersion === 'ord-334605-v1') return order;
+  const number = String(order.number || '').toUpperCase().replace(/\s+/g, '');
+  const supplier = String(order.inputs?.supplier || '').toLowerCase();
+  const inventoryTotal = Object.values(order.inventory || {}).reduce((sum, quantity) => sum + Math.max(0, Number(quantity) || 0), 0);
+  const matchingOrder = number === 'ORD-334605' || number === '334605';
+  const matchingSupplier = supplier.includes('westminster');
+  if (!matchingOrder || inventoryTotal !== 0) return order;
+  if (!matchingSupplier) order.inputs = { ...(order.inputs || {}), supplier: 'Westminster', supplierClearance: '1' };
+
+  order.inventory = Object.fromEntries(DEFAULT_QUANTITIES);
+  order.calculated = false;
+  order.plannedCycles = 0;
+  order.plannedBoards = 0;
+  order.plannedBf = 0;
+  order.updatedAt = new Date().toISOString();
+  order.recoveryVersion = 'ord-334605-v1';
+  delete order.planSignature;
+  delete order.calculatedAt;
+  delete order.viewCache;
+  storeOrder(order);
+  writeActiveOrderPointer(order);
+  return order;
 }
 function renderOrderSelector() {
   const selector = $('orderSelector');
@@ -2314,7 +2338,7 @@ function bindEvents() {
 }
 
 function init() {
-  const savedOrder = readActiveOrder();
+  const savedOrder = recoverWestminster334605(readActiveOrder());
   activeOrder = savedOrder;
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, number: newOrderNumber(), status: 'active', createdAt: new Date().toISOString(), inventory: {} };
   Object.entries(activeOrder.liftStickerOverrides || {}).forEach(([key, value]) => {

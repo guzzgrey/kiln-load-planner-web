@@ -119,8 +119,20 @@ const CACHED_TEXT_IDS = ['rows','lines','needPieces','capacity','capacityLabel',
 function serializeLoadRecords() {
   return [...loadRecords.values()].map((record) => ({ ...record, available: Object.fromEntries(record.available), used: Object.fromEntries(record.used), remaining: Object.fromEntries(record.remaining) }));
 }
+function serializeCalculatedPlans() {
+  return JSON.stringify(globalOrderPlans, (_, value) => value instanceof Map ? { __kilnMap: [...value] } : value);
+}
+function deserializeCalculatedPlans(value) {
+  if (!value) return [];
+  try {
+    const plans = JSON.parse(value, (_, item) => item && Array.isArray(item.__kilnMap) ? new Map(item.__kilnMap) : item);
+    return Array.isArray(plans) ? plans : [];
+  } catch (_) {
+    return [];
+  }
+}
 function cacheRenderedCalculation() {
-  return { currentLoadNumber, html: Object.fromEntries(CACHED_HTML_IDS.map((id) => [id, $(id)?.innerHTML || ''])), text: Object.fromEntries(CACHED_TEXT_IDS.map((id) => [id, $(id)?.textContent || ''])), inventoryCells: [...document.querySelectorAll('#inventory tr')].map((row) => ({ before: row.querySelector('.before')?.textContent || '0', used: row.querySelector('.used')?.textContent || '0', remain: row.querySelector('.remain')?.textContent || '0' })), records: serializeLoadRecords() };
+  return { currentLoadNumber, signature: globalOrderSignature, plans: serializeCalculatedPlans(), html: Object.fromEntries(CACHED_HTML_IDS.map((id) => [id, $(id)?.innerHTML || ''])), text: Object.fromEntries(CACHED_TEXT_IDS.map((id) => [id, $(id)?.textContent || ''])), inventoryCells: [...document.querySelectorAll('#inventory tr')].map((row) => ({ before: row.querySelector('.before')?.textContent || '0', used: row.querySelector('.used')?.textContent || '0', remain: row.querySelector('.remain')?.textContent || '0' })), records: serializeLoadRecords() };
 }
 function restoreRenderedCalculation() {
   const cache = activeOrder?.viewCache;
@@ -132,6 +144,8 @@ function restoreRenderedCalculation() {
   cache.records.forEach((record) => loadRecords.set(record.number, { ...record, available: new Map(Object.entries(record.available || {}).map(([k,v]) => [Number(k),v])), used: new Map(Object.entries(record.used || {}).map(([k,v]) => [Number(k),v])), remaining: new Map(Object.entries(record.remaining || {}).map(([k,v]) => [Number(k),v])) }));
   currentLoadNumber = Number(cache.currentLoadNumber || 1);
   currentLoadSnapshot = loadRecords.get(currentLoadNumber) || loadRecords.get(1);
+  globalOrderPlans = deserializeCalculatedPlans(cache.plans);
+  globalOrderSignature = globalOrderPlans.length ? (cache.signature || activeOrder.planSignature || '') : '';
   $('loadNumber').textContent = currentLoadNumber;
   $('nextLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
   renderLoadNavigation();
@@ -2061,6 +2075,18 @@ function saveCompletedCycle(event) {
 function selectSavedLoad(loadNumber) {
   const snapshot = loadRecords.get(loadNumber);
   if (!snapshot || loadNumber === currentLoadNumber) return;
+  if (calculationDirty) {
+    const status = $('calculationStatus');
+    status.className = 'calculation-status pending';
+    status.textContent = 'Inputs changed — click Calculate Load before opening another saved kiln load.';
+    return;
+  }
+  if (!globalOrderPlans.length || !globalOrderSignature) {
+    const status = $('calculationStatus');
+    status.className = 'calculation-status pending';
+    status.textContent = 'This older saved result has no reusable plan data. Click Calculate Load once to save the complete plan.';
+    return;
+  }
   const scrollPosition = window.scrollY;
   currentLoadNumber = loadNumber;
   calculate();
@@ -2203,7 +2229,12 @@ function init() {
     $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
   }
   renderOrderSelector();
-  if (activeOrder.calculated && !restoreRenderedCalculation()) runCalculation();
+  if (activeOrder.calculated && !restoreRenderedCalculation()) {
+    activeOrder.calculated = false;
+    const status = $('calculationStatus');
+    status.className = 'calculation-status pending';
+    status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
+  }
 }
 
 init();

@@ -612,7 +612,7 @@ function canTakePattern(stock, pattern, across) {
   return [...needed].every(([length, quantity]) => (stock.get(length) || 0) >= quantity);
 }
 
-function takePattern(stock, pattern, across) {
+function takePatternAcross(stock, pattern, across) {
   pattern.forEach((length) => stock.set(length, (stock.get(length) || 0) - across));
 }
 
@@ -629,13 +629,13 @@ function applyLiftStickerOverrides(plans, sourceStock, geometry) {
       const rowSequence = [];
       for (const row of sourceState.rowSequence.slice(0, stateGeometry.rows)) {
         if (!canTakePattern(stock, row.pattern, geometry.across)) break;
-        takePattern(stock, row.pattern, geometry.across);
+        takePatternAcross(stock, row.pattern, geometry.across);
         rowSequence.push({ ...row, pattern: [...row.pattern] });
       }
       while (hasOverride && rowSequence.length < stateGeometry.rows) {
         const pattern = [sourceState.length];
         if (!canTakePattern(stock, pattern, geometry.across)) break;
-        takePattern(stock, pattern, geometry.across);
+        takePatternAcross(stock, pattern, geometry.across);
         rowSequence.push({ type: 'solid', pattern });
       }
       rowSequence.forEach((row) => row.pattern.forEach((length) => {

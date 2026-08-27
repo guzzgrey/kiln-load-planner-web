@@ -34,9 +34,15 @@ function newOrderNumber() {
   return `ORD-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${String(Date.now()).slice(-4)}`;
 }
 function readActiveOrder() {
-  try { return JSON.parse(localStorage.getItem(ACTIVE_ORDER_STORAGE) || 'null'); } catch (_) { return null; }
+  try {
+    const value = JSON.parse(localStorage.getItem(ACTIVE_ORDER_STORAGE) || 'null');
+    return value?.orderRef ? readStoredOrder(value.orderRef) : value;
+  } catch (_) { return null; }
 }
 function orderStorageKey(id) { return `${ORDER_STORAGE_PREFIX}${id}`; }
+function writeActiveOrderPointer(order) {
+  localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify({ orderRef: order.id }));
+}
 function readOrderIndex() {
   try {
     const value = JSON.parse(localStorage.getItem(ORDER_INDEX_STORAGE) || '[]');
@@ -87,7 +93,7 @@ async function switchOrder(id) {
   persistActiveOrder(false);
   const next = readStoredOrder(id);
   if (!next) return;
-  localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(next));
+  writeActiveOrderPointer(next);
   $('orderSaveState').textContent = 'Opening order…';
   if (window.kilnCloudFlush) await window.kilnCloudFlush();
   window.location.reload();
@@ -104,7 +110,7 @@ async function createOrder() {
   }
   const order = { id: `order-${Date.now()}`, number, status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inventory: {}, liftStickerOverrides: {} };
   storeOrder(order);
-  localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(order));
+  writeActiveOrderPointer(order);
   $('orderSaveState').textContent = 'Creating and synchronizing order…';
   if (window.kilnCloudFlush) await window.kilnCloudFlush();
   window.location.reload();
@@ -120,7 +126,36 @@ function serializeLoadRecords() {
   return [...loadRecords.values()].map((record) => ({ ...record, available: Object.fromEntries(record.available), used: Object.fromEntries(record.used), remaining: Object.fromEntries(record.remaining) }));
 }
 function serializeCalculatedPlans() {
-  return JSON.stringify(globalOrderPlans, (_, value) => value instanceof Map ? { __kilnMap: [...value] } : value);
+  const compactPlans = globalOrderPlans.map((plan) => ({
+    stock: plan.stock,
+    availableStock: plan.availableStock,
+    usedMap: plan.usedMap,
+    usedFt: plan.usedFt,
+    complete: plan.complete,
+    activeLength: plan.activeLength,
+    minRows: plan.minRows,
+    maxRows: plan.maxRows,
+    fullLifts: plan.fullLifts,
+    metal: plan.metal,
+    target: plan.target,
+    chamberGap: plan.chamberGap,
+    completeLoad: plan.completeLoad,
+    valid: plan.valid,
+    heightSpread: plan.heightSpread,
+    stability: plan.stability,
+    activeStates: (plan.activeStates || []).map((state) => ({
+      length: state.length,
+      index: state.index,
+      rowCapacity: state.rowCapacity,
+      stickerThickness: state.stickerThickness,
+      usedHeight: state.usedHeight,
+      rowsLeft: state.rowsLeft,
+      linesLeft: state.linesLeft,
+      groups: state.groups,
+      rowSequence: state.rowSequence,
+    })),
+  }));
+  return JSON.stringify(compactPlans, (_, value) => value instanceof Map ? { __kilnMap: [...value] } : value);
 }
 function deserializeCalculatedPlans(value) {
   if (!value) return [];
@@ -202,8 +237,8 @@ function persistActiveOrder(calculated = false) {
     activeOrder.optimizerVersion = 'minimum-cycles-v1';
     activeOrder.viewCache = cacheRenderedCalculation();
   }
-  localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(activeOrder));
   storeOrder(activeOrder);
+  writeActiveOrderPointer(activeOrder);
   $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
   renderOrderSelector();
 }
@@ -345,7 +380,9 @@ function runCalculation() {
     } catch (error) {
       console.error('Kiln calculation failed:', error);
       status.className = 'calculation-status pending';
-      status.textContent = 'Calculation could not be completed. Check the entered dimensions and quantities, then try again.';
+      status.textContent = error?.name === 'QuotaExceededError'
+        ? 'The optimized plan was created, but browser storage is full. Remove obsolete saved orders and calculate again.'
+        : `Calculation could not be completed: ${error?.message || 'check the entered dimensions and quantities, then try again.'}`;
     } finally {
       calculationRunning = false;
       button.disabled = false;
@@ -1739,10 +1776,10 @@ function calculate(allowOptimization = false) {
   $('geometryPreview').innerHTML = `<strong>Live physical capacity:</strong> ${geometry.across} boards across × ${geometry.rows} rows high = ${geometry.lines} board positions per full lift. Physical batch: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))}.`;
 
   const signature = orderSignature(originalStock, geometry, kilnLength, maxStack, selectedMetal);
-  if (signature !== globalOrderSignature) {
-    if (!allowOptimization) {
-      throw new Error('Optimization is locked. Use the Calculate Load button to create a new plan.');
-    }
+  if (signature !== globalOrderSignature && !allowOptimization) {
+    throw new Error('Optimization is locked. Use the Calculate Load button to create a new plan.');
+  }
+  if (allowOptimization) {
     globalOrderSignature = signature;
     // Use the same proven sequential planner in local files and on the web.
     // The HiGHS global model produced a different plan only after deployment,

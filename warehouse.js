@@ -16,7 +16,13 @@ function read(key) {
 function write(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
 function fmt(value, digits = 0) { return Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }); }
 function esc(value) { return String(value || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-function activeOrder() { try { return JSON.parse(localStorage.getItem(ACTIVE_ORDER_KEY) || 'null'); } catch (_) { return null; } }
+function activeOrder() {
+  try {
+    const value = JSON.parse(localStorage.getItem(ACTIVE_ORDER_KEY) || 'null');
+    if (!value?.orderRef) return value;
+    return JSON.parse(localStorage.getItem(`kiln-planner-order-v1:${value.orderRef}`) || 'null');
+  } catch (_) { return null; }
+}
 function allCompleted() { return read(COMPLETED_KEY); }
 function belongsToOrder(item, order) { return !order || item.orderId === order.id || item.orderId === order.planSignature || item.productionOrderNumber === order.number || item.orderNumber === order.number; }
 function completed() { const order = activeOrder(); return allCompleted().filter((item) => belongsToOrder(item, order)).sort((a, b) => String(a.completedDate).localeCompare(String(b.completedDate)) || a.loadNumber - b.loadNumber); }

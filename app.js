@@ -280,6 +280,7 @@ function persistActiveOrder(calculated = false) {
   activeOrder.inputs = inputSnapshot();
   activeOrder.inventory = inventorySnapshot();
   activeOrder.liftStickerOverrides = Object.fromEntries(manualLiftStickers);
+  activeOrder.liftTargetOverrides = Object.fromEntries(manualLiftTargets);
   if (calculated) {
     activeOrder.calculated = true;
     activeOrder.planSignature = globalOrderSignature;
@@ -679,6 +680,55 @@ function applyLiftStickerOverrides(plans, sourceStock, geometry) {
       completeLoad: plan.chamberGap === 0 && activeStates.length > 0 && activeStates.every((state) => state.rowSequence.length === state.rowCapacity),
       minRows: rowCounts.length ? Math.min(...rowCounts) : 0,
       maxRows: rowCounts.length ? Math.max(...rowCounts) : 0 };
+  }).filter((plan) => plan.usedFt > 0);
+}
+
+function applyLiftTargetOverrides(plans, sourceStock, geometry) {
+  if (!manualLiftTargets.size) return plans;
+  const stock = new Map(sourceStock);
+  return plans.map((plan, planIndex) => {
+    const availableStock = new Map(stock);
+    const usedMap = new Map();
+    const activeStates = (plan.activeStates || []).map((sourceState, stateIndex) => {
+      const key = `${planIndex + 1}:${stateIndex}:${sourceState.length}`;
+      const savedTarget = Number(manualLiftTargets.get(key));
+      const rowCapacity = sourceState.rowCapacity || liftGeometry(sourceState, stateIndex, geometry, planIndex + 1).rows;
+      const targetRows = Number.isFinite(savedTarget)
+        ? Math.max(1, Math.min(rowCapacity, Math.floor(savedTarget)))
+        : sourceState.rowSequence.length;
+      const rowSequence = [];
+      for (const row of sourceState.rowSequence.slice(0, targetRows)) {
+        if (!canTakePattern(stock, row.pattern, geometry.across)) break;
+        takePatternAcross(stock, row.pattern, geometry.across);
+        rowSequence.push({ ...row, pattern: [...row.pattern] });
+      }
+      rowSequence.forEach((row) => row.pattern.forEach((length) => {
+        usedMap.set(length, (usedMap.get(length) || 0) + geometry.across);
+      }));
+      const state = { ...sourceState, rowSequence, rowCapacity };
+      state.rowsLeft = rowCapacity - rowSequence.length;
+      state.linesLeft = state.rowsLeft * geometry.across;
+      state.groups = rebuildGroups(state);
+      return state;
+    }).filter((state) => state.rowSequence.length);
+    const rowCounts = activeStates.map((state) => state.rowSequence.length);
+    const complete = rowCounts.reduce((sum, rows) => sum + rows * geometry.across, 0);
+    const usedFt = [...usedMap].reduce((sum, [length, quantity]) => sum + length * quantity, 0);
+    return {
+      ...plan,
+      states: activeStates,
+      activeStates,
+      availableStock,
+      usedMap,
+      stock: new Map(stock),
+      complete,
+      usedFt,
+      fullLifts: activeStates.filter((state) => state.rowSequence.length === state.rowCapacity).length,
+      completeLoad: plan.chamberGap === 0 && activeStates.length > 0
+        && activeStates.every((state) => state.rowSequence.length === state.rowCapacity),
+      minRows: rowCounts.length ? Math.min(...rowCounts) : 0,
+      maxRows: rowCounts.length ? Math.max(...rowCounts) : 0,
+    };
   }).filter((plan) => plan.usedFt > 0);
 }
 
@@ -1613,10 +1663,9 @@ function liftTargetKey(state, index) {
 }
 
 function targetRowsForLift(state, index, geometry) {
-  const availableRows = state.rowSequence.length;
   const capacity = state.rowCapacity || liftGeometry(state, index, geometry).rows;
   const saved = manualLiftTargets.get(liftTargetKey(state, index));
-  return Math.max(availableRows, Math.min(capacity, Number.isFinite(saved) ? saved : capacity));
+  return Math.max(1, Math.min(capacity, Number.isFinite(saved) ? saved : state.rowSequence.length));
 }
 
 function requiredBoardsForTargetHeight(states, geometry) {
@@ -1655,7 +1704,7 @@ function renderLiftEditor(states, geometry) {
       <td><input class="lift-sticker" type="number" min="0.25" max="2" step="0.03125" value="${stateGeometry.sticker}" data-key="${liftStickerKey(currentLoadNumber, state, index)}"></td>
       <td>${availableRows} / ${stateGeometry.rows}</td>
       <td>${fmtMeasure(stateGeometry.usedHeight)}</td>
-      <td><input class="lift-target-rows" type="number" min="${availableRows}" max="${stateGeometry.rows}" step="1" value="${targetRows}" data-key="${liftTargetKey(state, index)}"></td>
+      <td><input class="lift-target-rows" type="number" min="1" max="${stateGeometry.rows}" step="1" value="${targetRows}" data-key="${liftTargetKey(state, index)}"></td>
       <td>${rowsToAdd}</td>
       <td>${rowsToAdd * geometry.across}</td>
       <td><span class="pill ${rowsToAdd ? 'warn' : 'good'}">${rowsToAdd ? 'Fill required' : 'Complete'}</span></td>
@@ -1683,6 +1732,9 @@ function renderLiftEditor(states, geometry) {
       const maximum = Number(input.max);
       const value = Math.max(minimum, Math.min(maximum, Math.floor(Number(input.value) || minimum)));
       manualLiftTargets.set(input.dataset.key, value);
+      activeOrder.calculated = false;
+      delete activeOrder.viewCache;
+      persistActiveOrder(false);
       markCalculationPending();
     });
   });
@@ -1837,8 +1889,12 @@ function calculate(allowOptimization = false) {
     // Use the same proven sequential planner in local files and on the web.
     // The HiGHS global model produced a different plan only after deployment,
     // because its WASM module cannot initialize from file:// URLs.
-    globalOrderPlans = applyLiftStickerOverrides(
-      solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal),
+    globalOrderPlans = applyLiftTargetOverrides(
+      applyLiftStickerOverrides(
+        solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal),
+        originalStock,
+        geometry,
+      ),
       originalStock,
       geometry,
     ).map(restorePlanTypes);
@@ -1908,7 +1964,11 @@ function calculate(allowOptimization = false) {
   const target = bestPlan.target;
   const totalBf = [...originalStock.entries()].reduce((sum, [length, qty]) => sum + bf(length, qty), 0);
   const usedBf = bf(1, bestPlan.usedFt || 0);
-  const globalPlanSelected = globalOrderPlans.includes(bestPlan);
+  // restorePlanTypes returns a normalized copy, so object identity cannot be
+  // used to decide whether this is a saved cycle. Use the selected index.
+  // Otherwise Kiln Load N displays cumulative boards from loads 1..N as the
+  // current cycle output.
+  const globalPlanSelected = Boolean(globalOrderPlans[currentLoadNumber - 1]);
   const usedByLength = globalPlanSelected
     ? new Map(bestPlan.usedMap)
     : new Map([...originalStock.entries()].map(([length, qty]) => [
@@ -2251,6 +2311,7 @@ function bindEvents() {
   };
 
   $('calc').addEventListener('click', runCalculation);
+  $('applyLiftChanges').addEventListener('click', runCalculation);
   $('orderNumber').addEventListener('input', scheduleDraftSave);
   $('orderNumber').addEventListener('change', () => persistActiveOrder(false));
   $('orderSelector').addEventListener('change', (event) => switchOrder(event.target.value));
@@ -2345,6 +2406,10 @@ function init() {
     const sticker = Number(value);
     if (Number.isFinite(sticker) && sticker > 0) manualLiftStickers.set(key, sticker);
   });
+  Object.entries(activeOrder.liftTargetOverrides || {}).forEach(([key, value]) => {
+    const rows = Math.floor(Number(value));
+    if (Number.isFinite(rows) && rows > 0) manualLiftTargets.set(key, rows);
+  });
   $('orderNumber').value = activeOrder.number || newOrderNumber();
   if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
   try {
@@ -2365,11 +2430,17 @@ function init() {
     $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
   }
   renderOrderSelector();
-  if (activeOrder.calculated && !restoreRenderedCalculation()) {
-    activeOrder.calculated = false;
-    const status = $('calculationStatus');
-    status.className = 'calculation-status pending';
-    status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
+  if (activeOrder.calculated) {
+    if (!restoreRenderedCalculation()) {
+      activeOrder.calculated = false;
+      const status = $('calculationStatus');
+      status.className = 'calculation-status pending';
+      status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
+    } else {
+      // Re-render from the saved plan so restored manual controls receive live
+      // event handlers and always drive the calculation and visualization.
+      calculate(false);
+    }
   }
 }
 

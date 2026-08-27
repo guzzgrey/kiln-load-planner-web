@@ -180,6 +180,7 @@ function restoreRenderedCalculation() {
   calculationDirty = false;
   $('calculationStatus').className = 'calculation-status ready';
   $('calculationStatus').textContent = 'Saved calculation restored. Change an input and click Calculate Load to optimize again.';
+  $('calc').textContent = 'Recalculate Load';
   return true;
 }
 function persistActiveOrder(calculated = false) {
@@ -197,6 +198,8 @@ function persistActiveOrder(calculated = false) {
     activeOrder.plannedCycles = loadRecords.size;
     activeOrder.plannedBoards = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBoards, 0);
     activeOrder.plannedBf = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBf, 0);
+    activeOrder.calculatedAt = new Date().toISOString();
+    activeOrder.optimizerVersion = 'minimum-cycles-v1';
     activeOrder.viewCache = cacheRenderedCalculation();
   }
   localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify(activeOrder));
@@ -317,6 +320,7 @@ function markCalculationPending() {
   if (!status) return;
   status.className = 'calculation-status pending';
   status.textContent = 'Inputs changed — click Calculate Load to optimize the order.';
+  $('calc').textContent = 'Calculate Load';
 }
 
 function runCalculation() {
@@ -332,11 +336,12 @@ function runCalculation() {
 
   requestAnimationFrame(() => window.setTimeout(async () => {
     try {
-      calculate();
+      calculate(true);
       persistActiveOrder(true);
       calculationDirty = false;
       status.className = 'calculation-status ready';
       status.textContent = 'Calculation complete. Change an input and calculate again to create a new plan.';
+      button.textContent = 'Recalculate Load';
     } catch (error) {
       console.error('Kiln calculation failed:', error);
       status.className = 'calculation-status pending';
@@ -1718,7 +1723,7 @@ function renderFinalInventory(plans, originalStock, geometry) {
   `;
 }
 
-function calculate() {
+function calculate(allowOptimization = false) {
   const physicalKilnLength = Math.floor(num('kiln'));
   const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
   const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
@@ -1735,6 +1740,9 @@ function calculate() {
 
   const signature = orderSignature(originalStock, geometry, kilnLength, maxStack, selectedMetal);
   if (signature !== globalOrderSignature) {
+    if (!allowOptimization) {
+      throw new Error('Optimization is locked. Use the Calculate Load button to create a new plan.');
+    }
     globalOrderSignature = signature;
     // Use the same proven sequential planner in local files and on the web.
     // The HiGHS global model produced a different plan only after deployment,
@@ -2117,7 +2125,16 @@ function selectSavedLoad(loadNumber) {
   }
   const scrollPosition = window.scrollY;
   currentLoadNumber = loadNumber;
-  calculate();
+  try {
+    calculate(false);
+  } catch (error) {
+    console.error('Saved kiln load could not be rendered:', error);
+    currentLoadNumber = currentLoadSnapshot?.number || 1;
+    const status = $('calculationStatus');
+    status.className = 'calculation-status pending';
+    status.textContent = 'The saved plan does not match the current inputs. Click Recalculate Load explicitly to replace it.';
+    return;
+  }
   requestAnimationFrame(() => window.scrollTo({ top: scrollPosition, behavior: 'auto' }));
 }
 

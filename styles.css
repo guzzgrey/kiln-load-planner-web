@@ -423,6 +423,8 @@ button.is-loading::after {
 
 .complete-cycle { padding: 7px 9px; white-space: nowrap; font-size: 11px; }
 .complete-cycle.is-complete { background: #d7ecdf; color: var(--green); opacity: 1; }
+.complete-cycle.is-progress { background: var(--green); color: #fff; }
+.load-history article.in-progress { outline: 2px solid var(--green); background: #dff0e6; }
 .cycle-dialog { width: min(760px, calc(100vw - 32px)); border: 0; border-radius: 14px; padding: 0; box-shadow: 0 24px 80px #18221d55; }
 .cycle-dialog::backdrop { background: #18221d99; }
 .cycle-dialog form { padding: 22px; }

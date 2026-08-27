@@ -319,6 +319,10 @@ function isLoadCompleted(loadNumber) {
   return readCompletedCycles().some((record) => record.id === id);
 }
 
+function isLoadInProgress(loadNumber) {
+  return Number(activeOrder?.activeCycleNumber || 0) === Number(loadNumber) && !isLoadCompleted(loadNumber);
+}
+
 function supplierStorageKey(value) {
   return String(value || '').trim().toLocaleLowerCase();
 }
@@ -2262,16 +2266,30 @@ function renderLoadNavigation() {
     historyRow.className = snapshot.number === currentLoadNumber ? 'current' : '';
     historyRow.dataset.load = snapshot.number;
     const completed = isLoadCompleted(snapshot.number);
-    historyRow.innerHTML = `<button class="complete-cycle ${completed ? 'is-complete' : ''}" type="button" ${completed ? 'disabled' : ''}>${completed ? '✓ Completed' : 'Cycle completed'}</button><b>Kiln Load ${snapshot.number}</b><span>${snapshot.layout}</span><span>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</span><span>${fmt(snapshot.remainingBoards)} order boards remaining</span>`;
+    const inProgress = isLoadInProgress(snapshot.number);
+    const actionLabel = completed ? '✓ Completed' : inProgress ? 'Complete cycle' : 'Start cycle';
+    historyRow.classList.toggle('in-progress', inProgress);
+    historyRow.innerHTML = `<button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button><b>Kiln Load ${snapshot.number}</b><span>${snapshot.layout}</span><span>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</span><span>${completed ? 'Processed' : inProgress ? 'In progress · selected independently' : `${fmt(snapshot.remainingBoards)} planned order boards remaining`}</span>`;
     historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
       event.stopPropagation();
-      openCycleCompletion(snapshot.number);
+      if (inProgress) openCycleCompletion(snapshot.number);
+      else startKilnCycle(snapshot.number);
     });
     historyRow.addEventListener('click', () => selectSavedLoad(snapshot.number));
     history.appendChild(historyRow);
   });
   $('previousLoad').disabled = !loadRecords.has(currentLoadNumber - 1);
   $('nextSavedLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
+}
+
+function startKilnCycle(loadNumber) {
+  const snapshot = loadRecords.get(loadNumber);
+  if (!snapshot || isLoadCompleted(loadNumber)) return;
+  activeOrder.activeCycleNumber = loadNumber;
+  activeOrder.activeCycleStartedAt = new Date().toISOString();
+  persistActiveOrder(false);
+  if (loadNumber !== currentLoadNumber) selectSavedLoad(loadNumber);
+  else renderLoadNavigation();
 }
 
 function openCycleCompletion(loadNumber) {
@@ -2314,6 +2332,11 @@ function saveCompletedCycle(event) {
   if (existingIndex >= 0) records[existingIndex] = record;
   else records.push(record);
   writeCompletedCycles(records);
+  if (Number(activeOrder?.activeCycleNumber || 0) === Number(completingLoadNumber)) {
+    delete activeOrder.activeCycleNumber;
+    delete activeOrder.activeCycleStartedAt;
+    persistActiveOrder(false);
+  }
   $('completeCycleDialog').close();
   renderLoadNavigation();
 }

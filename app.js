@@ -131,21 +131,49 @@ function deserializeCalculatedPlans(value) {
     return [];
   }
 }
+function restoreLoadRecordsFromPlans(plans) {
+  if (!plans.length) return false;
+  loadRecords.clear();
+  plans.forEach((plan, index) => {
+    const number = index + 1;
+    const available = plan.availableStock instanceof Map ? plan.availableStock : new Map();
+    const used = plan.usedMap instanceof Map ? plan.usedMap : new Map();
+    const remaining = plan.stock instanceof Map ? plan.stock : new Map();
+    const usedBoards = [...used.values()].reduce((sum, quantity) => sum + quantity, 0);
+    loadRecords.set(number, {
+      number,
+      available: new Map(available),
+      used: new Map(used),
+      remaining: new Map(remaining),
+      usedBoards,
+      remainingBoards: [...remaining.values()].reduce((sum, quantity) => sum + quantity, 0),
+      usedBf: bf(1, Number(plan.usedFt) || 0),
+      valid: plan.valid !== false,
+      layout: (plan.activeStates || []).map((state) => `${state.length} ft`).join(' → ') || '—',
+      global: true,
+    });
+  });
+  return true;
+}
 function cacheRenderedCalculation() {
   return { currentLoadNumber, signature: globalOrderSignature, plans: serializeCalculatedPlans(), html: Object.fromEntries(CACHED_HTML_IDS.map((id) => [id, $(id)?.innerHTML || ''])), text: Object.fromEntries(CACHED_TEXT_IDS.map((id) => [id, $(id)?.textContent || ''])), inventoryCells: [...document.querySelectorAll('#inventory tr')].map((row) => ({ before: row.querySelector('.before')?.textContent || '0', used: row.querySelector('.used')?.textContent || '0', remain: row.querySelector('.remain')?.textContent || '0' })), records: serializeLoadRecords() };
 }
 function restoreRenderedCalculation() {
   const cache = activeOrder?.viewCache;
   if (!cache?.records?.length) return false;
+  const restoredPlans = deserializeCalculatedPlans(cache.plans);
+  if (!restoredPlans.length) return false;
   Object.entries(cache.html || {}).forEach(([id, value]) => { if ($(id)) $(id).innerHTML = value; });
   Object.entries(cache.text || {}).forEach(([id, value]) => { if ($(id)) $(id).textContent = value; });
   [...document.querySelectorAll('#inventory tr')].forEach((row, index) => { const cells = cache.inventoryCells?.[index]; if (!cells) return; row.querySelector('.before').textContent = cells.before; row.querySelector('.used').textContent = cells.used; row.querySelector('.remain').textContent = cells.remain; });
   loadRecords.clear();
   cache.records.forEach((record) => loadRecords.set(record.number, { ...record, available: new Map(Object.entries(record.available || {}).map(([k,v]) => [Number(k),v])), used: new Map(Object.entries(record.used || {}).map(([k,v]) => [Number(k),v])), remaining: new Map(Object.entries(record.remaining || {}).map(([k,v]) => [Number(k),v])) }));
   currentLoadNumber = Number(cache.currentLoadNumber || 1);
-  currentLoadSnapshot = loadRecords.get(currentLoadNumber) || loadRecords.get(1);
-  globalOrderPlans = deserializeCalculatedPlans(cache.plans);
+  globalOrderPlans = restoredPlans;
   globalOrderSignature = globalOrderPlans.length ? (cache.signature || activeOrder.planSignature || '') : '';
+  restoreLoadRecordsFromPlans(globalOrderPlans);
+  currentLoadNumber = loadRecords.has(currentLoadNumber) ? currentLoadNumber : 1;
+  currentLoadSnapshot = loadRecords.get(currentLoadNumber) || loadRecords.get(1);
   $('loadNumber').textContent = currentLoadNumber;
   $('nextLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
   renderLoadNavigation();

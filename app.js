@@ -157,11 +157,40 @@ function serializeCalculatedPlans() {
   }));
   return JSON.stringify(compactPlans, (_, value) => value instanceof Map ? { __kilnMap: [...value] } : value);
 }
+function numericMap(value) {
+  if (value instanceof Map) return new Map(value);
+  if (value && Array.isArray(value.__kilnMap)) return new Map(value.__kilnMap.map(([key, item]) => [Number(key), item]));
+  if (Array.isArray(value)) return new Map(value.map(([key, item]) => [Number(key), item]));
+  if (value && typeof value === 'object') return new Map(Object.entries(value).map(([key, item]) => [Number(key), item]));
+  return new Map();
+}
+function restorePlanTypes(plan) {
+  const availableStock = numericMap(plan?.availableStock);
+  const usedMap = numericMap(plan?.usedMap);
+  let stock = numericMap(plan?.stock);
+  if (!stock.size && availableStock.size) {
+    stock = new Map([...availableStock].map(([length, quantity]) => [
+      length,
+      Math.max(0, Number(quantity || 0) - Number(usedMap.get(length) || 0)),
+    ]));
+  }
+  const activeStates = (plan?.activeStates || plan?.states || []).map((state) => ({
+    ...state,
+    groups: state.groups instanceof Map
+      ? new Map(state.groups)
+      : state.groups?.__kilnMap
+        ? new Map(state.groups.__kilnMap)
+        : new Map(Object.entries(state.groups || {})),
+  }));
+  return { ...plan, stock, availableStock, usedMap, states: activeStates, activeStates };
+}
 function deserializeCalculatedPlans(value) {
   if (!value) return [];
   try {
-    const plans = JSON.parse(value, (_, item) => item && Array.isArray(item.__kilnMap) ? new Map(item.__kilnMap) : item);
-    return Array.isArray(plans) ? plans : [];
+    const plans = typeof value === 'string'
+      ? JSON.parse(value, (_, item) => item && Array.isArray(item.__kilnMap) ? new Map(item.__kilnMap) : item)
+      : value;
+    return Array.isArray(plans) ? plans.map(restorePlanTypes) : [];
   } catch (_) {
     return [];
   }
@@ -1788,12 +1817,14 @@ function calculate(allowOptimization = false) {
       solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal),
       originalStock,
       geometry,
-    );
+    ).map(restorePlanTypes);
     loadRecords.clear();
     currentLoadNumber = 1;
   }
 
-  let bestPlan = globalOrderPlans[currentLoadNumber - 1] || null;
+  let bestPlan = globalOrderPlans[currentLoadNumber - 1]
+    ? restorePlanTypes(globalOrderPlans[currentLoadNumber - 1])
+    : null;
 
   for (const metalBox of bestPlan ? [] : metalOptions) {
     const woodTarget = Math.max(0, kilnLength - metalBox);

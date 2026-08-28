@@ -13,6 +13,7 @@ let currentLoadNumber = 1;
 let currentLoadSnapshot = null;
 const manualLiftTargets = new Map();
 const manualLiftStickers = new Map();
+const dryingPrograms = new Map();
 const loadRecords = new Map();
 let globalOrderSignature = '';
 let globalOrderPlans = [];
@@ -27,6 +28,7 @@ const ACTIVE_ORDER_STORAGE = 'kiln-planner-active-order-v1';
 const ORDER_INDEX_STORAGE = 'kiln-planner-order-index-v1';
 const ORDER_STORAGE_PREFIX = 'kiln-planner-order-v1:';
 let completingLoadNumber = null;
+let editingDryingLoadNumber = null;
 let activeOrder = null;
 let draftSaveTimer = 0;
 
@@ -281,6 +283,7 @@ function persistActiveOrder(calculated = false) {
   activeOrder.inventory = inventorySnapshot();
   activeOrder.liftStickerOverrides = Object.fromEntries(manualLiftStickers);
   activeOrder.liftTargetOverrides = Object.fromEntries(manualLiftTargets);
+  activeOrder.dryingPrograms = Object.fromEntries(dryingPrograms);
   if (calculated) {
     activeOrder.calculated = true;
     activeOrder.planSignature = globalOrderSignature;
@@ -2269,17 +2272,108 @@ function renderLoadNavigation() {
     const inProgress = isLoadInProgress(snapshot.number);
     const actionLabel = completed ? '✓ Completed' : inProgress ? 'Complete cycle' : 'Start cycle';
     historyRow.classList.toggle('in-progress', inProgress);
-    historyRow.innerHTML = `<button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button><b>Kiln Load ${snapshot.number}</b><span>${snapshot.layout}</span><span>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</span><span>${completed ? 'Processed' : inProgress ? 'In progress · selected independently' : `${fmt(snapshot.remainingBoards)} planned order boards remaining`}</span>`;
+    const hasDryingData = dryingPrograms.has(String(snapshot.number));
+    historyRow.innerHTML = `<button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button><b>Kiln Load ${snapshot.number}</b><span>${snapshot.layout}</span><span>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</span><span>${completed ? 'Processed' : inProgress ? 'In progress · selected independently' : `${fmt(snapshot.remainingBoards)} planned order boards remaining`}</span><button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'MC / EMC ✓' : 'MC / EMC'}</button>`;
     historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
       event.stopPropagation();
       if (inProgress) openCycleCompletion(snapshot.number);
       else startKilnCycle(snapshot.number);
+    });
+    historyRow.querySelector('.drying-program-open').addEventListener('click', (event) => {
+      event.stopPropagation();
+      openDryingProgram(snapshot.number);
     });
     historyRow.addEventListener('click', () => selectSavedLoad(snapshot.number));
     history.appendChild(historyRow);
   });
   $('previousLoad').disabled = !loadRecords.has(currentLoadNumber - 1);
   $('nextSavedLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
+}
+
+const MASPEL_DRYING_DEFAULTS = [
+  { phase: 'PH1', mc: 20, mbar: 150, temp: 67 },
+  { phase: 'PH2', mc: 18, mbar: 150, temp: 67 },
+  { phase: 'PH3', mc: 17, mbar: 150, temp: 67 },
+  { phase: 'PH4', mc: 12, mbar: 150, temp: 67 },
+  { phase: 'PH5', mc: 10, mbar: 150, temp: 67 },
+  { phase: 'PH6', mc: 9, mbar: 150, temp: 69 },
+  { phase: 'PH7', mc: 8, mbar: 150, temp: 73 },
+  { phase: 'PH8', mc: 7, mbar: 150, temp: 76 },
+];
+
+function defaultDryingRows() {
+  return MASPEL_DRYING_DEFAULTS.map((row) => ({ ...row, emc: null, gradient: null }));
+}
+
+function renderDryingProgramRows(rows) {
+  $('dryingProgramRows').innerHTML = rows.map((row, index) => `<tr data-phase="${index}">
+    <td>${escapeHtml(row.phase)}</td>
+    <td><input class="drying-mc" type="number" min="0" max="100" step="0.1" value="${Number(row.mc)}" aria-label="${escapeHtml(row.phase)} MC percent"></td>
+    <td><input class="drying-mbar" type="number" min="0.1" step="0.1" value="${Number(row.mbar)}" aria-label="${escapeHtml(row.phase)} pressure mBar"></td>
+    <td><input class="drying-temp" type="number" min="-20" max="120" step="0.1" value="${Number(row.temp)}" aria-label="${escapeHtml(row.phase)} temperature Celsius"></td>
+    <td><output class="drying-emc">${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</output></td>
+    <td><output class="drying-gradient">${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</output></td>
+  </tr>`).join('');
+}
+
+function openDryingProgram(loadNumber) {
+  editingDryingLoadNumber = Number(loadNumber);
+  $('dryingProgramTitle').textContent = `Kiln Load ${loadNumber} · drying program`;
+  const saved = dryingPrograms.get(String(loadNumber));
+  renderDryingProgramRows(saved?.rows?.length ? saved.rows : defaultDryingRows());
+  $('dryingProgramStatus').className = `calculation-status ${saved?.calculatedAt ? 'ready' : 'pending'}`;
+  $('dryingProgramStatus').textContent = saved?.calculatedAt
+    ? `Saved ${new Date(saved.calculatedAt).toLocaleString()}. Values are unchanged until Calculate & save is pressed again.`
+    : 'MASPEL defaults loaded. Press Calculate & save to calculate EMC and gradient.';
+  $('dryingProgramDialog').showModal();
+}
+
+function saturationVapourPressureMbar(tempC) {
+  return 6.1121 * Math.exp((18.678 - tempC / 234.5) * (tempC / (257.14 + tempC)));
+}
+
+function hailwoodHorrobinEmc(tempC, relativeHumidity) {
+  const h = Math.min(0.9999, Math.max(0.0001, relativeHumidity));
+  const w = 349 + 1.29 * tempC + 0.0135 * tempC * tempC;
+  const k = 0.805 + 0.000736 * tempC - 0.00000273 * tempC * tempC;
+  const k1 = 6.27 - 0.00938 * tempC - 0.000303 * tempC * tempC;
+  const k2 = 1.91 + 0.0407 * tempC - 0.000293 * tempC * tempC;
+  const kh = k * h;
+  return (1800 / w) * ((kh / (1 - kh)) + ((k1 * kh + 2 * k1 * k2 * kh * kh) / (1 + k1 * kh + k1 * k2 * kh * kh)));
+}
+
+function readAndCalculateDryingRows() {
+  return [...$('dryingProgramRows').querySelectorAll('tr')].map((row) => {
+    const mc = Number(row.querySelector('.drying-mc').value);
+    const mbar = Number(row.querySelector('.drying-mbar').value);
+    const temp = Number(row.querySelector('.drying-temp').value);
+    if (!Number.isFinite(mc) || mc < 0 || mc > 100 || !Number.isFinite(mbar) || mbar <= 0 || !Number.isFinite(temp) || temp < -20 || temp > 120) {
+      throw new Error('Check MC, mBar and temperature values in every phase.');
+    }
+    const relativeHumidity = mbar / saturationVapourPressureMbar(temp);
+    if (relativeHumidity >= 1) throw new Error(`${row.cells[0].textContent}: mBar is at or above saturation pressure for this temperature.`);
+    const emc = hailwoodHorrobinEmc(temp, relativeHumidity);
+    const gradient = emc > 0 ? mc / emc : 0;
+    row.querySelector('.drying-emc').textContent = emc.toFixed(2);
+    row.querySelector('.drying-gradient').textContent = gradient.toFixed(2);
+    return { phase: row.cells[0].textContent, mc, mbar, temp, emc, gradient, relativeHumidity };
+  });
+}
+
+function calculateAndSaveDryingProgram(event) {
+  event.preventDefault();
+  try {
+    const rows = readAndCalculateDryingRows();
+    const calculatedAt = new Date().toISOString();
+    dryingPrograms.set(String(editingDryingLoadNumber), { loadNumber: editingDryingLoadNumber, rows, calculatedAt });
+    persistActiveOrder(false);
+    $('dryingProgramStatus').className = 'calculation-status ready';
+    $('dryingProgramStatus').textContent = `Calculated and saved ${new Date(calculatedAt).toLocaleString()}.`;
+    renderLoadNavigation();
+  } catch (error) {
+    $('dryingProgramStatus').className = 'calculation-status error';
+    $('dryingProgramStatus').textContent = error.message;
+  }
 }
 
 function startKilnCycle(loadNumber) {
@@ -2407,6 +2501,13 @@ function bindEvents() {
   $('nextSavedLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber + 1));
   $('completeCycleForm').addEventListener('submit', saveCompletedCycle);
   $('cancelCompleteCycle').addEventListener('click', () => $('completeCycleDialog').close());
+  $('dryingProgramForm').addEventListener('submit', calculateAndSaveDryingProgram);
+  $('closeDryingProgram').addEventListener('click', () => $('dryingProgramDialog').close());
+  $('resetDryingProgram').addEventListener('click', () => {
+    renderDryingProgramRows(defaultDryingRows());
+    $('dryingProgramStatus').className = 'calculation-status pending';
+    $('dryingProgramStatus').textContent = 'MASPEL defaults restored in this form. Press Calculate & save to apply them.';
+  });
   $('addLength').addEventListener('click', () => {
     addRow(8, 0);
     markCalculationPending();
@@ -2490,6 +2591,9 @@ function init() {
   Object.entries(activeOrder.liftTargetOverrides || {}).forEach(([key, value]) => {
     const rows = Math.floor(Number(value));
     if (Number.isFinite(rows) && rows > 0) manualLiftTargets.set(key, rows);
+  });
+  Object.entries(activeOrder.dryingPrograms || {}).forEach(([loadNumber, program]) => {
+    if (program?.rows?.length) dryingPrograms.set(String(loadNumber), program);
   });
   $('orderNumber').value = activeOrder.number || newOrderNumber();
   if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });

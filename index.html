@@ -340,8 +340,30 @@
       </form>
     </dialog>
 
+    <dialog id="dryingProgramDialog" class="cycle-dialog drying-program-dialog">
+      <form id="dryingProgramForm" method="dialog">
+        <div class="dialog-heading">
+          <div><small>MASPEL DRYING CONTROL</small><h2 id="dryingProgramTitle">Kiln Load drying program</h2></div>
+          <button id="closeDryingProgram" class="secondary" type="button">Close</button>
+        </div>
+        <p class="note">Enter the measured or target values. EMC and drying gradient are updated only when you press Calculate &amp; save.</p>
+        <div class="table-scroll drying-program-scroll">
+          <table class="drying-program-table">
+            <thead><tr><th>Phase</th><th>MC, %</th><th>mBar</th><th>Temp, °C</th><th>EMC, %</th><th>Grad.</th></tr></thead>
+            <tbody id="dryingProgramRows"></tbody>
+          </table>
+        </div>
+        <div id="dryingProgramStatus" class="calculation-status pending">MASPEL defaults loaded. Press Calculate &amp; save to calculate EMC and gradient.</div>
+        <p class="formula-note">Engineering estimate: mBar is treated as water-vapour partial pressure. Gradient = MC ÷ EMC. Confirm the pressure convention against the kiln sensor/manual before using the result as a production setpoint.</p>
+        <div class="dialog-actions drying-program-actions">
+          <button id="resetDryingProgram" class="secondary" type="button">Reset MASPEL defaults</button>
+          <button id="calculateDryingProgram" type="submit">Calculate &amp; save</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v2" data-app="app.js?v=independent-cycle-start-v1"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v2" data-app="app.js?v=drying-program-v1"></script>
   </body>
 </html>

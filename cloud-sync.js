@@ -9,6 +9,7 @@
     'kiln-planner-order-archive-v1',
     'kiln-planner-completed-cycles-v1',
     'kiln-planner-shipping-tags-v1',
+    'kiln-planner-recovery-operations-v1',
     'kiln-planner-shipments-v1',
     'kiln-planner-final-process-date-v1',
     'kiln-planner-supplier-profiles-v1',

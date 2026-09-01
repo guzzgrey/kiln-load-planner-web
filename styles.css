@@ -485,6 +485,8 @@ button.is-loading::after {
 .complete-cycle { padding: 7px 9px; white-space: nowrap; font-size: 11px; }
 .complete-cycle.is-complete { background: #d7ecdf; color: var(--green); opacity: 1; }
 .complete-cycle.is-progress { background: var(--green); color: #fff; }
+.cancel-cycle-start { padding: 7px 9px; white-space: nowrap; font-size: 11px; font-weight: 800; background: #fff7e8; color: #8d5200; border: 1px solid #d5a85d; }
+.cancel-cycle-start:hover { background: #f7e3bd; }
 .drying-program-open { padding: 7px 9px; white-space: nowrap; font-size: 11px; font-weight: 800; background: #fff; color: var(--green); border: 1px solid #79aa91; }
 .drying-program-open.has-data { background: #d7ecdf; }
 .load-history article.in-progress { outline: 2px solid var(--green); background: #dff0e6; }

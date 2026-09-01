@@ -2274,11 +2274,15 @@ function renderLoadNavigation() {
     historyRow.classList.toggle('in-progress', inProgress);
     const hasDryingData = dryingPrograms.has(String(snapshot.number));
     const stateLabel = completed ? 'Processed' : inProgress ? 'In progress' : `${fmt(snapshot.remainingBoards)} remaining`;
-    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button><button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
+    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button>${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
     historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
       event.stopPropagation();
       if (inProgress) openCycleCompletion(snapshot.number);
       else startKilnCycle(snapshot.number);
+    });
+    historyRow.querySelector('.cancel-cycle-start')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      cancelKilnCycleStart(snapshot.number);
     });
     historyRow.querySelector('.drying-program-open').addEventListener('click', (event) => {
       event.stopPropagation();
@@ -2380,11 +2384,26 @@ function calculateAndSaveDryingProgram(event) {
 function startKilnCycle(loadNumber) {
   const snapshot = loadRecords.get(loadNumber);
   if (!snapshot || isLoadCompleted(loadNumber)) return;
+  const activeLoadNumber = Number(activeOrder?.activeCycleNumber || 0);
+  if (activeLoadNumber && activeLoadNumber !== Number(loadNumber) && !isLoadCompleted(activeLoadNumber)) {
+    const replace = window.confirm(`Kiln Load ${activeLoadNumber} is currently in progress. Cancel that start and begin Kiln Load ${loadNumber} instead?`);
+    if (!replace) return;
+  }
   activeOrder.activeCycleNumber = loadNumber;
   activeOrder.activeCycleStartedAt = new Date().toISOString();
   persistActiveOrder(false);
   if (loadNumber !== currentLoadNumber) selectSavedLoad(loadNumber);
   else renderLoadNavigation();
+}
+
+function cancelKilnCycleStart(loadNumber) {
+  if (!isLoadInProgress(loadNumber) || isLoadCompleted(loadNumber)) return;
+  const confirmed = window.confirm(`Cancel the start of Kiln Load ${loadNumber}? The saved calculation and drying settings will be kept.`);
+  if (!confirmed) return;
+  delete activeOrder.activeCycleNumber;
+  delete activeOrder.activeCycleStartedAt;
+  persistActiveOrder(false);
+  renderLoadNavigation();
 }
 
 function openCycleCompletion(loadNumber) {

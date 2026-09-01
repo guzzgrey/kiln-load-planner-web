@@ -2270,10 +2270,11 @@ function renderLoadNavigation() {
     historyRow.dataset.load = snapshot.number;
     const completed = isLoadCompleted(snapshot.number);
     const inProgress = isLoadInProgress(snapshot.number);
-    const actionLabel = completed ? '✓ Completed' : inProgress ? 'Complete cycle' : 'Start cycle';
+    const actionLabel = completed ? '✓ Completed' : inProgress ? 'Complete' : 'Start';
     historyRow.classList.toggle('in-progress', inProgress);
     const hasDryingData = dryingPrograms.has(String(snapshot.number));
-    historyRow.innerHTML = `<button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button><button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying settings ✓' : 'Drying settings'}</button><b>Kiln Load ${snapshot.number}</b><span>${snapshot.layout}</span><span>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</span><span>${completed ? 'Processed' : inProgress ? 'In progress · selected independently' : `${fmt(snapshot.remainingBoards)} planned order boards remaining`}</span>`;
+    const stateLabel = completed ? 'Processed' : inProgress ? 'In progress' : `${fmt(snapshot.remainingBoards)} remaining`;
+    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button><button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
     historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
       event.stopPropagation();
       if (inProgress) openCycleCompletion(snapshot.number);

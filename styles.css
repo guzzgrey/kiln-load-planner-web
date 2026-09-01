@@ -30,7 +30,7 @@ body {
 }
 
 .wrap {
-  max-width: 1280px;
+  max-width: 1680px;
   margin: 0 auto;
   padding: 28px;
 }
@@ -196,6 +196,8 @@ input:disabled {
   .actions,
   .clear-inventory,
   .load-switcher,
+  .load-actions,
+  .constraint-check,
   .danger {
     display: none !important;
   }
@@ -216,6 +218,46 @@ input:disabled {
   .scroll {
     overflow: visible;
   }
+
+  /* Planner report: use the entire landscape sheet and keep each data unit intact. */
+  .inventory-workspace {
+    break-inside: auto;
+    page-break-inside: auto;
+    padding: 4mm;
+  }
+
+  .inventory-workspace table,
+  .load-plan-card table {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 8px;
+  }
+
+  .inventory-workspace thead,
+  .load-plan-card thead { display: table-header-group; }
+  .inventory-workspace tr,
+  .load-plan-card tr,
+  .load-history article,
+  .lift-summary-card {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .inventory-workspace th,
+  .inventory-workspace td,
+  .load-plan-card th,
+  .load-plan-card td { padding: 1.4mm; }
+
+  .load-progress { break-before: page; page-break-before: always; }
+  .load-history { gap: 1.5mm; }
+  .load-history article {
+    grid-template-columns: 28mm 30mm 38mm 35mm;
+    gap: 3mm;
+    padding: 2mm 3mm;
+    font-size: 8px;
+  }
+  .load-history .load-state { justify-self:end; font-size:7px; }
+  .load-plan-card { break-before:page; page-break-before:always; break-inside:auto; page-break-inside:auto; }
 
   /* Wide production registers are formatted as true A4 landscape tables. */
   .warehouse-page {
@@ -417,15 +459,28 @@ button.is-loading::after {
 
 .load-history article {
   display: grid;
-  grid-template-columns: auto auto minmax(95px, .65fr) minmax(110px, .75fr) minmax(160px, .9fr) minmax(180px, 1.1fr);
+  grid-template-columns: minmax(150px, auto) minmax(100px, .65fr) minmax(120px, .7fr) minmax(150px, .8fr) minmax(110px, .65fr);
   align-items: center;
-  gap: 16px;
-  padding: 9px 11px;
+  gap: 12px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: var(--pale);
   color: var(--muted);
   font-size: 12px;
 }
+
+.load-actions { display:flex; gap:6px; align-items:center; }
+.load-output { color:var(--ink); font-weight:700; white-space:nowrap; }
+.load-output small { margin-left:5px; color:var(--muted); font-size:11px; font-weight:500; }
+.load-state { justify-self:end; padding:4px 8px; border-radius:99px; color:var(--muted); background:#f5f7f5; white-space:nowrap; font-size:11px; }
+.load-state.active { color:#fff; background:var(--green); }
+.load-state.done { color:var(--green); background:#d7ecdf; }
+.constraint-check { margin-top:12px; border-top:1px solid var(--line); }
+.constraint-check summary { cursor:pointer; padding:11px 2px 2px; color:var(--green); font-weight:800; }
+.constraint-check summary span { margin-left:8px; color:var(--muted); font-size:11px; font-weight:500; }
+.constraint-check-content { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px 14px; padding:8px 2px 2px; }
+.constraint-check-content p { margin:0; color:var(--muted); font-size:11px; }
+.constraint-check-content p:first-child { grid-column:1 / -1; }
 
 .complete-cycle { padding: 7px 9px; white-space: nowrap; font-size: 11px; }
 .complete-cycle.is-complete { background: #d7ecdf; color: var(--green); opacity: 1; }
@@ -455,8 +510,9 @@ button.is-loading::after {
 .drying-program-actions { gap: 10px; }
 
 @media (max-width: 1100px) {
-  .load-history article { grid-template-columns: auto 1fr 1fr; }
-  .load-history article span:last-of-type { grid-column: 2 / -1; }
+  .load-history article { grid-template-columns:minmax(150px,auto) 1fr 1fr; }
+  .load-state { justify-self:start; }
+  .constraint-check-content { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 
 .warehouse-page { max-width: 1800px; }
@@ -961,6 +1017,9 @@ th {
   .header-actions { justify-content: flex-start; }
   .dialog-fields, .warehouse-summary, .shipping-order-fields { grid-template-columns: 1fr; }
   .load-history article { grid-template-columns: 1fr; }
+  .load-actions { flex-wrap:wrap; }
+  .load-state { justify-self:start; }
+  .constraint-check-content { grid-template-columns:1fr; }
   .order-flow { grid-template-columns:1fr; }
   .order-flow i { display:none; }
   .lift-plan-grid { grid-template-columns:1fr; }

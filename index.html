@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
-    <link rel="stylesheet" href="styles.css?v=multi-order-drying-v2" />
+    <link rel="stylesheet" href="styles.css?v=compact-planner-v1" />
   </head>
   <body>
     <main class="wrap">
@@ -175,7 +175,7 @@
           </div>
         </section>
 
-        <section class="card s8">
+        <section class="card s12 inventory-workspace">
           <div class="section-heading">
             <h2>2. Selected Material Inventory</h2>
             <button id="clearTop" class="secondary clear-inventory" type="button">Clear Inventory</button>
@@ -244,13 +244,11 @@
             </div>
             <div id="loadHistory" class="load-history"></div>
           </div>
+          <details class="constraint-check">
+            <summary>Calculation conditions <span>physical dimensions, rows and usable space</span></summary>
+            <div id="status" class="constraint-check-content"></div>
+          </details>
         </section>
-
-        <aside class="card s4">
-          <h2>Constraint Check</h2>
-          <div id="status"></div>
-          <p class="note">All production results are shown as physical boards, complete rows, lifts, and kiln cycles.</p>
-        </aside>
 
         <section class="card s12 load-plan-card">
           <div class="section-title-row">
@@ -364,6 +362,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v2" data-app="app.js?v=drying-program-v1"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v2" data-app="app.js?v=compact-planner-v1"></script>
   </body>
 </html>

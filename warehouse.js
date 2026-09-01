@@ -46,6 +46,12 @@ function sumQuantities(records) {
   return totals;
 }
 function totalBoards(quantities) { return Object.values(quantities || {}).reduce((sum, value) => sum + Number(value || 0), 0); }
+function totalLinearFeet(quantities) { return LENGTHS.reduce((sum, length) => sum + length * Number(quantities?.[length] || 0), 0); }
+function sourceQuantities(tag) { return tag.sourceQuantities || tag.quantities || {}; }
+function qualityLabel(value) { return ({ 'grade-1': 'Grade #1', 'recovered-grade-1': 'Recovered Grade #1', downgraded: 'Downgraded' })[value] || 'Grade #1'; }
+function recoveryLabel(tag) {
+  return (tag.recoveryCuts || []).map((cut) => `${fmt(cut.quantity)}× ${cut.sourceLength} ft → ${cut.outputs.join(' + ')} ft`).join('; ');
+}
 function dimensions(size) { const values = String(size || '').match(/[\d.]+/g)?.map(Number) || []; return { thickness: values[0] || 0, width: values[1] || 0 }; }
 function tagBf(tag) {
   const { thickness, width } = dimensions(tag.size);
@@ -54,12 +60,18 @@ function tagBf(tag) {
 
 function availableForYard() {
   const processed = sumQuantities(completed());
-  const tagged = sumQuantities(currentTags());
-  return Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processed[length] - tagged[length])]));
+  const consumed = sumSourceQuantities(currentTags());
+  return Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processed[length] - consumed[length])]));
+}
+
+function sumSourceQuantities(records) {
+  const totals = Object.fromEntries(LENGTHS.map((length) => [length, 0]));
+  records.forEach((record) => LENGTHS.forEach((length) => { totals[length] += Number(sourceQuantities(record)?.[length] || 0); }));
+  return totals;
 }
 
 function allocateSourceLoads(requested) {
-  const priorTagged = sumQuantities(currentTags());
+  const priorTagged = sumSourceQuantities(currentTags());
   const remainingPrior = { ...priorTagged };
   const sourceLoads = [];
   completed().forEach((record) => {
@@ -85,7 +97,7 @@ function completedHeader() {
   return `<thead><tr><th>Completed</th><th>Supplier</th><th>Marking</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
 }
 function tagHeader() {
-  return `<thead><tr><th>TAG</th><th>ORDER #</th><th>PRODUCT / MO #</th><th>DATE</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
+  return `<thead><tr><th>TAG</th><th>ORDER #</th><th>PRODUCT / MO #</th><th>DATE</th><th>QUALITY</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>Input ft</th><th>Output ft</th><th>Removed ft</th><th>BFM</th><th>Action</th></tr></thead>`;
 }
 
 function renderCompleted() {
@@ -113,16 +125,17 @@ function renderCompleted() {
 function renderWarehouseTags() {
   const tags = currentTags();
   const processedTotals = sumQuantities(completed());
-  const taggedTotals = sumQuantities(tags);
-  const available = Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processedTotals[length] - taggedTotals[length])]));
+  const consumedTotals = sumSourceQuantities(tags);
+  const available = Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processedTotals[length] - consumedTotals[length])]));
   const rows = tags.map((tag, rowIndex) => `<tr>
     <td><input data-field="tag" data-row="${rowIndex}" value="${esc(tag.tag)}" placeholder="TAG #"></td>
     <td><input data-field="orderNumber" data-row="${rowIndex}" value="${esc(tag.orderNumber)}" placeholder="ORDER #"></td>
     <td><input data-field="productMo" data-row="${rowIndex}" value="${esc(tag.productMo)}" placeholder="PRODUCT / MO #"></td>
     <td><input type="date" data-field="date" data-row="${rowIndex}" value="${esc(tag.date)}"></td>
-    ${LENGTHS.map((length) => `<td><input class="matrix-qty" type="number" min="0" data-field="quantity" data-length="${length}" data-row="${rowIndex}" value="${Number(tag.quantities?.[length] || 0) || ''}"></td>`).join('')}
-    <td><b>${fmt(totalBoards(tag.quantities))}</b></td><td>${fmt(tagBf(tag), 1)}</td><td><button class="danger small-action delete-yard-tag" type="button" data-id="${esc(tag.id)}">Delete</button></td></tr>`).join('');
-  const availableRow = `<tfoot><tr><th colspan="4">UNTAGGED PROCESSED INVENTORY</th>${LENGTHS.map((length) => `<th>${available[length] ? fmt(available[length]) : ''}</th>`).join('')}<th>${fmt(totalBoards(available))}</th><th>—</th><th></th></tr></tfoot>`;
+    <td><b>${esc(qualityLabel(tag.quality))}</b>${tag.defectNote ? `<small>${esc(tag.defectNote)}</small>` : ''}${tag.recoveryCuts?.length ? `<small>${esc(recoveryLabel(tag))}</small>` : ''}</td>
+    ${LENGTHS.map((length) => `<td><input class="matrix-qty" type="number" readonly aria-label="${length} ft finished quantity" value="${Number(tag.quantities?.[length] || 0) || ''}"></td>`).join('')}
+    <td><b>${fmt(totalBoards(tag.quantities))}</b></td><td>${fmt(tag.inputLinearFt ?? totalLinearFeet(sourceQuantities(tag)))}</td><td>${fmt(tag.outputLinearFt ?? totalLinearFeet(tag.quantities))}</td><td>${fmt(tag.wasteLinearFt || 0)}</td><td>${fmt(tagBf(tag), 1)}</td><td><button class="danger small-action delete-yard-tag" type="button" data-id="${esc(tag.id)}">Delete</button></td></tr>`).join('');
+  const availableRow = `<tfoot><tr><th colspan="5">UNTAGGED PROCESSED INVENTORY</th>${LENGTHS.map((length) => `<th>${available[length] ? fmt(available[length]) : ''}</th>`).join('')}<th>${fmt(totalBoards(available))}</th><th>${fmt(totalLinearFeet(available))}</th><th>—</th><th>—</th><th>—</th><th></th></tr></tfoot>`;
   $('warehouseTagTable').innerHTML = `${tagHeader()}<tbody>${rows}</tbody>${availableRow}`;
   $('availableBoards').textContent = fmt(totalBoards(available));
   document.querySelectorAll('#warehouseTagTable input').forEach((input) => input.addEventListener('change', updateWarehouseTag));
@@ -137,12 +150,11 @@ function updateWarehouseTag(event) {
   const row = Number(event.target.dataset.row);
   const field = event.target.dataset.field;
   if (!tags[row]) return;
-  if (field === 'quantity') tags[row].quantities[event.target.dataset.length] = Math.max(0, Math.floor(Number(event.target.value) || 0));
-  else tags[row][field] = event.target.value;
+  tags[row][field] = event.target.value;
   const requiredMissing = ['tag', 'orderNumber', 'productMo', 'date'].some((key) => !String(tags[row][key] || '').trim());
   const duplicateTag = tags.some((tag, index) => index !== row && String(tag.tag || '').trim().toLowerCase() === String(tags[row].tag || '').trim().toLowerCase());
   const processedTotals = sumQuantities(completed());
-  const requested = sumQuantities(tags);
+  const requested = sumSourceQuantities(tags);
   const over = LENGTHS.filter((length) => requested[length] > processedTotals[length]);
   if (requiredMissing || duplicateTag || over.length) {
     $('warehouseMessage').className = 'calculation-status pending';
@@ -200,36 +212,105 @@ function openYardBuilder() {
   $('yardOrder').value = '';
   $('yardProduct').value = source.marking || '';
   $('yardDate').value = new Date().toISOString().slice(0, 10);
+  $('yardQuality').value = 'grade-1';
+  $('yardDefectNote').value = '';
   $('yardAvailableSource').innerHTML = completed().map((record) => `<span><b>Kiln Load ${record.loadNumber}</b>${esc(record.completedDate)} · ${fmt(record.boards)} PCS</span>`).join('');
   $('yardBuilderRows').innerHTML = LENGTHS.map((length) => `<tr><td><b>${length} ft</b></td><td>${fmt(available[length])}</td><td><input class="yard-build-qty" type="number" min="0" max="${available[length]}" data-length="${length}" value=""></td></tr>`).join('');
+  $('recoveryCutRows').innerHTML = '';
+  updateRecoveryBalance();
   $('yardDialogStatus').className = 'calculation-status idle';
   $('yardDialogStatus').textContent = totalBoards(available) ? `${fmt(totalBoards(available))} processed boards are available for YARD allocation.` : 'No unallocated completed boards are available.';
   $('yardTagDialog').showModal();
+}
+
+function addRecoveryCutRow(values = {}) {
+  const row = document.createElement('tr');
+  row.className = 'recovery-cut-row';
+  row.innerHTML = `<td><select class="recovery-source">${LENGTHS.map((length) => `<option value="${length}" ${Number(values.sourceLength) === length ? 'selected' : ''}>${length} ft</option>`).join('')}</select></td>
+    <td><input class="recovery-qty" type="number" min="1" step="1" value="${Number(values.quantity) || 1}"></td>
+    ${[0, 1, 2].map((index) => `<td><select class="recovery-output"><option value="">—</option>${LENGTHS.map((length) => `<option value="${length}" ${Number(values.outputs?.[index]) === length ? 'selected' : ''}>${length} ft</option>`).join('')}</select></td>`).join('')}
+    <td><output class="recovery-loss">—</output></td><td><button class="danger small-action remove-recovery" type="button">Delete</button></td>`;
+  row.querySelectorAll('input, select').forEach((input) => input.addEventListener('input', updateRecoveryBalance));
+  row.querySelector('.remove-recovery').addEventListener('click', () => { row.remove(); updateRecoveryBalance(); });
+  $('recoveryCutRows').appendChild(row);
+  updateRecoveryBalance();
+}
+
+function readRecoveryCuts() {
+  return [...document.querySelectorAll('.recovery-cut-row')].map((row) => ({
+    sourceLength: Number(row.querySelector('.recovery-source').value),
+    quantity: Math.max(0, Math.floor(Number(row.querySelector('.recovery-qty').value) || 0)),
+    outputs: [...row.querySelectorAll('.recovery-output')].map((input) => Number(input.value)).filter(Boolean),
+  }));
+}
+
+function recoveryMetrics(cuts) {
+  const source = Object.fromEntries(LENGTHS.map((length) => [length, 0]));
+  const output = Object.fromEntries(LENGTHS.map((length) => [length, 0]));
+  let inputLinearFt = 0;
+  let outputLinearFt = 0;
+  const errors = [];
+  cuts.forEach((cut, index) => {
+    const outputPerBoard = cut.outputs.reduce((sum, length) => sum + length, 0);
+    if (!cut.quantity || !cut.outputs.length) errors.push(`Recovery row ${index + 1} needs quantity and at least one output length.`);
+    if (outputPerBoard > cut.sourceLength) errors.push(`Recovery row ${index + 1} outputs ${outputPerBoard} ft from a ${cut.sourceLength} ft board.`);
+    source[cut.sourceLength] += cut.quantity;
+    cut.outputs.forEach((length) => { output[length] += cut.quantity; });
+    inputLinearFt += cut.sourceLength * cut.quantity;
+    outputLinearFt += outputPerBoard * cut.quantity;
+  });
+  return { source, output, inputLinearFt, outputLinearFt, wasteLinearFt: inputLinearFt - outputLinearFt, errors };
+}
+
+function updateRecoveryBalance() {
+  const cuts = readRecoveryCuts();
+  const metrics = recoveryMetrics(cuts);
+  [...document.querySelectorAll('.recovery-cut-row')].forEach((row, index) => {
+    const cut = cuts[index];
+    const outputPerBoard = cut.outputs.reduce((sum, length) => sum + length, 0);
+    const loss = cut.sourceLength - outputPerBoard;
+    const target = row.querySelector('.recovery-loss');
+    target.textContent = cut.outputs.length ? `${fmt(loss)} ft` : '—';
+    target.className = `recovery-loss ${loss < 0 ? 'bad' : ''}`;
+  });
+  $('recoveryBalance').className = `recovery-balance ${metrics.errors.length ? 'bad' : ''}`;
+  $('recoveryBalance').textContent = cuts.length
+    ? `${fmt(totalBoards(metrics.source))} source boards · ${fmt(metrics.inputLinearFt)} input ft → ${fmt(totalBoards(metrics.output))} recovered pieces · ${fmt(metrics.outputLinearFt)} useful ft + ${fmt(metrics.wasteLinearFt)} removed ft.`
+    : 'No recovery cuts added.';
 }
 
 function createYardTag(event) {
   event.preventDefault();
   const order = activeOrder();
   const available = availableForYard();
-  const quantities = {};
-  document.querySelectorAll('.yard-build-qty').forEach((input) => { quantities[input.dataset.length] = Math.max(0, Math.floor(Number(input.value) || 0)); });
+  const directQuantities = {};
+  document.querySelectorAll('.yard-build-qty').forEach((input) => { directQuantities[input.dataset.length] = Math.max(0, Math.floor(Number(input.value) || 0)); });
+  const recoveryCuts = readRecoveryCuts();
+  const recovery = recoveryMetrics(recoveryCuts);
+  const sourceUsed = Object.fromEntries(LENGTHS.map((length) => [length, Number(directQuantities[length] || 0) + Number(recovery.source[length] || 0)]));
+  const quantities = Object.fromEntries(LENGTHS.map((length) => [length, Number(directQuantities[length] || 0) + Number(recovery.output[length] || 0)]));
   const tagValue = $('yardTag').value.trim();
   const missingFields = !tagValue || !$('yardOrder').value.trim() || !$('yardProduct').value.trim() || !$('yardDate').value;
   const duplicateTag = warehouseTags().some((tag) => String(tag.tag || '').trim().toLowerCase() === tagValue.toLowerCase());
-  const invalid = LENGTHS.filter((length) => quantities[length] > available[length]);
-  if (missingFields || duplicateTag || invalid.length || !totalBoards(quantities)) {
+  const invalid = LENGTHS.filter((length) => sourceUsed[length] > available[length]);
+  if (missingFields || duplicateTag || invalid.length || recovery.errors.length || !totalBoards(quantities)) {
     $('yardDialogStatus').className = 'calculation-status pending';
     $('yardDialogStatus').textContent = missingFields
       ? 'Complete TAG, ORDER #, PRODUCT / MO # and DATE.'
       : duplicateTag
         ? 'This TAG already exists. Enter a unique TAG.'
-        : invalid.length
+        : recovery.errors.length
+          ? recovery.errors[0]
+          : invalid.length
           ? `Quantity exceeds completed inventory at ${invalid.map((length) => `${length} ft`).join(', ')}.`
           : 'Select at least one completed board.';
     return;
   }
   const source = completed().at(-1) || {};
-  const allocationRequest = { ...quantities };
+  const allocationRequest = { ...sourceUsed };
+  const directInputFt = totalLinearFeet(directQuantities);
+  const inputLinearFt = directInputFt + recovery.inputLinearFt;
+  const outputLinearFt = directInputFt + recovery.outputLinearFt;
   const tags = warehouseTags();
   tags.push({
     id: `tag-${Date.now()}`,
@@ -242,7 +323,15 @@ function createYardTag(event) {
     supplier: source.supplier || '',
     marking: source.marking || '',
     size: source.size || '',
+    quality: recoveryCuts.length && $('yardQuality').value === 'grade-1' ? 'recovered-grade-1' : $('yardQuality').value,
+    defectNote: $('yardDefectNote').value.trim(),
+    directQuantities,
+    recoveryCuts,
+    sourceQuantities: sourceUsed,
     quantities,
+    inputLinearFt,
+    outputLinearFt,
+    wasteLinearFt: inputLinearFt - outputLinearFt,
     sourceLoads: allocateSourceLoads(allocationRequest),
   });
   write(TAGS_KEY, tags);
@@ -274,16 +363,20 @@ function orderLedger() {
   const incoming = Object.fromEntries(LENGTHS.map((length) => [length, Number(order.inventory?.[length] || 0)]));
   const done = sumQuantities(completed());
   const tags = currentTags();
+  const allocated = sumSourceQuantities(tags);
   const yard = sumQuantities(tags);
   const shippedIds = new Set(currentShipments().flatMap((shipment) => shipment.tagIds || []));
   const shipped = sumQuantities(tags.filter((tag) => shippedIds.has(tag.id)));
   const rows = LENGTHS.map((length) => ({
     length, incoming: incoming[length], processed: done[length],
-    unprocessed: incoming[length] - done[length], yard: yard[length],
-    awaitingTag: done[length] - yard[length], shipped: shipped[length],
+    unprocessed: incoming[length] - done[length], allocated: allocated[length], yard: yard[length],
+    awaitingTag: done[length] - allocated[length], shipped: shipped[length],
     inYard: yard[length] - shipped[length],
   }));
-  return { order, rows, incoming: totalBoards(incoming), processed: totalBoards(done), yard: totalBoards(yard), shipped: totalBoards(shipped) };
+  const allocatedInputFt = tags.reduce((sum, tag) => sum + Number(tag.inputLinearFt ?? totalLinearFeet(sourceQuantities(tag))), 0);
+  const yardOutputFt = tags.reduce((sum, tag) => sum + Number(tag.outputLinearFt ?? totalLinearFeet(tag.quantities)), 0);
+  const removedFt = tags.reduce((sum, tag) => sum + Number(tag.wasteLinearFt || 0), 0);
+  return { order, rows, incoming: totalBoards(incoming), processed: totalBoards(done), allocated: totalBoards(allocated), yard: totalBoards(yard), shipped: totalBoards(shipped), allocatedInputFt, yardOutputFt, removedFt };
 }
 
 function renderOrderLedger() {
@@ -299,19 +392,20 @@ function renderOrderLedger() {
   }
   $('activeOrderTitle').textContent = `${ledger.order.number} · ${ledger.order.inputs?.supplier || 'Supplier not entered'}`;
   const negatives = ledger.rows.some((row) => row.unprocessed < 0 || row.awaitingTag < 0 || row.inYard < 0);
+  const footageBalanced = Math.abs(ledger.allocatedInputFt - ledger.yardOutputFt - ledger.removedFt) < 0.001;
   const finishedCycles = completed().length;
   const plannedCycles = Number(ledger.order.plannedCycles || 0);
   const allCyclesDone = plannedCycles > 0 && finishedCycles === plannedCycles;
   const allProcessedAllocated = ledger.rows.every((row) => row.awaitingTag === 0);
   const allTagsShipped = ledger.rows.every((row) => row.inYard === 0);
-  const canComplete = !negatives && allCyclesDone && allProcessedAllocated && allTagsShipped;
+  const canComplete = !negatives && footageBalanced && allCyclesDone && allProcessedAllocated && allTagsShipped;
   button.disabled = !canComplete;
-  $('orderBalanceStatus').className = `calculation-status ${negatives ? 'pending' : 'ready'}`;
-  $('orderBalanceStatus').textContent = negatives
-    ? 'BALANCE ERROR: a later stage contains more boards than the previous stage.'
-    : `Verified: ${ledger.incoming} received = ${ledger.processed} processed + ${ledger.incoming - ledger.processed} unprocessed. ${ledger.yard} assigned to YARD; ${ledger.shipped} shipped. Completed cycles: ${finishedCycles}/${plannedCycles || '—'}.`;
+  $('orderBalanceStatus').className = `calculation-status ${negatives || !footageBalanced ? 'pending' : 'ready'}`;
+  $('orderBalanceStatus').textContent = negatives || !footageBalanced
+    ? 'BALANCE ERROR: source-board allocation or recovery footage does not reconcile.'
+    : `Verified: ${ledger.incoming} received = ${ledger.processed} processed + ${ledger.incoming - ledger.processed} unprocessed. YARD recovery balance: ${fmt(ledger.allocatedInputFt)} input ft = ${fmt(ledger.yardOutputFt)} useful ft + ${fmt(ledger.removedFt)} removed ft. ${ledger.yard} finished pieces assigned to YARD; ${ledger.shipped} shipped. Completed cycles: ${finishedCycles}/${plannedCycles || '—'}.`;
   const visible = ledger.rows.filter((row) => row.incoming || row.processed || row.yard || row.shipped);
-  $('orderLedger').innerHTML = `<thead><tr><th>Length</th><th>Received</th><th>Processed</th><th>Unprocessed</th><th>YARD tagged</th><th>Awaiting TAG</th><th>Shipped</th><th>In YARD</th><th>Check</th></tr></thead><tbody>${visible.map((row) => `<tr><td>${row.length} ft</td><td>${fmt(row.incoming)}</td><td>${fmt(row.processed)}</td><td>${fmt(row.unprocessed)}</td><td>${fmt(row.yard)}</td><td>${fmt(row.awaitingTag)}</td><td>${fmt(row.shipped)}</td><td>${fmt(row.inYard)}</td><td class="${row.unprocessed < 0 || row.awaitingTag < 0 || row.inYard < 0 ? 'bad' : 'ok'}">${row.unprocessed < 0 || row.awaitingTag < 0 || row.inYard < 0 ? 'ERROR' : '✓'}</td></tr>`).join('')}</tbody><tfoot><tr><th>TOTAL</th><th>${fmt(ledger.incoming)}</th><th>${fmt(ledger.processed)}</th><th>${fmt(ledger.incoming-ledger.processed)}</th><th>${fmt(ledger.yard)}</th><th>${fmt(ledger.processed-ledger.yard)}</th><th>${fmt(ledger.shipped)}</th><th>${fmt(ledger.yard-ledger.shipped)}</th><th>${negatives ? 'ERROR' : 'BALANCED'}</th></tr></tfoot>`;
+  $('orderLedger').innerHTML = `<thead><tr><th>Length</th><th>Received</th><th>Processed</th><th>Unprocessed</th><th>Source allocated</th><th>Awaiting TAG</th><th>YARD product</th><th>Shipped</th><th>In YARD</th><th>Check</th></tr></thead><tbody>${visible.map((row) => `<tr><td>${row.length} ft</td><td>${fmt(row.incoming)}</td><td>${fmt(row.processed)}</td><td>${fmt(row.unprocessed)}</td><td>${fmt(row.allocated)}</td><td>${fmt(row.awaitingTag)}</td><td>${fmt(row.yard)}</td><td>${fmt(row.shipped)}</td><td>${fmt(row.inYard)}</td><td class="${row.unprocessed < 0 || row.awaitingTag < 0 || row.inYard < 0 ? 'bad' : 'ok'}">${row.unprocessed < 0 || row.awaitingTag < 0 || row.inYard < 0 ? 'ERROR' : '✓'}</td></tr>`).join('')}</tbody><tfoot><tr><th>TOTAL</th><th>${fmt(ledger.incoming)}</th><th>${fmt(ledger.processed)}</th><th>${fmt(ledger.incoming-ledger.processed)}</th><th>${fmt(ledger.allocated)}</th><th>${fmt(ledger.processed-ledger.allocated)}</th><th>${fmt(ledger.yard)}</th><th>${fmt(ledger.shipped)}</th><th>${fmt(ledger.yard-ledger.shipped)}</th><th>${negatives || !footageBalanced ? 'ERROR' : 'BALANCED'}</th></tr></tfoot>`;
   renderOrderArchive();
 }
 
@@ -325,7 +419,7 @@ function completeActiveOrder() {
   if (!ledger || $('completeOrder').disabled) return;
   if (!window.confirm(`Complete and archive order ${ledger.order.number}? The planner will be cleared for a new order.`)) return;
   const archive = read(ORDER_ARCHIVE_KEY);
-  archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, unprocessed: ledger.incoming - ledger.processed, rows: ledger.rows, completedAt: new Date().toISOString() });
+  archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, unprocessed: ledger.incoming - ledger.processed, recoveryInputFt: ledger.allocatedInputFt, recoveryOutputFt: ledger.yardOutputFt, removedFt: ledger.removedFt, rows: ledger.rows, completedAt: new Date().toISOString() });
   write(ORDER_ARCHIVE_KEY, archive);
   const completedOrder = { ...ledger.order, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   localStorage.setItem(`${ORDER_PREFIX}${completedOrder.id}`, JSON.stringify(completedOrder));
@@ -340,6 +434,7 @@ function completeActiveOrder() {
 }
 
 $('addWarehouseTag').addEventListener('click', openYardBuilder);
+$('addRecoveryCut').addEventListener('click', () => addRecoveryCutRow({ sourceLength: 20 }));
 $('yardTagForm').addEventListener('submit', (event) => {
   try {
     createYardTag(event);

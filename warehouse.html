@@ -86,10 +86,22 @@
           <label>ORDER #<input id="yardOrder" required /></label>
           <label>PRODUCT / MO #<input id="yardProduct" required /></label>
           <label>DATE<input id="yardDate" type="date" required /></label>
+          <label>QUALITY GRADE<select id="yardQuality"><option value="grade-1">Grade #1</option><option value="recovered-grade-1">Recovered Grade #1</option><option value="downgraded">Downgraded / defects</option></select></label>
+          <label>DEFECT / SORT NOTE<input id="yardDefectNote" placeholder="Bow, large knots, cracks…" /></label>
         </div>
         <p class="note">Select the actual boards used to build this YARD lift. Only unallocated quantities from Completed Kiln Loads are available.</p>
         <div id="yardAvailableSource" class="yard-source-summary"></div>
-        <div class="scroll"><table class="yard-builder"><thead><tr><th>Length</th><th>Available from completed</th><th>Put in this YARD lift</th></tr></thead><tbody id="yardBuilderRows"></tbody></table></div>
+        <div class="scroll"><table class="yard-builder"><thead><tr><th>Length</th><th>Available from completed</th><th>Uncut boards in this TAG</th></tr></thead><tbody id="yardBuilderRows"></tbody></table></div>
+
+        <section class="recovery-builder">
+          <div class="section-heading compact-heading">
+            <div><small>QUALITY RECOVERY</small><h3>Cut bowed or defective boards into shorter Grade #1 product</h3></div>
+            <button id="addRecoveryCut" class="secondary" type="button">+ Add recovery cut</button>
+          </div>
+          <p class="note">Example: 20 ft → 12 ft + 8 ft. The source board is removed from processed inventory once; recovered lengths enter this TAG and trim loss is recorded automatically.</p>
+          <div class="scroll"><table class="recovery-table"><thead><tr><th>Source length</th><th>Boards cut</th><th>Output 1</th><th>Output 2</th><th>Output 3</th><th>Loss / board</th><th></th></tr></thead><tbody id="recoveryCutRows"></tbody></table></div>
+          <div id="recoveryBalance" class="recovery-balance">No recovery cuts added.</div>
+        </section>
         <div id="yardDialogStatus" class="calculation-status idle">Enter quantities and confirm the TAG.</div>
         <div class="dialog-actions"><button type="submit">Create YARD lift TAG</button></div>
       </form>
@@ -97,6 +109,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v2" data-app="warehouse.js?v=active-order-pointer-v1"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v2" data-app="warehouse.js?v=yard-recovery-v1"></script>
   </body>
 </html>

@@ -344,24 +344,60 @@
           <div><small>MASPEL DRYING CONTROL</small><h2 id="dryingProgramTitle">Kiln Load drying program</h2></div>
           <button id="closeDryingProgram" class="secondary" type="button">Close</button>
         </div>
-        <p class="note">Enter the measured or target values. EMC and drying gradient are updated only when you press Calculate &amp; save.</p>
-        <div class="table-scroll drying-program-scroll">
-          <table class="drying-program-table">
-            <thead><tr><th>Phase</th><th>MC, %</th><th>mBar</th><th>Temp, °C</th><th>EMC, %</th><th>Grad.</th></tr></thead>
-            <tbody id="dryingProgramRows"></tbody>
-          </table>
+        <p class="note">The saved working program stays fixed on the left. Edit the comparison scenario on the right, then calculate to see EMC, gradient and the difference. Typing does not trigger calculation or synchronization.</p>
+        <div class="drying-comparison-grid">
+          <section class="program-panel baseline-panel">
+            <h3>Current saved program</h3>
+            <div class="table-scroll drying-program-scroll">
+              <table class="drying-program-table">
+                <thead><tr><th>Phase</th><th>MC</th><th>mBar</th><th>°C</th><th>EMC</th><th>Grad.</th></tr></thead>
+                <tbody id="dryingCurrentRows"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="program-panel comparison-panel">
+            <h3>Comparison scenario</h3>
+            <div class="table-scroll drying-program-scroll">
+              <table class="drying-program-table comparison-table">
+                <thead><tr><th>Phase</th><th>MC</th><th>mBar</th><th>°C</th><th>EMC</th><th>Grad.</th><th>Δ EMC</th><th>Δ Grad.</th></tr></thead>
+                <tbody id="dryingScenarioRows"></tbody>
+              </table>
+            </div>
+          </section>
         </div>
-        <div id="dryingProgramStatus" class="calculation-status pending">MASPEL defaults loaded. Press Calculate &amp; save to calculate EMC and gradient.</div>
+        <div id="dryingProgramStatus" class="calculation-status pending">Press Calculate comparison to update the scenario and differences.</div>
         <p class="formula-note">Engineering estimate: mBar is treated as water-vapour partial pressure. Gradient = MC ÷ EMC. Confirm the pressure convention against the kiln sensor/manual before using the result as a production setpoint.</p>
         <div class="dialog-actions drying-program-actions">
           <button id="resetDryingProgram" class="secondary" type="button">Reset MASPEL defaults</button>
-          <button id="calculateDryingProgram" type="submit">Calculate &amp; save</button>
+          <button id="calculateDryingComparison" class="secondary" type="button">Calculate comparison</button>
+          <button id="calculateDryingProgram" type="submit">Save scenario as current</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="thermoProgramDialog" class="cycle-dialog thermo-program-dialog">
+      <form id="thermoProgramForm" method="dialog">
+        <div class="dialog-heading">
+          <div><small>THERMO VACUUM CONTROL</small><h2 id="thermoProgramTitle">Kiln Load TM program</h2></div>
+          <button id="closeThermoProgram" class="secondary" type="button">Close</button>
+        </div>
+        <p class="note">Editable Thermo Vacuum process values transcribed from the AFEM thermal-modification screen. Changes are stored only when Save TM program is pressed.</p>
+        <div class="table-scroll drying-program-scroll">
+          <table class="drying-program-table thermo-program-table">
+            <thead><tr><th>Stage</th><th>Control setpoint</th><th>Target temp, °C</th><th>Duration, min</th><th>Operator note</th></tr></thead>
+            <tbody id="thermoProgramRows"></tbody>
+          </table>
+        </div>
+        <div id="thermoProgramStatus" class="calculation-status pending">Photo defaults loaded. Review the program and save it for this kiln load.</div>
+        <div class="dialog-actions drying-program-actions">
+          <button id="resetThermoProgram" class="secondary" type="button">Reset photo defaults</button>
+          <button id="saveThermoProgram" type="submit">Save TM program</button>
         </div>
       </form>
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="app.js?v=cycle-correction-v1"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="app.js?v=process-programs-v1"></script>
   </body>
 </html>

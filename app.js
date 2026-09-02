@@ -14,6 +14,7 @@ let currentLoadSnapshot = null;
 const manualLiftTargets = new Map();
 const manualLiftStickers = new Map();
 const dryingPrograms = new Map();
+const thermoPrograms = new Map();
 const loadRecords = new Map();
 let globalOrderSignature = '';
 let globalOrderPlans = [];
@@ -29,6 +30,9 @@ const ORDER_INDEX_STORAGE = 'kiln-planner-order-index-v1';
 const ORDER_STORAGE_PREFIX = 'kiln-planner-order-v1:';
 let completingLoadNumber = null;
 let editingDryingLoadNumber = null;
+let editingThermoLoadNumber = null;
+let dryingBaselineRows = [];
+let dryingCalculatedScenarioRows = null;
 let activeOrder = null;
 let draftSaveTimer = 0;
 
@@ -284,6 +288,7 @@ function persistActiveOrder(calculated = false) {
   activeOrder.liftStickerOverrides = Object.fromEntries(manualLiftStickers);
   activeOrder.liftTargetOverrides = Object.fromEntries(manualLiftTargets);
   activeOrder.dryingPrograms = Object.fromEntries(dryingPrograms);
+  activeOrder.thermoPrograms = Object.fromEntries(thermoPrograms);
   if (calculated) {
     activeOrder.calculated = true;
     activeOrder.planSignature = globalOrderSignature;
@@ -2274,7 +2279,8 @@ function renderLoadNavigation() {
     historyRow.classList.toggle('in-progress', inProgress);
     const hasDryingData = dryingPrograms.has(String(snapshot.number));
     const stateLabel = completed ? 'Processed' : inProgress ? 'In progress' : `${fmt(snapshot.remainingBoards)} remaining`;
-    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button>${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
+    const hasThermoData = thermoPrograms.has(String(snapshot.number));
+    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button>${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
     historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
       event.stopPropagation();
       if (inProgress) openCycleCompletion(snapshot.number);
@@ -2287,6 +2293,10 @@ function renderLoadNavigation() {
     historyRow.querySelector('.drying-program-open').addEventListener('click', (event) => {
       event.stopPropagation();
       openDryingProgram(snapshot.number);
+    });
+    historyRow.querySelector('.thermo-program-open').addEventListener('click', (event) => {
+      event.stopPropagation();
+      openThermoProgram(snapshot.number);
     });
     historyRow.addEventListener('click', () => selectSavedLoad(snapshot.number));
     history.appendChild(historyRow);
@@ -2310,26 +2320,36 @@ function defaultDryingRows() {
   return MASPEL_DRYING_DEFAULTS.map((row) => ({ ...row, emc: null, gradient: null }));
 }
 
-function renderDryingProgramRows(rows) {
-  $('dryingProgramRows').innerHTML = rows.map((row, index) => `<tr data-phase="${index}">
-    <td>${escapeHtml(row.phase)}</td>
-    <td><input class="drying-mc" type="number" min="0" max="100" step="0.1" value="${Number(row.mc)}" aria-label="${escapeHtml(row.phase)} MC percent"></td>
-    <td><input class="drying-mbar" type="number" min="0.1" step="0.1" value="${Number(row.mbar)}" aria-label="${escapeHtml(row.phase)} pressure mBar"></td>
-    <td><input class="drying-temp" type="number" min="-20" max="120" step="0.1" value="${Number(row.temp)}" aria-label="${escapeHtml(row.phase)} temperature Celsius"></td>
-    <td><output class="drying-emc">${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</output></td>
-    <td><output class="drying-gradient">${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</output></td>
-  </tr>`).join('');
+function renderDryingCurrentRows(rows) {
+  $('dryingCurrentRows').innerHTML = rows.map((row) => `<tr><td>${escapeHtml(row.phase)}</td><td>${Number(row.mc)}</td><td>${Number(row.mbar)}</td><td>${Number(row.temp)}</td><td>${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</td><td>${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</td></tr>`).join('');
+}
+
+function renderDryingScenarioRows(rows, baseline = []) {
+  $('dryingScenarioRows').innerHTML = rows.map((row, index) => {
+    const current = baseline[index] || {};
+    const deltaEmc = Number.isFinite(row.emc) && Number.isFinite(current.emc) ? row.emc - current.emc : null;
+    const deltaGradient = Number.isFinite(row.gradient) && Number.isFinite(current.gradient) ? row.gradient - current.gradient : null;
+    return `<tr data-phase="${index}"><td>${escapeHtml(row.phase)}</td><td><input class="drying-mc" type="number" min="0" max="100" step="0.1" value="${Number(row.mc)}"></td><td><input class="drying-mbar" type="number" min="0.1" step="0.1" value="${Number(row.mbar)}"></td><td><input class="drying-temp" type="number" min="-20" max="120" step="0.1" value="${Number(row.temp)}"></td><td><output class="drying-emc">${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</output></td><td><output class="drying-gradient">${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</output></td><td><output class="drying-delta-emc">${formatSigned(deltaEmc)}</output></td><td><output class="drying-delta-gradient">${formatSigned(deltaGradient)}</output></td></tr>`;
+  }).join('');
+}
+
+function formatSigned(value) {
+  if (!Number.isFinite(value)) return '—';
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
 }
 
 function openDryingProgram(loadNumber) {
   editingDryingLoadNumber = Number(loadNumber);
   $('dryingProgramTitle').textContent = `Kiln Load ${loadNumber} · drying program`;
   const saved = dryingPrograms.get(String(loadNumber));
-  renderDryingProgramRows(saved?.rows?.length ? saved.rows : defaultDryingRows());
+  dryingBaselineRows = (saved?.rows?.length ? saved.rows : defaultDryingRows()).map((row) => ({ ...row }));
+  dryingCalculatedScenarioRows = null;
+  renderDryingCurrentRows(dryingBaselineRows);
+  renderDryingScenarioRows(dryingBaselineRows.map((row) => ({ ...row })), dryingBaselineRows);
   $('dryingProgramStatus').className = `calculation-status ${saved?.calculatedAt ? 'ready' : 'pending'}`;
   $('dryingProgramStatus').textContent = saved?.calculatedAt
-    ? `Saved ${new Date(saved.calculatedAt).toLocaleString()}. Values are unchanged until Calculate & save is pressed again.`
-    : 'MASPEL defaults loaded. Press Calculate & save to calculate EMC and gradient.';
+    ? `Saved ${new Date(saved.calculatedAt).toLocaleString()}. Edit only the comparison table; the saved program stays unchanged until Save scenario as current is pressed.`
+    : 'MASPEL defaults loaded. Press Calculate comparison to preview EMC, gradient and differences without saving.';
   $('dryingProgramDialog').showModal();
 }
 
@@ -2348,7 +2368,7 @@ function hailwoodHorrobinEmc(tempC, relativeHumidity) {
 }
 
 function readAndCalculateDryingRows() {
-  return [...$('dryingProgramRows').querySelectorAll('tr')].map((row) => {
+  return [...$('dryingScenarioRows').querySelectorAll('tr')].map((row) => {
     const mc = Number(row.querySelector('.drying-mc').value);
     const mbar = Number(row.querySelector('.drying-mbar').value);
     const temp = Number(row.querySelector('.drying-temp').value);
@@ -2365,13 +2385,49 @@ function readAndCalculateDryingRows() {
   });
 }
 
+function calculateDryingComparison() {
+  try {
+    const baseline = calculateDryingValues(dryingBaselineRows);
+    const scenario = readAndCalculateDryingRows();
+    dryingBaselineRows = baseline;
+    dryingCalculatedScenarioRows = scenario.map((row) => ({ ...row }));
+    renderDryingCurrentRows(baseline);
+    renderDryingScenarioRows(scenario, baseline);
+    $('dryingProgramStatus').className = 'calculation-status ready';
+    $('dryingProgramStatus').textContent = 'Comparison calculated but not saved. Review Δ EMC and Δ Gradient.';
+  } catch (error) {
+    $('dryingProgramStatus').className = 'calculation-status error';
+    $('dryingProgramStatus').textContent = error.message;
+  }
+}
+
+function calculateDryingValues(rows) {
+  return rows.map((row) => {
+    const mc = Number(row.mc);
+    const mbar = Number(row.mbar);
+    const temp = Number(row.temp);
+    if (!Number.isFinite(mc) || mc < 0 || mc > 100 || !Number.isFinite(mbar) || mbar <= 0 || !Number.isFinite(temp) || temp < -20 || temp > 120) {
+      throw new Error(`${row.phase}: check MC, mBar and temperature values.`);
+    }
+    const relativeHumidity = mbar / saturationVapourPressureMbar(temp);
+    if (relativeHumidity >= 1) throw new Error(`${row.phase}: mBar is at or above saturation pressure for this temperature.`);
+    const emc = hailwoodHorrobinEmc(temp, relativeHumidity);
+    return { ...row, mc, mbar, temp, emc, gradient: emc > 0 ? mc / emc : 0, relativeHumidity };
+  });
+}
+
 function calculateAndSaveDryingProgram(event) {
   event.preventDefault();
   try {
-    const rows = readAndCalculateDryingRows();
+    if (!dryingCalculatedScenarioRows) throw new Error('Calculate the comparison first. Editing values never starts a calculation automatically.');
+    const rows = dryingCalculatedScenarioRows.map((row) => ({ ...row }));
     const calculatedAt = new Date().toISOString();
     dryingPrograms.set(String(editingDryingLoadNumber), { loadNumber: editingDryingLoadNumber, rows, calculatedAt });
     persistActiveOrder(false);
+    dryingBaselineRows = rows.map((row) => ({ ...row }));
+    dryingCalculatedScenarioRows = rows.map((row) => ({ ...row }));
+    renderDryingCurrentRows(dryingBaselineRows);
+    renderDryingScenarioRows(rows.map((row) => ({ ...row })), dryingBaselineRows);
     $('dryingProgramStatus').className = 'calculation-status ready';
     $('dryingProgramStatus').textContent = `Calculated and saved ${new Date(calculatedAt).toLocaleString()}.`;
     renderLoadNavigation();
@@ -2379,6 +2435,44 @@ function calculateAndSaveDryingProgram(event) {
     $('dryingProgramStatus').className = 'calculation-status error';
     $('dryingProgramStatus').textContent = error.message;
   }
+}
+
+const THERMO_VACUUM_DEFAULTS = [
+  { stage: 'PH1', setpoint: 350, temp: 179, duration: 240, note: 'Initial thermal rise' },
+  { stage: 'PH1.1', setpoint: 350, temp: 186, duration: 90, note: 'Thermal hold 1' },
+  { stage: 'PH1.2', setpoint: 350, temp: 193, duration: 90, note: 'Thermal hold 2' },
+  { stage: 'PH1.3', setpoint: 350, temp: 200, duration: 180, note: 'Peak modification' },
+  { stage: 'Cooling', setpoint: 350, temp: 70, duration: 360, note: 'Controlled cooling' },
+];
+
+function renderThermoProgramRows(rows) {
+  $('thermoProgramRows').innerHTML = rows.map((row, index) => `<tr data-stage="${index}"><td><input class="thermo-stage" value="${escapeHtml(row.stage)}"></td><td><input class="thermo-setpoint" type="number" step="1" value="${Number(row.setpoint)}"></td><td><input class="thermo-temp" type="number" step="1" value="${Number(row.temp)}"></td><td><input class="thermo-duration" type="number" min="0" step="1" value="${Number(row.duration)}"></td><td><input class="thermo-note" value="${escapeHtml(row.note || '')}"></td></tr>`).join('');
+}
+
+function openThermoProgram(loadNumber) {
+  editingThermoLoadNumber = Number(loadNumber);
+  $('thermoProgramTitle').textContent = `Kiln Load ${loadNumber} · Thermo Vacuum program`;
+  const saved = thermoPrograms.get(String(loadNumber));
+  renderThermoProgramRows(saved?.rows?.length ? saved.rows : THERMO_VACUUM_DEFAULTS);
+  $('thermoProgramStatus').className = `calculation-status ${saved?.savedAt ? 'ready' : 'pending'}`;
+  $('thermoProgramStatus').textContent = saved?.savedAt ? `Saved ${new Date(saved.savedAt).toLocaleString()}.` : 'Photo defaults loaded. Review and save this TM program.';
+  $('thermoProgramDialog').showModal();
+}
+
+function saveThermoProgram(event) {
+  event.preventDefault();
+  const rows = [...$('thermoProgramRows').querySelectorAll('tr')].map((row) => ({ stage: row.querySelector('.thermo-stage').value.trim(), setpoint: Number(row.querySelector('.thermo-setpoint').value), temp: Number(row.querySelector('.thermo-temp').value), duration: Number(row.querySelector('.thermo-duration').value), note: row.querySelector('.thermo-note').value.trim() }));
+  if (rows.some((row) => !row.stage || !Number.isFinite(row.setpoint) || !Number.isFinite(row.temp) || !Number.isFinite(row.duration) || row.duration < 0)) {
+    $('thermoProgramStatus').className = 'calculation-status error';
+    $('thermoProgramStatus').textContent = 'Check every TM stage, setpoint, temperature and duration.';
+    return;
+  }
+  const savedAt = new Date().toISOString();
+  thermoPrograms.set(String(editingThermoLoadNumber), { loadNumber: editingThermoLoadNumber, rows, savedAt });
+  persistActiveOrder(false);
+  $('thermoProgramStatus').className = 'calculation-status ready';
+  $('thermoProgramStatus').textContent = `TM program saved ${new Date(savedAt).toLocaleString()}.`;
+  renderLoadNavigation();
 }
 
 function startKilnCycle(loadNumber) {
@@ -2522,11 +2616,25 @@ function bindEvents() {
   $('completeCycleForm').addEventListener('submit', saveCompletedCycle);
   $('cancelCompleteCycle').addEventListener('click', () => $('completeCycleDialog').close());
   $('dryingProgramForm').addEventListener('submit', calculateAndSaveDryingProgram);
+  $('calculateDryingComparison').addEventListener('click', calculateDryingComparison);
+  $('dryingScenarioRows').addEventListener('input', () => {
+    dryingCalculatedScenarioRows = null;
+    $('dryingProgramStatus').className = 'calculation-status pending';
+    $('dryingProgramStatus').textContent = 'Scenario changed. Press Calculate comparison to update EMC, gradient and differences before saving.';
+  });
   $('closeDryingProgram').addEventListener('click', () => $('dryingProgramDialog').close());
   $('resetDryingProgram').addEventListener('click', () => {
-    renderDryingProgramRows(defaultDryingRows());
+    dryingCalculatedScenarioRows = null;
+    renderDryingScenarioRows(defaultDryingRows(), dryingBaselineRows);
     $('dryingProgramStatus').className = 'calculation-status pending';
-    $('dryingProgramStatus').textContent = 'MASPEL defaults restored in this form. Press Calculate & save to apply them.';
+    $('dryingProgramStatus').textContent = 'MASPEL defaults restored only in the comparison table. Calculate to preview them; save only if you want to replace the current program.';
+  });
+  $('thermoProgramForm').addEventListener('submit', saveThermoProgram);
+  $('closeThermoProgram').addEventListener('click', () => $('thermoProgramDialog').close());
+  $('resetThermoProgram').addEventListener('click', () => {
+    renderThermoProgramRows(THERMO_VACUUM_DEFAULTS);
+    $('thermoProgramStatus').className = 'calculation-status pending';
+    $('thermoProgramStatus').textContent = 'Photo defaults restored in this form. Press Save TM program to apply them.';
   });
   $('addLength').addEventListener('click', () => {
     addRow(8, 0);
@@ -2614,6 +2722,9 @@ function init() {
   });
   Object.entries(activeOrder.dryingPrograms || {}).forEach(([loadNumber, program]) => {
     if (program?.rows?.length) dryingPrograms.set(String(loadNumber), program);
+  });
+  Object.entries(activeOrder.thermoPrograms || {}).forEach(([loadNumber, program]) => {
+    if (program?.rows?.length) thermoPrograms.set(String(loadNumber), program);
   });
   $('orderNumber').value = activeOrder.number || newOrderNumber();
   if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });

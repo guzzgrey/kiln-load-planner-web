@@ -297,7 +297,7 @@ function persistActiveOrder(calculated = false) {
     activeOrder.plannedBoards = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBoards, 0);
     activeOrder.plannedBf = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBf, 0);
     activeOrder.calculatedAt = new Date().toISOString();
-    activeOrder.optimizerVersion = 'minimum-cycles-row-fill-v2';
+    activeOrder.optimizerVersion = 'minimum-cycles-row-fill-v3';
     activeOrder.viewCache = cacheRenderedCalculation();
   }
   storeOrder(activeOrder);
@@ -1681,7 +1681,7 @@ function solveOrderAcrossCycles(sourceStock, geometry, kilnLength, maxStack, sel
   return nonEmptyPlans;
 }
 
-function fillResidualRowsIntoExistingLifts(plans, sourceStock, geometry) {
+function fillResidualRowsIntoExistingLifts(plans, sourceStock, geometry, preserveManualTargets = false) {
   if (!plans.length || !geometry.across) return plans;
   const stock = new Map(sourceStock);
   const result = plans.map((plan) => {
@@ -1698,6 +1698,8 @@ function fillResidualRowsIntoExistingLifts(plans, sourceStock, geometry) {
     plan.activeStates.map((state, stateIndex) => ({ state, planIndex, stateIndex }))
   );
   const capacity = (state) => Number(state.rowCapacity || geometry.rows);
+  const isManuallyLimited = (planIndex, stateIndex, state) => preserveManualTargets
+    && manualLiftTargets.has(`${planIndex + 1}:${stateIndex}:${state.length}`);
   const span = (row) => row.pattern.reduce((sum, length) => sum + Number(length || 0), 0);
   const availableRows = (length) => Math.floor(Number(stock.get(length) || 0) / geometry.across);
   const takeSolidRow = (state, length, placement) => {
@@ -1711,7 +1713,8 @@ function fillResidualRowsIntoExistingLifts(plans, sourceStock, geometry) {
   // inserted below a shorter top section when the transition is at most 1 ft.
   [...positions]
     .sort((left, right) => right.state.length - left.state.length || left.planIndex - right.planIndex)
-    .forEach(({ state }) => {
+    .forEach(({ state, planIndex, stateIndex }) => {
+      if (isManuallyLimited(planIndex, stateIndex, state)) return;
       const firstLength = state.rowSequence.length ? span(state.rowSequence[0]) : state.length;
       if (firstLength < state.length - 1) return;
       const rows = Math.min(
@@ -1725,6 +1728,7 @@ function fillResidualRowsIntoExistingLifts(plans, sourceStock, geometry) {
   // down exactly 1 ft; no new lift or kiln cycle is created.
   while (true) {
     const opportunities = positions.flatMap(({ state, planIndex, stateIndex }) => {
+      if (isManuallyLimited(planIndex, stateIndex, state)) return [];
       if (!state.rowSequence.length || state.rowSequence.length >= capacity(state)) return [];
       const lastLength = span(state.rowSequence[state.rowSequence.length - 1]);
       return [lastLength, lastLength - 1]
@@ -2249,14 +2253,21 @@ function calculate(allowOptimization = false) {
     // Use the same proven sequential planner in local files and on the web.
     // The HiGHS global model produced a different plan only after deployment,
     // because its WASM module cannot initialize from file:// URLs.
-    globalOrderPlans = applyLiftTargetOverrides(
-      applyLiftStickerOverrides(
-        solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal),
-        originalStock,
-        geometry,
-      ),
+    const optimizedPlans = solveSequentialFallback(originalStock, geometry, kilnLength, maxStack, selectedMetal);
+    const stickerAdjustedPlans = applyLiftStickerOverrides(optimizedPlans, originalStock, geometry);
+    const targetAdjustedPlans = applyLiftTargetOverrides(
+      stickerAdjustedPlans,
       originalStock,
       geometry,
+    );
+    // Sticker and row-target rebuilding can expose new stock after the first
+    // optimizer pass. Fill every unrestricted lift once more from that final
+    // stock, while preserving any row target the operator set explicitly.
+    globalOrderPlans = fillResidualRowsIntoExistingLifts(
+      targetAdjustedPlans,
+      originalStock,
+      geometry,
+      true,
     ).map(restorePlanTypes);
     loadRecords.clear();
     currentLoadNumber = 1;

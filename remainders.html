@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Remainder Inventory</title>
+    <link rel="stylesheet" href="styles.css?v=remainder-inventory-v1" />
+  </head>
+  <body>
+    <main class="wrap remainder-page">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">CONDITIONAL WAREHOUSE</p>
+          <h1>Remainder Inventory</h1>
+          <p class="lead">Unprocessed boards remaining after completed and fully shipped production orders.</p>
+        </div>
+        <div class="header-actions">
+          <a class="button-link secondary-link" href="index.html">Kiln Load Planner</a>
+          <a class="button-link secondary-link" href="warehouse.html">YARD &amp; Shipping</a>
+          <button id="printRemainders" type="button">Print / Save PDF</button>
+        </div>
+      </header>
+      <section class="remainder-summary" aria-label="Remainder totals">
+        <div><b id="remainderOrders">0</b><span>orders with remainder</span></div>
+        <div><b id="remainderBoards">0</b><span>boards in conditional stock</span></div>
+        <div><b id="remainderBf">0.0</b><span>total BF</span></div>
+      </section>
+      <section class="card remainder-register">
+        <div class="section-heading">
+          <div><p class="eyebrow">REMAINDER REGISTER</p><h2>Completed-order residual stock</h2></div>
+        </div>
+        <p class="note">A record is created automatically only when an order is completed with a positive unprocessed remainder. This register does not automatically add boards to a new order.</p>
+        <div class="scroll"><table id="remainderTable" class="matrix-table remainder-table"></table></div>
+        <div id="emptyRemainders" class="empty-state">No completed orders with a remainder yet.</div>
+      </section>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="remainders.js?v=remainder-inventory-v1"></script>
+  </body>
+</html>

@@ -1128,3 +1128,58 @@ th {
   .lift-plan-grid { grid-template-columns:1fr; }
   .lift-pattern { grid-template-columns:78px minmax(90px,1fr) 58px 78px; gap:6px; }
 }
+
+.remainder-page { max-width: 1800px; }
+.remainder-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.remainder-summary > div {
+  display: grid;
+  gap: 4px;
+  padding: 20px 24px;
+  border: 1px solid #cfe0d7;
+  border-radius: 12px;
+  background: var(--pale);
+}
+.remainder-summary b { color: var(--green); font-size: 30px; }
+.remainder-summary span { color: var(--muted); font-weight: 700; }
+.remainder-register { padding: 20px; }
+.remainder-table td:first-child small { display: block; }
+@media (max-width: 700px) {
+  .remainder-summary { grid-template-columns: 1fr; }
+}
+@media print {
+  .remainder-page { width: 283mm; max-width: 283mm; margin: 0; }
+  .remainder-page .header-actions { display: none !important; }
+  .remainder-page .page-header,
+  .remainder-page .remainder-summary,
+  .remainder-page .remainder-register { break-inside: avoid-page; page-break-inside: avoid; }
+  .remainder-page .remainder-summary { gap: 2mm; margin-bottom: 3mm; }
+  .remainder-page .remainder-summary > div { padding: 2mm 3mm; border-radius: 0; }
+  .remainder-page .remainder-summary b { font-size: 16px; }
+  .remainder-page .remainder-register { padding: 3mm; box-shadow: none; }
+  .remainder-page .note { font-size: 8px; margin: 1.5mm 0; }
+  .remainder-page .matrix-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed;
+    font-size: 6px;
+  }
+  .remainder-page .matrix-table th,
+  .remainder-page .matrix-table td {
+    min-width: 0 !important;
+    width: auto !important;
+    padding: 1mm .35mm;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+  }
+  .remainder-page .matrix-table th:first-child,
+  .remainder-page .matrix-table td:first-child { width: 19mm !important; }
+  .remainder-page .matrix-table th:nth-child(2),
+  .remainder-page .matrix-table td:nth-child(2) { width: 23mm !important; }
+  .remainder-page .matrix-table th:nth-child(3),
+  .remainder-page .matrix-table td:nth-child(3) { width: 26mm !important; }
+}

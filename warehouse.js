@@ -6,6 +6,7 @@ const RECOVERY_KEY = 'kiln-planner-recovery-operations-v1';
 const FINAL_DATE_KEY = 'kiln-planner-final-process-date-v1';
 const ACTIVE_ORDER_KEY = 'kiln-planner-active-order-v1';
 const ORDER_ARCHIVE_KEY = 'kiln-planner-order-archive-v1';
+const REMAINDER_INVENTORY_KEY = 'kiln-planner-remainder-inventory-v1';
 const ORDER_INDEX_KEY = 'kiln-planner-order-index-v1';
 const ORDER_PREFIX = 'kiln-planner-order-v1:';
 const $ = (id) => document.getElementById(id);
@@ -574,6 +575,38 @@ function cloneForArchive(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function saveOrderRemainder(ledger, completedAt) {
+  const quantities = Object.fromEntries(
+    ledger.rows
+      .filter((row) => Number(row.unprocessed || 0) > 0)
+      .map((row) => [row.length, Number(row.unprocessed)])
+  );
+  if (!Object.keys(quantities).length) return;
+  const parsed = dimensions(ledger.order.inputs?.size);
+  const thickness = parsed.thickness || Number(ledger.order.inputs?.actualT || 0);
+  const width = parsed.width || Number(ledger.order.inputs?.actualW || 0);
+  const boards = totalBoards(quantities);
+  const bf = LENGTHS.reduce(
+    (sum, length) => sum + thickness * width * length * Number(quantities[length] || 0) / 12,
+    0
+  );
+  const records = read(REMAINDER_INVENTORY_KEY);
+  const record = {
+    id: ledger.order.id,
+    orderNumber: ledger.order.number,
+    supplier: ledger.order.inputs?.supplier || '',
+    product: [ledger.order.inputs?.species, ledger.order.inputs?.size].filter(Boolean).join(' · '),
+    size: ledger.order.inputs?.size || '',
+    quantities,
+    boards,
+    bf,
+    completedAt,
+  };
+  const position = records.findIndex((item) => item.id === record.id);
+  if (position >= 0) records[position] = record; else records.push(record);
+  write(REMAINDER_INVENTORY_KEY, records);
+}
+
 function completeActiveOrder() {
   const ledger = orderLedger();
   if (!ledger || $('completeOrder').disabled) return;
@@ -581,7 +614,9 @@ function completeActiveOrder() {
   const archive = read(ORDER_ARCHIVE_KEY);
   archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, unprocessed: ledger.incoming - ledger.processed, recoveryInputFt: ledger.allocatedInputFt, recoveryOutputFt: ledger.yardOutputFt, removedFt: ledger.removedFt, rows: cloneForArchive(ledger.rows), completedCycles: cloneForArchive(completed()), recoveries: cloneForArchive(currentRecoveries()), tags: cloneForArchive(currentTags()), shipments: cloneForArchive(currentShipments()), dryingPrograms: cloneForArchive(ledger.order.dryingPrograms || {}), thermoPrograms: cloneForArchive(ledger.order.thermoPrograms || {}), finalProcessDate: $('warehouseFinalDate').value, completedAt: new Date().toISOString() });
   write(ORDER_ARCHIVE_KEY, archive);
-  const completedOrder = { ...ledger.order, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const completedAt = new Date().toISOString();
+  saveOrderRemainder(ledger, completedAt);
+  const completedOrder = { ...ledger.order, status: 'completed', completedAt, updatedAt: completedAt };
   localStorage.setItem(`${ORDER_PREFIX}${completedOrder.id}`, JSON.stringify(completedOrder));
   const index = read(ORDER_INDEX_KEY);
   const position = index.findIndex((item) => item.id === completedOrder.id);

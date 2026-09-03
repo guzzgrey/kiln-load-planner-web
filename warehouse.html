@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
-    <link rel="stylesheet" href="styles.css?v=compact-drying-v1" />
+    <link rel="stylesheet" href="styles.css?v=remainder-inventory-v1" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -16,6 +16,7 @@
         </div>
         <div class="header-actions">
           <a class="button-link secondary-link" href="index.html">← Kiln Load Planner</a>
+          <a class="button-link secondary-link" href="remainders.html">Remainder Inventory</a>
           <button id="printKilnSettings" class="secondary" type="button">Kiln settings PDF</button>
           <button id="printWarehouse" type="button">Full order PDF</button>
         </div>
@@ -120,6 +121,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="warehouse.js?v=complete-reports-v1"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="warehouse.js?v=remainder-inventory-v1"></script>
   </body>
 </html>

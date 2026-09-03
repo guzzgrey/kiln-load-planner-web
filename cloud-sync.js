@@ -7,6 +7,7 @@
   const syncKeys = new Set([
     'kiln-planner-active-order-v1',
     'kiln-planner-order-archive-v1',
+    'kiln-planner-remainder-inventory-v1',
     'kiln-planner-completed-cycles-v1',
     'kiln-planner-shipping-tags-v1',
     'kiln-planner-recovery-operations-v1',

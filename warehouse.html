@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
-    <link rel="stylesheet" href="styles.css?v=yard-recovery-v3" />
+    <link rel="stylesheet" href="styles.css?v=complete-reports-v1" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -16,7 +16,8 @@
         </div>
         <div class="header-actions">
           <a class="button-link secondary-link" href="index.html">← Kiln Load Planner</a>
-          <button id="printWarehouse" type="button">Print / Save PDF</button>
+          <button id="printKilnSettings" class="secondary" type="button">Kiln settings PDF</button>
+          <button id="printWarehouse" type="button">Full order PDF</button>
         </div>
       </header>
 
@@ -87,6 +88,12 @@
         <div class="section-heading"><div><p class="eyebrow">HISTORY</p><h2>Completed Orders</h2></div></div>
         <div id="orderArchive" class="shipment-history"></div>
       </section>
+
+      <section id="kilnSettingsReport" class="card warehouse-section kiln-settings-report">
+        <div class="section-heading"><div><p class="eyebrow">KILN PROCESS RECORD</p><h2>Drying &amp; Thermo Vacuum settings</h2></div></div>
+        <p class="note">Saved working settings are grouped by Kiln Load. Experimental Drying values are not included until they are calculated and saved as the current program.</p>
+        <div id="kilnSettingsReportBody"></div>
+      </section>
     </main>
 
     <dialog id="yardTagDialog" class="cycle-dialog yard-dialog">
@@ -113,6 +120,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="warehouse.js?v=yard-recovery-v3"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="warehouse.js?v=complete-reports-v1"></script>
   </body>
 </html>

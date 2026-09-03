@@ -471,7 +471,10 @@ function renderShippingSelection() {
   const sentTagIds = new Set(currentShipments().flatMap((shipment) => shipment.tagIds || []));
   const tags = currentTags();
   $('shippingTagSelection').innerHTML = tags.length ? tags.map((tag, index) => `<label class="tag-option ${sentTagIds.has(tag.id) ? 'is-shipped' : ''}"><input type="checkbox" value="${esc(tag.id)}" ${sentTagIds.has(tag.id) ? 'disabled' : ''}><span><b>${esc(tag.tag || `Untagged row ${index + 1}`)}</b><small>${fmt(totalBoards(tag.quantities))} PCS · ${fmt(tagBf(tag), 1)} BFM · ${esc(tag.productMo || 'No product/MO')}</small></span></label>`).join('') : '<div class="empty-state">Create YARD TAGs before forming a shipping order.</div>';
-  $('shipmentHistory').innerHTML = currentShipments().map((shipment) => `<article><b>${esc(shipment.orderNumber)}</b><span>${esc(shipment.date)}</span><span>${shipment.tagIds.length} TAG${shipment.tagIds.length === 1 ? '' : 's'}</span><span>${fmt(shipment.boards)} PCS · ${fmt(shipment.bf, 1)} BFM</span><button class="danger small-action delete-shipment" type="button" data-id="${esc(shipment.id)}">Delete</button></article>`).join('');
+  $('shipmentHistory').innerHTML = currentShipments().map((shipment) => {
+    const tagNames = (shipment.tagIds || []).map((id) => tags.find((tag) => tag.id === id)?.tag || id);
+    return `<article><b>${esc(shipment.orderNumber)}</b><span>${esc(shipment.date)}</span><span>${tagNames.map(esc).join(', ')}</span><span>${fmt(shipment.boards)} PCS · ${fmt(shipment.bf, 1)} BFM</span><button class="danger small-action delete-shipment" type="button" data-id="${esc(shipment.id)}">Delete</button></article>`;
+  }).join('');
   document.querySelectorAll('.delete-shipment').forEach((button) => button.addEventListener('click', () => deleteShipment(button.dataset.id)));
 }
 
@@ -536,15 +539,47 @@ function renderOrderLedger() {
 
 function renderOrderArchive() {
   const records = read(ORDER_ARCHIVE_KEY);
-  $('orderArchive').innerHTML = records.length ? records.map((record) => `<article><b>${esc(record.number)}</b><span>${esc(record.completedAt.slice(0,10))}</span><span>${fmt(record.received)} received · ${fmt(record.shipped)} shipped</span><span>${fmt(record.unprocessed)} unprocessed remainder</span></article>`).join('') : '<div class="empty-state">No completed orders yet.</div>';
+  $('orderArchive').innerHTML = records.length ? records.map((record) => {
+    const rows = record.rows || [];
+    const tags = record.tags || [];
+    const shipmentRows = record.shipments || [];
+    const quantities = rows.filter((row) => row.incoming || row.processed || row.shipped).map((row) => `<tr><td>${fmt(row.length)} ft</td><td>${fmt(row.incoming)}</td><td>${fmt(row.processed)}</td><td>${fmt(row.finished)}</td><td>${fmt(row.shipped)}</td><td>${fmt(row.unprocessed)}</td></tr>`).join('');
+    const tagRows = tags.map((tag) => `<tr><td>${esc(tag.tag)}</td><td>${esc(tag.productMo)}</td><td>${esc(tag.date)}</td><td>${esc(qualityLabel(tag.quality))}</td><td>${Object.entries(tag.quantities || {}).filter(([, quantity]) => Number(quantity) > 0).map(([length, quantity]) => `${fmt(quantity)} × ${esc(length)} ft`).join(', ')}</td><td>${fmt(totalBoards(tag.quantities))}</td><td>${fmt(tagBf(tag), 1)}</td></tr>`).join('');
+    const shipmentDetails = shipmentRows.map((shipment) => { const names = (shipment.tagIds || []).map((id) => tags.find((tag) => tag.id === id)?.tag || id); return `<tr><td>${esc(shipment.orderNumber)}</td><td>${esc(shipment.date)}</td><td>${names.map(esc).join(', ')}</td><td>${fmt(shipment.boards)}</td><td>${fmt(shipment.bf, 1)}</td></tr>`; }).join('');
+    return `<details class="archived-order"><summary><b>${esc(record.number)}</b><span>${esc(record.completedAt.slice(0,10))}</span><span>${fmt(record.received)} received · ${fmt(record.shipped)} shipped</span><span>${fmt(tags.length)} TAGs · ${fmt(shipmentRows.length)} shipments</span></summary><div class="archive-content"><p><b>Supplier:</b> ${esc(record.supplier || '—')} · <b>Final process date:</b> ${esc(record.finalProcessDate || '—')} · <b>Removed footage:</b> ${fmt(record.removedFt)} ft</p><table class="archive-table"><thead><tr><th>Length</th><th>Received</th><th>Kiln processed</th><th>Finished</th><th>Shipped</th><th>Unprocessed</th></tr></thead><tbody>${quantities}</tbody></table><h4>YARD TAGs</h4><table class="archive-table"><thead><tr><th>TAG</th><th>Product / MO</th><th>Date</th><th>Quality</th><th>Contents</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${tagRows || '<tr><td colspan="7">No TAG records</td></tr>'}</tbody></table><h4>Shipping orders</h4><table class="archive-table"><thead><tr><th>Shipping #</th><th>Date</th><th>TAGs</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${shipmentDetails || '<tr><td colspan="5">No Shipping records</td></tr>'}</tbody></table><p><b>Saved kiln programs:</b> ${fmt(Object.keys(record.dryingPrograms || {}).length)} Drying · ${fmt(Object.keys(record.thermoPrograms || {}).length)} Thermo Vacuum.</p></div></details>`;
+  }).join('') : '<div class="empty-state">No completed orders yet.</div>';
+}
+
+function dryingProgramTable(program) {
+  const rows = program?.rows || [];
+  if (!rows.length) return '<p class="program-empty">No saved Drying program.</p>';
+  return `<table class="process-setting-table"><thead><tr><th>Phase</th><th>MC, %</th><th>mBar</th><th>Temp, °C</th><th>EMC, %</th><th>Gradient</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.phase)}</td><td>${fmt(row.mc, 1)}</td><td>${fmt(row.mbar, 1)}</td><td>${fmt(row.temp, 1)}</td><td>${Number.isFinite(Number(row.emc)) ? fmt(row.emc, 2) : '—'}</td><td>${Number.isFinite(Number(row.gradient)) ? fmt(row.gradient, 2) : '—'}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function thermoProgramTable(program) {
+  const rows = program?.rows || [];
+  if (!rows.length) return '<p class="program-empty">No saved Thermo Vacuum program.</p>';
+  return `<table class="process-setting-table"><thead><tr><th>Stage</th><th>Control setpoint</th><th>Target temp, °C</th><th>Duration, min</th><th>Operator note</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.stage)}</td><td>${fmt(row.setpoint)}</td><td>${fmt(row.temp)}</td><td>${fmt(row.duration)}</td><td>${esc(row.note)}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function renderKilnSettingsReport() {
+  const order = activeOrder();
+  const drying = order?.dryingPrograms || {};
+  const thermo = order?.thermoPrograms || {};
+  const loadNumbers = [...new Set([...Object.keys(drying), ...Object.keys(thermo)])].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  $('kilnSettingsReportBody').innerHTML = loadNumbers.length ? loadNumbers.map((loadNumber) => `<article class="process-program-card"><div class="process-program-heading"><h3>Kiln Load ${loadNumber}</h3><span>Order ${esc(order?.number || '—')} · ${esc(order?.inputs?.supplier || '—')}</span></div><div class="process-program-grid"><section><h4>Drying program</h4>${dryingProgramTable(drying[loadNumber])}</section><section><h4>Thermo Vacuum (TM)</h4>${thermoProgramTable(thermo[loadNumber])}</section></div></article>`).join('') : '<div class="empty-state">No saved Drying or Thermo Vacuum settings for this order.</div>';
+}
+
+function cloneForArchive(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 function completeActiveOrder() {
   const ledger = orderLedger();
   if (!ledger || $('completeOrder').disabled) return;
-  if (!window.confirm(`Complete and archive order ${ledger.order.number}? The planner will be cleared for a new order.`)) return;
+  if (!window.confirm(`Before closing ${ledger.order.number}, save both “Kiln settings PDF” and “Full order PDF”. Continue only after both files have been saved. Complete and archive this order now?`)) return;
   const archive = read(ORDER_ARCHIVE_KEY);
-  archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, unprocessed: ledger.incoming - ledger.processed, recoveryInputFt: ledger.allocatedInputFt, recoveryOutputFt: ledger.yardOutputFt, removedFt: ledger.removedFt, rows: ledger.rows, completedAt: new Date().toISOString() });
+  archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, unprocessed: ledger.incoming - ledger.processed, recoveryInputFt: ledger.allocatedInputFt, recoveryOutputFt: ledger.yardOutputFt, removedFt: ledger.removedFt, rows: cloneForArchive(ledger.rows), completedCycles: cloneForArchive(completed()), recoveries: cloneForArchive(currentRecoveries()), tags: cloneForArchive(currentTags()), shipments: cloneForArchive(currentShipments()), dryingPrograms: cloneForArchive(ledger.order.dryingPrograms || {}), thermoPrograms: cloneForArchive(ledger.order.thermoPrograms || {}), finalProcessDate: $('warehouseFinalDate').value, completedAt: new Date().toISOString() });
   write(ORDER_ARCHIVE_KEY, archive);
   const completedOrder = { ...ledger.order, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   localStorage.setItem(`${ORDER_PREFIX}${completedOrder.id}`, JSON.stringify(completedOrder));
@@ -597,8 +632,25 @@ $('createShipment').addEventListener('click', () => {
 $('completeOrder').addEventListener('click', completeActiveOrder);
 $('warehouseFinalDate').value = localStorage.getItem(FINAL_DATE_KEY) || completed().find((record) => record.finalProcessDate)?.finalProcessDate || '';
 $('warehouseFinalDate').addEventListener('change', (event) => localStorage.setItem(FINAL_DATE_KEY, event.target.value));
-$('printWarehouse').addEventListener('click', () => window.print());
+function printReport(mode) {
+  document.body.classList.toggle('print-kiln-settings', mode === 'settings');
+  document.body.classList.toggle('print-full-order', mode === 'full');
+  const order = activeOrder();
+  const previousTitle = document.title;
+  document.title = `${mode === 'settings' ? 'Kiln Settings' : 'Full Order Report'} - ${order?.number || 'Order'} - ${new Date().toISOString().slice(0, 10)}`;
+  const cleanup = () => {
+    document.body.classList.remove('print-kiln-settings', 'print-full-order');
+    document.title = previousTitle;
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  window.print();
+  window.setTimeout(cleanup, 1500);
+}
+$('printWarehouse').addEventListener('click', () => printReport('full'));
+$('printKilnSettings').addEventListener('click', () => printReport('settings'));
 migrateLegacyTagRecoveries();
 renderCompleted();
 renderWarehouseTags();
 renderOrderLedger();
+renderKilnSettingsReport();

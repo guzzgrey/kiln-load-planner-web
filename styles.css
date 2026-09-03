@@ -345,6 +345,35 @@ input:disabled {
     width: 100% !important;
     font-size: 6px;
   }
+
+  .warehouse-page .kiln-settings-report {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .warehouse-page .process-program-card {
+    break-before: page;
+    page-break-before: always;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    margin: 0;
+    padding: 4mm;
+    border-radius: 0;
+  }
+
+  .warehouse-page .process-program-card:first-child {
+    break-before: auto;
+    page-break-before: auto;
+  }
+
+  .warehouse-page .process-program-grid { grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .warehouse-page .process-setting-table { table-layout: fixed; font-size: 7px; }
+  .warehouse-page .process-setting-table th,
+  .warehouse-page .process-setting-table td { padding: 1.2mm; }
+
+  body.print-kiln-settings .warehouse-page > * { display: none !important; }
+  body.print-kiln-settings .warehouse-page > #kilnSettingsReport { display: block !important; break-before: auto; page-break-before: auto; }
+  body.print-kiln-settings #kilnSettingsReport > .section-heading { display: flex !important; }
 }
 
 button:disabled {
@@ -522,12 +551,32 @@ button.is-loading::after {
 .thermo-program-table td:last-child input { min-width:220px; text-align:left; }
 .formula-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .drying-program-actions { gap: 10px; }
+.kiln-settings-report-body { display:grid; gap:14px; }
+.process-program-card { margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fbfcfb; }
+.process-program-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.process-program-heading h3 { margin:0; color:var(--green); }
+.process-program-heading span, .program-empty { color:var(--muted); }
+.process-program-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.process-program-grid section { min-width:0; }
+.process-program-grid h4 { margin:0 0 7px; }
+.process-setting-table { width:100%; border-collapse:collapse; font-size:12px; }
+.process-setting-table th, .process-setting-table td { padding:6px; border-bottom:1px solid var(--line); text-align:right; }
+.process-setting-table th:first-child, .process-setting-table td:first-child, .process-setting-table th:last-child, .process-setting-table td:last-child { text-align:left; }
+.archived-order { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:#fbfcfb; }
+.archived-order summary { display:grid; grid-template-columns:1.1fr .7fr 1.4fr 1fr; gap:12px; align-items:center; cursor:pointer; }
+.archive-content { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+.archive-content h4 { margin:14px 0 6px; color:var(--green); }
+.archive-table { width:100%; border-collapse:collapse; font-size:12px; }
+.archive-table th, .archive-table td { padding:6px; border-bottom:1px solid var(--line); text-align:right; }
+.archive-table th:first-child, .archive-table td:first-child { text-align:left; }
 
 @media (max-width: 1100px) {
   .load-history article { grid-template-columns:minmax(150px,auto) 1fr 1fr; }
   .load-state { justify-self:start; }
   .constraint-check-content { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .drying-comparison-grid { grid-template-columns:1fr; }
+  .process-program-grid { grid-template-columns:1fr; }
+  .archived-order summary { grid-template-columns:1fr 1fr; }
 }
 
 .warehouse-page { max-width: 1800px; }

@@ -258,6 +258,12 @@ input:disabled {
   }
   .load-history .load-state { justify-self:end; font-size:7px; }
   .load-plan-card { break-before:page; page-break-before:always; break-inside:auto; page-break-inside:auto; }
+  .stacking-lift { break-inside:avoid-page; page-break-inside:avoid; }
+  .stacking-grid { grid-template-columns:repeat(8,1fr); gap:1mm; padding:1.5mm; }
+  .stacking-row { grid-template-columns:5mm 1fr; column-gap:1mm; padding:1mm; border-left-width:1mm; }
+  .stacking-row > b { width:5mm; height:5mm; font-size:6px; }
+  .stacking-row > span { font-size:6px; }
+  .stacking-row > small { font-size:5px; }
 
   /* Wide production registers are formatted as true A4 landscape tables. */
   .warehouse-page {
@@ -791,6 +797,25 @@ th {
 .technical-details, .remaining-details, .lift-editor-block { margin-top:10px; border:1px solid var(--line); border-radius:10px; background:#fafbf9; }
 .technical-details summary, .remaining-details summary, .lift-editor-block > summary { cursor:pointer; padding:12px 14px; }
 .technical-details p { margin:0; padding:8px 14px; border-top:1px solid var(--line); line-height:1.5; }
+.stacking-details > summary { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.stacking-details > summary span { display:grid; gap:2px; }
+.stacking-details > summary small { color:var(--muted); font-weight:500; }
+.stacking-details > summary strong { padding:4px 9px; border-radius:999px; background:var(--pale); color:var(--green); font-size:11px; white-space:nowrap; }
+.stacking-schedule { display:grid; gap:10px; padding:10px; border-top:1px solid var(--line); }
+.stacking-lift { overflow:hidden; border:1px solid var(--line); border-radius:9px; background:#fff; }
+.stacking-lift > header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; background:#e8f2ed; }
+.stacking-lift > header div { display:flex; align-items:baseline; gap:8px; }
+.stacking-lift > header small { color:var(--green); font-size:10px; font-weight:900; letter-spacing:.08em; }
+.stacking-lift > header span { color:var(--muted); font-size:11px; }
+.stacking-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:5px; padding:8px; }
+.stacking-row { display:grid; grid-template-columns:25px 1fr; grid-template-rows:auto auto; column-gap:7px; align-items:center; min-width:0; padding:6px 7px; border:1px solid #d7dfda; border-left:4px solid var(--green); border-radius:7px; background:#f8faf8; }
+.stacking-row > b { grid-row:1 / 3; display:grid; place-items:center; width:23px; height:23px; border-radius:50%; background:var(--green); color:#fff; font-size:10px; }
+.stacking-row > span { overflow:hidden; color:var(--ink); font-size:11px; font-weight:800; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
+.stacking-row > small { color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.06em; }
+.stacking-row.joined { border-left-color:#c48222; background:#fff9ef; }
+.stacking-row.joined > b { background:#a76308; }
+.stacking-row.joined > small { color:#985b08; }
+.stacking-empty { color:var(--muted); }
 .remaining-details summary { display:flex; justify-content:space-between; gap:12px; }
 .remaining-details summary span, .lift-editor-block > summary span { margin-left:10px; color:var(--muted); font-size:12px; }
 .remaining-details p { margin:0; padding:0 14px 14px; line-height:1.6; }

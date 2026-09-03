@@ -2127,8 +2127,8 @@ function calculate(allowOptimization = false) {
     .map(([length, quantity]) => `${quantity}×${length} ft`)
     .join(', ') || 'none';
   const rowSchedule = activeStates.map((state, liftIndex) => {
-    const rows = state.rowSequence.map((row, rowIndex) => `${rowIndex + 1}: ${makePatternLabel(row.pattern)}`).join(' · ');
-    return `<p><b>Lift ${liftIndex + 1} (${state.length} ft):</b> ${rows || 'empty'}</p>`;
+    const rows = state.rowSequence.map((row, rowIndex) => `<span class="stacking-row ${row.type === 'joined' ? 'joined' : 'solid'}"><b>${rowIndex + 1}</b><span>${makePatternLabel(row.pattern)}</span><small>${row.type === 'joined' ? 'JOINED' : 'SOLID'}</small></span>`).join('');
+    return `<section class="stacking-lift"><header><div><small>LIFT ${liftIndex + 1}</small><b>${state.length} ft maximum</b></div><span>${state.rowSequence.length} rows · ${fmt(state.rowSequence.length * geometry.across)} boards</span></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div></section>`;
   }).join('');
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
@@ -2138,7 +2138,7 @@ function calculate(allowOptimization = false) {
       <span><b>${fmt(plannedBoards)}</b> boards scheduled</span>
     </div>
     ${requiredFillLabel === 'none' ? '' : `<div class="fill-warning"><b>Material required to complete selected lifts:</b> ${requiredFillLabel}</div>`}
-    <details class="technical-details"><summary>Exact row-by-row stacking sequence</summary>${rowSchedule}</details>
+    <details class="technical-details stacking-details"><summary><span><b>Exact row-by-row stacking sequence</b><small>Each numbered tile is one physical row from bottom to top</small></span><strong>${activeStates.length} lift${activeStates.length === 1 ? '' : 's'}</strong></summary><div class="stacking-schedule">${rowSchedule}</div></details>
   `;
 
   $('orderLoads').innerHTML = `

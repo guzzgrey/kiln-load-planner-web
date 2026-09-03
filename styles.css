@@ -538,25 +538,33 @@ button.is-loading::after {
 .completion-summary { display: grid; gap: 5px; padding: 14px; border-radius: 9px; background: var(--pale); }
 .completion-summary span { color: var(--muted); }
 .dialog-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
-.drying-program-dialog { width: min(1500px, calc(100vw - 32px)); }
+.drying-program-dialog { width:min(1460px, calc(100vw - 24px)); max-height:calc(100vh - 24px); }
+.drying-program-dialog form { padding:16px 18px; }
+.drying-program-dialog .dialog-heading h2 { margin-bottom:4px; }
+.drying-program-dialog > form > .note { margin:7px 0 9px; line-height:1.35; }
 .thermo-program-dialog { width:min(1050px, calc(100vw - 32px)); }
-.drying-comparison-grid { display:grid; grid-template-columns:minmax(520px, .85fr) minmax(720px, 1.15fr); gap:14px; margin-top:14px; }
-.program-panel { min-width:0; padding:12px; border:1px solid var(--line); border-radius:10px; background:#fbfcfb; }
+.drying-comparison-grid { display:grid; grid-template-columns:minmax(0, .78fr) minmax(0, 1.22fr); align-items:start; gap:10px; margin-top:8px; }
+.program-panel { min-width:0; overflow:hidden; padding:9px; border:1px solid var(--line); border-radius:10px; background:#fbfcfb; }
 .program-panel h3 { margin:0 0 7px; color:var(--green); font-size:14px; }
-.drying-program-scroll { margin-top: 14px; }
-.drying-program-table { width: 100%; min-width: 720px; border-collapse: collapse; }
-.drying-program-table th, .drying-program-table td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+.drying-program-scroll { max-width:100%; margin-top:6px; overflow-x:auto; }
+.drying-program-table { width:100%; min-width:0; table-layout:fixed; border-collapse:collapse; }
+.drying-program-table th, .drying-program-table td { min-width:0; padding:6px 5px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
 .drying-program-table th:first-child, .drying-program-table td:first-child { text-align: left; font-weight: 800; color: var(--green); }
-.drying-program-table input { min-width: 90px; padding: 7px; text-align: right; }
-.drying-program-table output { display: inline-block; min-width: 70px; font-weight: 800; }
-.comparison-table { min-width:880px; }
-.comparison-table output { min-width:52px; }
+.drying-program-table input { width:100%; min-width:0; padding:6px 5px; text-align:right; }
+.drying-program-table output { display:inline-block; min-width:0; font-weight:800; }
+.baseline-panel .drying-program-table th:first-child { width:18%; }
+.comparison-table { min-width:0; }
+.comparison-table th:nth-child(1) { width:11%; }
+.comparison-table th:nth-child(2) { width:13%; }
+.comparison-table th:nth-child(3) { width:20%; }
+.comparison-table th:nth-child(4) { width:16%; }
+.comparison-table th:nth-child(n+5) { width:10%; }
 .drying-delta-emc, .drying-delta-gradient { color:#8d5200; }
 .thermo-program-table { min-width:850px; }
 .thermo-program-table input { width:100%; min-width:100px; }
 .thermo-program-table td:last-child input { min-width:220px; text-align:left; }
-.formula-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.drying-program-actions { gap: 10px; }
+.formula-note { margin:7px 0 0; color:var(--muted); font-size:11px; line-height:1.35; }
+.drying-program-actions { gap:8px; margin-top:10px; }
 .kiln-settings-report-body { display:grid; gap:14px; }
 .process-program-card { margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fbfcfb; }
 .process-program-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:10px; }

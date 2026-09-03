@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
-    <link rel="stylesheet" href="styles.css?v=remainder-inventory-v1" />
+    <link rel="stylesheet" href="styles.css?v=remainder-transfer-v1" />
   </head>
   <body>
     <main class="wrap">
@@ -179,7 +179,7 @@
         <section class="card s12 inventory-workspace">
           <div class="section-heading">
             <h2>2. Selected Material Inventory</h2>
-            <button id="clearTop" class="secondary clear-inventory" type="button">Clear Inventory</button>
+            <div class="inventory-heading-actions"><button id="addFromRemainder" class="secondary" type="button">+ Add from remainder</button><button id="clearTop" class="secondary clear-inventory" type="button">Clear Inventory</button></div>
           </div>
           <p class="note">
             Each kiln load uses only the selected species and board size.
@@ -322,6 +322,26 @@
       </div>
     </main>
 
+    <dialog id="remainderTransferDialog" class="cycle-dialog remainder-transfer-dialog">
+      <form id="remainderTransferForm" method="dialog">
+        <div class="dialog-heading">
+          <div><small>CONDITIONAL WAREHOUSE</small><h2>Add boards from remainder inventory</h2></div>
+          <button id="closeRemainderTransfer" class="secondary" type="button">Close</button>
+        </div>
+        <p id="remainderTransferProduct" class="note"></p>
+        <div class="table-scroll">
+          <table class="remainder-transfer-table">
+            <thead><tr><th>Source order</th><th>Supplier</th><th>Product</th><th>Length</th><th>Available</th><th>Add</th></tr></thead>
+            <tbody id="remainderTransferRows"></tbody>
+          </table>
+        </div>
+        <div id="remainderTransferStatus" class="calculation-status idle">Enter only the quantities required by this order.</div>
+        <div class="dialog-actions">
+          <button id="confirmRemainderTransfer" type="submit">Add selected boards to order</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="completeCycleDialog" class="cycle-dialog">
       <form id="completeCycleForm" method="dialog">
         <div class="dialog-heading">
@@ -399,6 +419,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="app.js?v=structured-rows-v1"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="app.js?v=remainder-transfer-v1"></script>
   </body>
 </html>

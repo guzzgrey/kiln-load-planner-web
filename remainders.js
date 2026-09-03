@@ -32,7 +32,10 @@ function records() {
         orderNumber: record.number,
         supplier: record.supplier || '',
         product: [order?.inputs?.species, size].filter(Boolean).join(' · '),
+        species: order?.inputs?.species || '',
         size,
+        actualT: Number(order?.inputs?.actualT || 0),
+        actualW: Number(order?.inputs?.actualW || 0),
         quantities,
         boards,
         bf,
@@ -62,7 +65,7 @@ function fmt(value, digits = 0) {
 }
 
 function render() {
-  const source = records().sort((left, right) =>
+  const source = records().filter((record) => Object.values(record.quantities || {}).some((quantity) => Number(quantity) > 0)).sort((left, right) =>
     String(right.completedAt || '').localeCompare(String(left.completedAt || ''))
   );
   const boardTotal = source.reduce((sum, record) => sum + Number(record.boards || 0), 0);

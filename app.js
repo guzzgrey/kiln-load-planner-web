@@ -25,6 +25,7 @@ let calculationDirty = false;
 const SUPPLIER_PROFILE_STORAGE = 'kiln-planner-supplier-profiles-v1';
 const LAST_SUPPLIER_STORAGE = 'kiln-planner-last-supplier-v1';
 const COMPLETED_CYCLES_STORAGE = 'kiln-planner-completed-cycles-v1';
+const REMAINDER_INVENTORY_STORAGE = 'kiln-planner-remainder-inventory-v1';
 const ACTIVE_ORDER_STORAGE = 'kiln-planner-active-order-v1';
 const ORDER_INDEX_STORAGE = 'kiln-planner-order-index-v1';
 const ORDER_STORAGE_PREFIX = 'kiln-planner-order-v1:';
@@ -622,6 +623,200 @@ function readInventory() {
   });
 
   return stock;
+}
+
+function readRemainderInventory() {
+  try {
+    const value = JSON.parse(localStorage.getItem(REMAINDER_INVENTORY_STORAGE) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function normalizedProductSize(value) {
+  return String(value || '').toLowerCase().replace(/[×x]/g, ',').replace(/\s+/g, '');
+}
+
+function remainderSpecies(record) {
+  return String(record.species || String(record.product || '').split('·')[0] || '').trim().toLowerCase();
+}
+
+function compatibleRemainder(record) {
+  const sizeMatches = normalizedProductSize(record.size) === normalizedProductSize($('size').value);
+  const sourceSpecies = remainderSpecies(record);
+  const speciesMatches = !sourceSpecies || sourceSpecies === $('species').value.trim().toLowerCase();
+  if (!sizeMatches || !speciesMatches) return false;
+  if ($('size').value !== 'custom') return true;
+  return Math.abs(Number(record.actualT || 0) - num('actualT')) < 0.0001
+    && Math.abs(Number(record.actualW || 0) - num('actualW')) < 0.0001;
+}
+
+function orderHasProductionActivity() {
+  if (Number(activeOrder?.activeCycleNumber || 0) > 0) return true;
+  return readCompletedCycles().some((record) =>
+    record.orderId === activeOrder?.id
+    || record.orderId === activeOrder?.planSignature
+    || record.orderNumber === activeOrder?.number
+  );
+}
+
+function remainderBf(record) {
+  const dimensions = String(record.size || '').match(/[\d.]+/g)?.map(Number) || [];
+  const thickness = dimensions[0] || Number(record.actualT || 0);
+  const width = dimensions[1] || Number(record.actualW || 0);
+  return DEFAULT_LENGTHS.reduce(
+    (sum, length) => sum + thickness * width * length * Number(record.quantities?.[length] || 0) / 12,
+    0
+  );
+}
+
+function openRemainderTransfer() {
+  const status = $('remainderTransferStatus');
+  if (orderHasProductionActivity()) {
+    status.className = 'calculation-status pending';
+    status.textContent = 'Boards cannot be added after a kiln cycle has started or been completed for this order.';
+    $('remainderTransferRows').innerHTML = '';
+    $('confirmRemainderTransfer').disabled = true;
+    $('remainderTransferDialog').showModal();
+    return;
+  }
+  const currentSpecies = $('species').value.trim() || 'Unspecified species';
+  const currentSize = $('size').selectedOptions[0]?.textContent || $('size').value;
+  $('remainderTransferProduct').innerHTML = `Current order accepts: <b>${escapeHtml(currentSpecies)} · ${escapeHtml(currentSize)}</b>. Only matching product is shown.`;
+  const compatible = readRemainderInventory().filter((record) =>
+    compatibleRemainder(record) && Object.values(record.quantities || {}).some((quantity) => Number(quantity) > 0)
+  );
+  const rows = compatible.flatMap((record) =>
+    DEFAULT_LENGTHS
+      .filter((length) => Number(record.quantities?.[length] || 0) > 0)
+      .map((length) => `<tr><td><b>${escapeHtml(record.orderNumber || '—')}</b></td><td>${escapeHtml(record.supplier || '—')}</td><td>${escapeHtml(record.product || record.size || '—')}</td><td>${length} ft</td><td><b>${fmt(record.quantities[length])}</b></td><td><input class="remainder-transfer-qty" type="number" min="0" max="${Number(record.quantities[length])}" step="1" value="0" data-record-id="${escapeHtml(record.id)}" data-length="${length}" /></td></tr>`)
+  );
+  $('remainderTransferRows').innerHTML = rows.join('');
+  $('confirmRemainderTransfer').disabled = !rows.length;
+  status.className = `calculation-status ${rows.length ? 'idle' : 'pending'}`;
+  status.textContent = rows.length
+    ? 'Enter quantities and confirm. The transfer will invalidate any saved calculation, but recalculation starts only when you press Calculate Load.'
+    : 'No compatible remainder is available for this species and board size.';
+  $('remainderTransferDialog').showModal();
+}
+
+function addTransferredQuantity(length, quantity) {
+  const rows = [...document.querySelectorAll('#inventory tr')];
+  let row = rows.find((candidate) => Number(candidate.querySelector('.len')?.value) === Number(length));
+  if (!row) {
+    addRow(length, 0);
+    row = [...document.querySelectorAll('#inventory tr')].at(-1);
+  }
+  const input = row.querySelector('.qty');
+  input.value = Number(input.value || 0) + Number(quantity || 0);
+}
+
+function clearInvalidatedCalculationView() {
+  loadRecords.clear();
+  globalOrderPlans = [];
+  globalOrderSignature = '';
+  currentLoadSnapshot = null;
+  currentLoadNumber = 1;
+  $('loadNumber').textContent = '1';
+  $('nextLoad').disabled = true;
+  ['resultIntro', 'liftEditor', 'productionNeed', 'orderLoads', 'orderRemaining', 'plan', 'shortage', 'cycleYield', 'visualMeta', 'kilnVisual', 'finalInventoryVisual', 'residualsTableBody']
+    .forEach((id) => { if ($(id)) $(id).innerHTML = ''; });
+  ['rows', 'lines', 'needPieces', 'capacity', 'loadBF', 'fillPct', 'missingBF', 'unusedBF', 'beforeTotal', 'usedTotal', 'remainTotal']
+    .forEach((id) => { if ($(id)) $(id).textContent = '0'; });
+  $('qtyTotal').textContent = fmt([...readInventory().values()].reduce((sum, quantity) => sum + quantity, 0));
+  document.querySelectorAll('#inventory tr').forEach((row) => {
+    row.querySelector('.before').textContent = '0';
+    row.querySelector('.used').textContent = '0';
+    row.querySelector('.remain').textContent = '0';
+  });
+  renderLoadNavigation();
+}
+
+function applyRemainderTransfer(event) {
+  event.preventDefault();
+  if (orderHasProductionActivity()) {
+    $('remainderTransferStatus').className = 'calculation-status pending';
+    $('remainderTransferStatus').textContent = 'Transfer stopped because production activity already exists for this order.';
+    return;
+  }
+  const requested = [...document.querySelectorAll('.remainder-transfer-qty')]
+    .map((input) => ({
+      id: input.dataset.recordId,
+      length: Number(input.dataset.length),
+      quantity: Math.floor(Number(input.value || 0)),
+    }))
+    .filter((item) => item.quantity > 0);
+  if (!requested.length) {
+    $('remainderTransferStatus').className = 'calculation-status pending';
+    $('remainderTransferStatus').textContent = 'Enter at least one quantity to transfer.';
+    return;
+  }
+  const records = readRemainderInventory();
+  const grouped = new Map();
+  for (const item of requested) {
+    const record = records.find((candidate) => candidate.id === item.id);
+    const available = Number(record?.quantities?.[item.length] || 0);
+    if (!record || !compatibleRemainder(record) || item.quantity > available) {
+      $('remainderTransferStatus').className = 'calculation-status pending';
+      $('remainderTransferStatus').textContent = 'Available remainder changed or the product no longer matches. Close and reopen this window.';
+      return;
+    }
+    if (!grouped.has(item.id)) grouped.set(item.id, {});
+    grouped.get(item.id)[item.length] = item.quantity;
+  }
+
+  const previousRemainders = localStorage.getItem(REMAINDER_INVENTORY_STORAGE);
+  const previousOrder = localStorage.getItem(orderStorageKey(activeOrder.id));
+  try {
+    records.forEach((record) => {
+      const quantities = grouped.get(record.id);
+      if (!quantities) return;
+      if (!record.originalQuantities) record.originalQuantities = { ...(record.quantities || {}) };
+      Object.entries(quantities).forEach(([length, quantity]) => {
+        record.quantities[length] = Number(record.quantities[length] || 0) - Number(quantity);
+        addTransferredQuantity(Number(length), Number(quantity));
+      });
+      record.transfers = [...(record.transfers || []), {
+        destinationOrderId: activeOrder.id,
+        destinationOrderNumber: $('orderNumber').value.trim() || activeOrder.number,
+        quantities,
+        movedAt: new Date().toISOString(),
+      }];
+      record.boards = Object.values(record.quantities || {}).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+      record.bf = remainderBf(record);
+      record.updatedAt = new Date().toISOString();
+    });
+
+    localStorage.setItem(REMAINDER_INVENTORY_STORAGE, JSON.stringify(records));
+    activeOrder.remainderTransfers = [
+      ...(activeOrder.remainderTransfers || []),
+      ...[...grouped.entries()].map(([sourceRemainderId, quantities]) => ({
+        sourceRemainderId,
+        quantities,
+        movedAt: new Date().toISOString(),
+      })),
+    ];
+    activeOrder.calculated = false;
+    activeOrder.plannedCycles = 0;
+    activeOrder.plannedBoards = 0;
+    activeOrder.plannedBf = 0;
+    delete activeOrder.planSignature;
+    delete activeOrder.calculatedAt;
+    delete activeOrder.viewCache;
+    clearInvalidatedCalculationView();
+    markCalculationPending();
+    persistActiveOrder(false);
+  } catch (error) {
+    if (previousRemainders === null) localStorage.removeItem(REMAINDER_INVENTORY_STORAGE);
+    else localStorage.setItem(REMAINDER_INVENTORY_STORAGE, previousRemainders);
+    if (previousOrder === null) localStorage.removeItem(orderStorageKey(activeOrder.id));
+    else localStorage.setItem(orderStorageKey(activeOrder.id), previousOrder);
+    window.location.reload();
+    return;
+  }
+  $('remainderTransferDialog').close();
+  $('orderSaveState').textContent = 'Remainder transferred, saved and synchronized';
 }
 
 function computeGeometry() {
@@ -2600,6 +2795,9 @@ function bindEvents() {
   };
 
   $('calc').addEventListener('click', runCalculation);
+  $('addFromRemainder').addEventListener('click', openRemainderTransfer);
+  $('remainderTransferForm').addEventListener('submit', applyRemainderTransfer);
+  $('closeRemainderTransfer').addEventListener('click', () => $('remainderTransferDialog').close());
   $('applyLiftChanges').addEventListener('click', applyManualLiftChanges);
   $('orderNumber').addEventListener('input', scheduleDraftSave);
   $('orderNumber').addEventListener('change', () => persistActiveOrder(false));

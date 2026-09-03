@@ -297,7 +297,7 @@ function persistActiveOrder(calculated = false) {
     activeOrder.plannedBoards = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBoards, 0);
     activeOrder.plannedBf = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBf, 0);
     activeOrder.calculatedAt = new Date().toISOString();
-    activeOrder.optimizerVersion = 'minimum-cycles-v1';
+    activeOrder.optimizerVersion = 'minimum-cycles-row-fill-v2';
     activeOrder.viewCache = cacheRenderedCalculation();
   }
   storeOrder(activeOrder);
@@ -1681,6 +1681,100 @@ function solveOrderAcrossCycles(sourceStock, geometry, kilnLength, maxStack, sel
   return nonEmptyPlans;
 }
 
+function fillResidualRowsIntoExistingLifts(plans, sourceStock, geometry) {
+  if (!plans.length || !geometry.across) return plans;
+  const stock = new Map(sourceStock);
+  const result = plans.map((plan) => {
+    const activeStates = (plan.activeStates || []).map((state) => ({
+      ...state,
+      rowSequence: (state.rowSequence || []).map((row) => ({ ...row, pattern: [...row.pattern] })),
+    }));
+    activeStates.forEach((state) => state.rowSequence.forEach((row) => row.pattern.forEach((length) => {
+      stock.set(length, Math.max(0, Number(stock.get(length) || 0) - geometry.across));
+    })));
+    return { ...plan, states: activeStates, activeStates };
+  });
+  const positions = result.flatMap((plan, planIndex) =>
+    plan.activeStates.map((state, stateIndex) => ({ state, planIndex, stateIndex }))
+  );
+  const capacity = (state) => Number(state.rowCapacity || geometry.rows);
+  const span = (row) => row.pattern.reduce((sum, length) => sum + Number(length || 0), 0);
+  const availableRows = (length) => Math.floor(Number(stock.get(length) || 0) / geometry.across);
+  const takeSolidRow = (state, length, placement) => {
+    const row = { type: 'solid', pattern: [length] };
+    if (placement === 'bottom') state.rowSequence.unshift(row);
+    else state.rowSequence.push(row);
+    stock.set(length, Number(stock.get(length) || 0) - geometry.across);
+  };
+
+  // First rebuild the bottom of every stepped lift. A longer row may be
+  // inserted below a shorter top section when the transition is at most 1 ft.
+  [...positions]
+    .sort((left, right) => right.state.length - left.state.length || left.planIndex - right.planIndex)
+    .forEach(({ state }) => {
+      const firstLength = state.rowSequence.length ? span(state.rowSequence[0]) : state.length;
+      if (firstLength < state.length - 1) return;
+      const rows = Math.min(
+        Math.max(0, capacity(state) - state.rowSequence.length),
+        availableRows(state.length),
+      );
+      for (let index = 0; index < rows; index += 1) takeSolidRow(state, state.length, 'bottom');
+    });
+
+  // Then fill the remaining height from the top. Rows may stay level or step
+  // down exactly 1 ft; no new lift or kiln cycle is created.
+  while (true) {
+    const opportunities = positions.flatMap(({ state, planIndex, stateIndex }) => {
+      if (!state.rowSequence.length || state.rowSequence.length >= capacity(state)) return [];
+      const lastLength = span(state.rowSequence[state.rowSequence.length - 1]);
+      return [lastLength, lastLength - 1]
+        .filter((length, index, values) => length >= MIN_BOARD_LENGTH && values.indexOf(length) === index && availableRows(length) > 0)
+        .map((length) => ({ state, planIndex, stateIndex, length }));
+    }).sort((left, right) => right.length - left.length || left.planIndex - right.planIndex || left.stateIndex - right.stateIndex);
+    if (!opportunities.length) break;
+    const selected = opportunities[0];
+    takeSolidRow(selected.state, selected.length, 'top');
+  }
+
+  let cumulativeStock = new Map(sourceStock);
+  return result.map((plan) => {
+    const availableStock = new Map(cumulativeStock);
+    const activeStates = plan.activeStates.map((state, index) => {
+      const next = { ...state, index };
+      next.groups = rebuildGroups(next);
+      next.rowsLeft = capacity(next) - next.rowSequence.length;
+      next.linesLeft = next.rowsLeft * geometry.across;
+      return next;
+    });
+    const usedMap = new Map();
+    activeStates.forEach((state) => state.rowSequence.forEach((row) => row.pattern.forEach((length) => {
+      usedMap.set(length, Number(usedMap.get(length) || 0) + geometry.across);
+    })));
+    usedMap.forEach((quantity, length) => {
+      cumulativeStock.set(length, Math.max(0, Number(cumulativeStock.get(length) || 0) - quantity));
+    });
+    const rowCounts = activeStates.map((state) => state.rowSequence.length);
+    const complete = rowCounts.reduce((sum, rows) => sum + rows * geometry.across, 0);
+    const usedFt = [...usedMap].reduce((sum, [length, quantity]) => sum + length * quantity, 0);
+    return {
+      ...plan,
+      states: activeStates,
+      activeStates,
+      availableStock,
+      usedMap,
+      stock: new Map(cumulativeStock),
+      complete,
+      usedFt,
+      fullLifts: activeStates.filter((state) => state.rowSequence.length === capacity(state)).length,
+      completeLoad: plan.chamberGap === 0 && activeStates.length > 0
+        && activeStates.every((state) => state.rowSequence.length === capacity(state)),
+      minRows: rowCounts.length ? Math.min(...rowCounts) : 0,
+      maxRows: rowCounts.length ? Math.max(...rowCounts) : 0,
+      heightSpread: rowCounts.length ? Math.max(...rowCounts) - Math.min(...rowCounts) : geometry.rows,
+    };
+  });
+}
+
 function solveSequentialFallback(sourceStock, geometry, kilnLength, maxStack, selectedMetal) {
   const plans = [];
   let stock = new Map(sourceStock);
@@ -1757,13 +1851,14 @@ function solveSequentialFallback(sourceStock, geometry, kilnLength, maxStack, se
     if (packLiftStatesGlobally(candidateStates, capacity).length <= cycleLimit) selectedStates = candidateStates;
   });
 
-  return repackPlansGlobally(
+  const packedPlans = repackPlansGlobally(
     [{ activeStates: compactDescendingStates(selectedStates, geometry) }],
     sourceStock,
     geometry,
     kilnLength,
     selectedMetal,
   );
+  return fillResidualRowsIntoExistingLifts(packedPlans, sourceStock, geometry);
 }
 
 function packLiftStatesGlobally(states, capacity) {

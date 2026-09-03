@@ -297,7 +297,7 @@ function persistActiveOrder(calculated = false) {
     activeOrder.plannedBoards = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBoards, 0);
     activeOrder.plannedBf = [...loadRecords.values()].reduce((sum, item) => sum + item.usedBf, 0);
     activeOrder.calculatedAt = new Date().toISOString();
-    activeOrder.optimizerVersion = 'minimum-cycles-row-fill-v3';
+    activeOrder.optimizerVersion = 'minimum-cycles-physical-pack-v4';
     activeOrder.viewCache = cacheRenderedCalculation();
   }
   storeOrder(activeOrder);
@@ -1779,6 +1779,62 @@ function fillResidualRowsIntoExistingLifts(plans, sourceStock, geometry, preserv
   });
 }
 
+function selectBestLiftStatesWithinCycles(states, seedStates, cycleLimit, capacity, geometry) {
+  if (!states.length || cycleLimit <= 0 || capacity <= 0) return seedStates;
+  const valueOf = (state) => (state.rowSequence || []).reduce((total, row) => total
+    + row.pattern.reduce((rowTotal, length) => rowTotal + Number(length || 0), 0) * geometry.across, 0);
+  const boardsOf = (state) => (state.rowSequence || []).reduce((total, row) => total
+    + row.pattern.length * geometry.across, 0);
+  const items = [...states]
+    .map((state) => ({ state, length: occupiedLiftLength(state), value: valueOf(state), boards: boardsOf(state) }))
+    .filter((item) => item.length > 0 && item.length <= capacity && item.value > 0)
+    .sort((left, right) => right.value - left.value || right.boards - left.boards || right.length - left.length);
+  const suffixValue = Array(items.length + 1).fill(0);
+  for (let index = items.length - 1; index >= 0; index -= 1) suffixValue[index] = suffixValue[index + 1] + items[index].value;
+
+  let bestStates = [...seedStates];
+  let bestValue = bestStates.reduce((sum, state) => sum + valueOf(state), 0);
+  let bestBoards = bestStates.reduce((sum, state) => sum + boardsOf(state), 0);
+  const bins = [];
+  const selected = [];
+  const deadline = (typeof performance === 'undefined' ? Date.now() : performance.now()) + 900;
+
+  function search(index, value, boards) {
+    const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+    if (now > deadline || value + suffixValue[index] < bestValue) return;
+    if (value > bestValue || (value === bestValue && boards > bestBoards)) {
+      bestValue = value;
+      bestBoards = boards;
+      bestStates = [...selected];
+    }
+    if (index >= items.length) return;
+
+    const item = items[index];
+    const seenLoads = new Set();
+    for (let binIndex = 0; binIndex < bins.length; binIndex += 1) {
+      const used = bins[binIndex];
+      if (seenLoads.has(used) || used + item.length > capacity) continue;
+      seenLoads.add(used);
+      bins[binIndex] += item.length;
+      selected.push(item.state);
+      search(index + 1, value + item.value, boards + item.boards);
+      selected.pop();
+      bins[binIndex] -= item.length;
+    }
+    if (bins.length < cycleLimit) {
+      bins.push(item.length);
+      selected.push(item.state);
+      search(index + 1, value + item.value, boards + item.boards);
+      selected.pop();
+      bins.pop();
+    }
+    search(index + 1, value, boards);
+  }
+
+  search(0, 0, 0);
+  return bestStates;
+}
+
 function solveSequentialFallback(sourceStock, geometry, kilnLength, maxStack, selectedMetal) {
   const plans = [];
   let stock = new Map(sourceStock);
@@ -1838,22 +1894,18 @@ function solveSequentialFallback(sourceStock, geometry, kilnLength, maxStack, se
   const cycleLimit = basePacked.length;
   const fixedMetal = selectedMetal >= 0 ? selectedMetal : 0;
   const capacity = Math.max(0, kilnLength - fixedMetal);
-  const extraStates = plans
-    .slice(basePlans.length)
-    .flatMap((plan) => plan.activeStates || [])
-    .sort((left, right) => {
-      const leftBoards = left.rowSequence.length * geometry.across;
-      const rightBoards = right.rowSequence.length * geometry.across;
-      return rightBoards - leftBoards || right.length - left.length;
-    });
-
-  // Maximize boards without exceeding the already established cycle count.
-  // An 8-ft residual lift is accepted when it fills an existing 8-ft gap, but
-  // rejected when it would require an additional kiln cycle.
-  extraStates.forEach((state) => {
-    const candidateStates = compactDescendingStates([...selectedStates, state], geometry);
-    if (packLiftStatesGlobally(candidateStates, capacity).length <= cycleLimit) selectedStates = candidateStates;
-  });
+  // Select the highest-BF combination across all provisional lifts while
+  // keeping the established minimum cycle count. This may replace a tiny lift
+  // from a base cycle with a longer residual lift instead of preserving a poor
+  // greedy choice merely because it was generated first.
+  const allStates = compactDescendingStates(
+    plans.flatMap((plan) => plan.activeStates || []),
+    geometry,
+  );
+  selectedStates = compactDescendingStates(
+    selectBestLiftStatesWithinCycles(allStates, selectedStates, cycleLimit, capacity, geometry),
+    geometry,
+  );
 
   const packedPlans = repackPlansGlobally(
     [{ activeStates: compactDescendingStates(selectedStates, geometry) }],
@@ -1865,8 +1917,25 @@ function solveSequentialFallback(sourceStock, geometry, kilnLength, maxStack, se
   return fillResidualRowsIntoExistingLifts(packedPlans, sourceStock, geometry);
 }
 
+function occupiedLiftLength(state) {
+  return Math.max(0, ...(state.rowSequence || []).map((row) =>
+    row.pattern.reduce((sum, length) => sum + Number(length || 0), 0)));
+}
+
+function normalizeLiftLengths(plans) {
+  return plans.map((plan) => {
+    const activeStates = (plan.activeStates || []).map((state) => ({
+      ...state,
+      length: occupiedLiftLength(state),
+    }));
+    return { ...plan, states: activeStates, activeStates };
+  });
+}
+
 function packLiftStatesGlobally(states, capacity) {
-  const items = [...states].sort((left, right) => right.length - left.length || right.rowSequence.length - left.rowSequence.length);
+  const items = [...states].sort((left, right) =>
+    occupiedLiftLength(right) - occupiedLiftLength(left)
+    || right.rowSequence.length - left.rowSequence.length);
   if (!items.length || capacity <= 0) return [];
 
   // Best-fit decreasing gives an immediate feasible upper bound. The bounded
@@ -1874,24 +1943,25 @@ function packLiftStatesGlobally(states, capacity) {
   // concentrate any unavoidable free length in the final cycle.
   const seedBins = [];
   items.forEach((state) => {
+    const stateLength = occupiedLiftLength(state);
     let target = -1;
     let smallestGap = Infinity;
     seedBins.forEach((bin, index) => {
-      const gap = capacity - bin.used - state.length;
+      const gap = capacity - bin.used - stateLength;
       if (gap >= 0 && gap < smallestGap) {
         target = index;
         smallestGap = gap;
       }
     });
-    if (target < 0) seedBins.push({ used: state.length, states: [state] });
+    if (target < 0) seedBins.push({ used: stateLength, states: [state] });
     else {
-      seedBins[target].used += state.length;
+      seedBins[target].used += stateLength;
       seedBins[target].states.push(state);
     }
   });
 
   let best = seedBins.map((bin) => ({ used: bin.used, states: [...bin.states] }));
-  const totalLength = items.reduce((sum, state) => sum + state.length, 0);
+  const totalLength = items.reduce((sum, state) => sum + occupiedLiftLength(state), 0);
   const lowerBound = Math.ceil(totalLength / capacity);
   const deadline = (typeof performance === 'undefined' ? Date.now() : performance.now()) + 500;
 
@@ -1915,24 +1985,25 @@ function packLiftStatesGlobally(states, capacity) {
     }
 
     const state = items[index];
+    const stateLength = occupiedLiftLength(state);
     const seenLoads = new Set();
     const order = bins
-      .map((bin, binIndex) => ({ bin, binIndex, gap: capacity - bin.used - state.length }))
+      .map((bin, binIndex) => ({ bin, binIndex, gap: capacity - bin.used - stateLength }))
       .filter(({ gap }) => gap >= 0)
       .sort((left, right) => left.gap - right.gap);
 
     for (const { bin, binIndex } of order) {
       if (seenLoads.has(bin.used)) continue;
       seenLoads.add(bin.used);
-      bin.used += state.length;
+      bin.used += stateLength;
       bin.states.push(state);
       search(index + 1, bins);
       bin.states.pop();
-      bin.used -= state.length;
+      bin.used -= stateLength;
     }
 
     if (bins.length < best.length && bins.length < Math.max(lowerBound, best.length)) {
-      bins.push({ used: state.length, states: [state] });
+      bins.push({ used: stateLength, states: [state] });
       search(index + 1, bins);
       bins.pop();
     }
@@ -1983,7 +2054,7 @@ function repackPlansGlobally(plans, sourceStock, geometry, kilnLength, selectedM
     })));
     const availableStock = new Map(cumulativeStock);
     usedMap.forEach((quantity, length) => cumulativeStock.set(length, Math.max(0, (cumulativeStock.get(length) || 0) - quantity)));
-    const activeLength = activeStates.reduce((sum, state) => sum + state.length, 0);
+    const activeLength = activeStates.reduce((sum, state) => sum + occupiedLiftLength(state), 0);
     const automaticGap = Math.max(0, kilnLength - activeLength);
     // Automatic metal closes only the unavoidable gap in the final cycle.
     // Earlier cycles must remain visibly incomplete so the optimizer cannot
@@ -2009,12 +2080,12 @@ function repackPlansGlobally(plans, sourceStock, geometry, kilnLength, selectedM
       minRows: rowCounts.length ? Math.min(...rowCounts) : 0,
       maxRows: rowCounts.length ? Math.max(...rowCounts) : 0,
       gaps: 0,
-      fullLifts: activeStates.filter((state) => state.rowSequence.length === geometry.rows).length,
+      fullLifts: activeStates.filter((state) => state.rowSequence.length === Number(state.rowCapacity || geometry.rows)).length,
       metal,
       target: kilnLength - metal,
       chamberGap,
       inactiveLifts: 0,
-      completeLoad: chamberGap === 0 && activeStates.every((state) => state.rowSequence.length === geometry.rows),
+      completeLoad: chamberGap === 0 && activeStates.every((state) => state.rowSequence.length === Number(state.rowCapacity || geometry.rows)),
       stability: { valid: true, label: 'globally repacked independent forklift-stable lifts' },
       valid: activeStates.length > 0,
       heightSpread: rowCounts.length ? Math.max(...rowCounts) - Math.min(...rowCounts) : geometry.rows,
@@ -2263,11 +2334,22 @@ function calculate(allowOptimization = false) {
     // Sticker and row-target rebuilding can expose new stock after the first
     // optimizer pass. Fill every unrestricted lift once more from that final
     // stock, while preserving any row target the operator set explicitly.
-    globalOrderPlans = fillResidualRowsIntoExistingLifts(
+    const filledPlans = fillResidualRowsIntoExistingLifts(
       targetAdjustedPlans,
       originalStock,
       geometry,
       true,
+    );
+    // A lift occupies the longest board length actually present in its rows,
+    // not the larger placeholder selected by an earlier scheme. Shrinking
+    // those placeholders before the final pack lets long residual lifts use
+    // genuine chamber space that would otherwise be reported as empty.
+    globalOrderPlans = repackPlansGlobally(
+      normalizeLiftLengths(filledPlans),
+      originalStock,
+      geometry,
+      kilnLength,
+      selectedMetal,
     ).map(restorePlanTypes);
     loadRecords.clear();
     currentLoadNumber = 1;

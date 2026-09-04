@@ -336,6 +336,35 @@ function isLoadInProgress(loadNumber) {
   return Number(activeOrder?.activeCycleNumber || 0) === Number(loadNumber) && !isLoadCompleted(loadNumber);
 }
 
+function completionRecordsForActiveOrder() {
+  return readCompletedCycles().filter((record) =>
+    record.orderId === activeOrder?.id
+    || record.orderId === activeOrder?.planSignature
+    || record.orderNumber === activeOrder?.number
+  );
+}
+
+function reconcileProductionState() {
+  const activeLoadNumber = Number(activeOrder?.activeCycleNumber || 0);
+  if (!activeLoadNumber) return false;
+  const completions = completionRecordsForActiveOrder();
+  const activeStartedAt = Date.parse(activeOrder.activeCycleStartedAt || '');
+  const latestCompletionAt = completions.reduce((latest, record) => {
+    const value = Date.parse(record.createdAt || record.completedAt || record.completedDate || '');
+    return Number.isFinite(value) ? Math.max(latest, value) : latest;
+  }, 0);
+  const activeWasCompleted = completions.some((record) => Number(record.loadNumber) === activeLoadNumber);
+  const activePredatesCompletion = completions.length > 0
+    && (!Number.isFinite(activeStartedAt) || latestCompletionAt >= activeStartedAt);
+  if (!activeWasCompleted && !activePredatesCompletion) return false;
+  delete activeOrder.activeCycleNumber;
+  delete activeOrder.activeCycleStartedAt;
+  activeOrder.updatedAt = new Date().toISOString();
+  storeOrder(activeOrder);
+  writeActiveOrderPointer(activeOrder);
+  return true;
+}
+
 function lockedLoadNumbers() {
   const locked = new Set();
   readCompletedCycles().forEach((record) => {
@@ -3410,7 +3439,7 @@ function cancelKilnCycleStart(loadNumber) {
 
 function openCycleCompletion(loadNumber) {
   const snapshot = loadRecords.get(loadNumber);
-  if (!snapshot || isLoadCompleted(loadNumber)) return;
+  if (!snapshot || isLoadCompleted(loadNumber) || !isLoadInProgress(loadNumber)) return;
   completingLoadNumber = loadNumber;
   $('completeCycleTitle').textContent = `Kiln Load ${loadNumber} completed`;
   $('completeSupplier').value = $('supplier').value.trim() || 'New Westminster';
@@ -3448,11 +3477,11 @@ function saveCompletedCycle(event) {
   if (existingIndex >= 0) records[existingIndex] = record;
   else records.push(record);
   writeCompletedCycles(records);
-  if (Number(activeOrder?.activeCycleNumber || 0) === Number(completingLoadNumber)) {
-    delete activeOrder.activeCycleNumber;
-    delete activeOrder.activeCycleStartedAt;
-    persistActiveOrder(false);
-  }
+  // A completed transfer always ends the single active kiln process. Never
+  // carry a stale "In progress" flag onto another saved cycle.
+  delete activeOrder.activeCycleNumber;
+  delete activeOrder.activeCycleStartedAt;
+  persistActiveOrder(false);
   $('completeCycleDialog').close();
   renderLoadNavigation();
 }
@@ -3629,6 +3658,7 @@ function init() {
   const savedOrder = recoverWestminster334605(readActiveOrder());
   activeOrder = savedOrder;
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, number: newOrderNumber(), status: 'active', createdAt: new Date().toISOString(), inventory: {} };
+  reconcileProductionState();
   Object.entries(activeOrder.liftStickerOverrides || {}).forEach(([key, value]) => {
     const sticker = Number(value);
     if (Number.isFinite(sticker) && sticker > 0) manualLiftStickers.set(key, sticker);

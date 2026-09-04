@@ -186,6 +186,8 @@ function serializeCalculatedPlans() {
       groups: state.groups,
       rowSequence: state.rowSequence,
       manualRows: state.manualRows || [],
+      stackingOrder: state.stackingOrder || [],
+      operatorAdjusted: Boolean(state.operatorAdjusted),
     })),
   }));
   return JSON.stringify(compactPlans, (_, value) => value instanceof Map ? { __kilnMap: [...value] } : value);
@@ -342,7 +344,7 @@ function lockedLoadNumbers() {
   const active = Number(activeOrder?.activeCycleNumber || 0);
   if (active > 0) locked.add(active);
   globalOrderPlans.forEach((plan, index) => {
-    if ((plan.activeStates || []).some((state) => (state.manualRows || []).length > 0)) locked.add(index + 1);
+    if ((plan.activeStates || []).some((state) => (state.manualRows || []).length > 0 || state.operatorAdjusted)) locked.add(index + 1);
   });
   return locked;
 }
@@ -1995,6 +1997,27 @@ function effectiveLiftRows(state) {
   return (state.rowSequence || []).length + (state.manualRows || []).length;
 }
 
+function normalizedStackingOrder(state) {
+  const automatic = (state.rowSequence || []).map((_, index) => `auto:${index}`);
+  const manual = (state.manualRows || []).map((row, index) => `manual:${row.id || index}`);
+  const valid = new Set([...automatic, ...manual]);
+  const saved = (state.stackingOrder || []).filter((token, index, values) => valid.has(token) && values.indexOf(token) === index);
+  [...automatic, ...manual].forEach((token) => { if (!saved.includes(token)) saved.push(token); });
+  return saved;
+}
+
+function orderedStackingEntries(state) {
+  const manualByToken = new Map((state.manualRows || []).map((row, index) => [`manual:${row.id || index}`, { row, manualIndex: index }]));
+  return normalizedStackingOrder(state).map((token) => {
+    if (token.startsWith('auto:')) {
+      const autoIndex = Number(token.slice(5));
+      return { token, kind: 'automatic', row: state.rowSequence[autoIndex], autoIndex };
+    }
+    const manual = manualByToken.get(token);
+    return manual ? { token, kind: 'manual', ...manual } : null;
+  }).filter(Boolean);
+}
+
 function usedMapForStates(states, geometry) {
   const used = new Map();
   states.forEach((state) => {
@@ -2349,17 +2372,15 @@ function renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance 
       rowCounts.set(label, (rowCounts.get(label) || 0) + 1);
     });
     const rowSummary = [...rowCounts.entries()].map(([label, count]) => `${count} × ${label}`).join('<br>');
-    const automaticBands = state.rowSequence.map((row, rowIndex) => {
-      const occupiedLength = row.pattern.reduce((sum, length) => sum + length, 0);
+    const rowBands = orderedStackingEntries(state).map((entry, rowIndex) => {
+      if (entry.kind === 'manual') {
+        const width = Math.min(100, (Number(entry.row.length) / stackLength) * 100);
+        return `<i class="row-band manual" style="bottom:${rowIndex * 100 / rowCapacity}%;height:${100 / rowCapacity}%;width:${width}%" title="Row ${rowIndex + 1}: manual ${entry.row.quantity}/${geometry.across} boards × ${entry.row.length} ft"></i>`;
+      }
+      const occupiedLength = entry.row.pattern.reduce((sum, length) => sum + length, 0);
       const width = Math.min(100, (occupiedLength / stackLength) * 100);
-      return `<i class="row-band ${row.type}" style="bottom:${rowIndex * 100 / rowCapacity}%;height:${100 / rowCapacity}%;width:${width}%" title="Row ${rowIndex + 1}: ${makePatternLabel(row.pattern)} · ${fmtMeasure(state.stickerThickness || stateGeometry.sticker)} stickers"></i>`;
+      return `<i class="row-band ${entry.row.type}" style="bottom:${rowIndex * 100 / rowCapacity}%;height:${100 / rowCapacity}%;width:${width}%" title="Row ${rowIndex + 1}: ${makePatternLabel(entry.row.pattern)} · ${fmtMeasure(state.stickerThickness || stateGeometry.sticker)} stickers"></i>`;
     }).join('');
-    const manualBands = (state.manualRows || []).map((row, manualIndex) => {
-      const rowIndex = state.rowSequence.length + manualIndex;
-      const width = Math.min(100, (Number(row.length) / stackLength) * 100);
-      return `<i class="row-band manual" style="bottom:${rowIndex * 100 / rowCapacity}%;height:${100 / rowCapacity}%;width:${width}%" title="Manual row ${manualIndex + 1}: ${row.quantity}/${geometry.across} boards × ${row.length} ft"></i>`;
-    }).join('');
-    const rowBands = automaticBands + manualBands;
     lift.innerHTML = `
       <div class="lift-rows">${rowBands}</div>
       <div class="lift-empty" style="height:${100 - fillPercent}%"></div>
@@ -2734,12 +2755,21 @@ function calculate(allowOptimization = false) {
     .sort(([left], [right]) => right - left)
     .map(([length, quantity]) => `${quantity}×${length} ft`)
     .join(', ') || 'none';
+  const inlineStock = finalUnallocatedStock();
+  const stackingEditable = !isLoadCompleted(currentLoadNumber) && !isLoadInProgress(currentLoadNumber);
   const rowSchedule = activeStates.map((state, liftIndex) => {
-    const automaticRows = state.rowSequence.map((row, rowIndex) => `<span class="stacking-row ${row.type === 'joined' ? 'joined' : 'solid'}"><b>${rowIndex + 1}</b><span>${makePatternLabel(row.pattern)}</span><small>${row.type === 'joined' ? 'JOINED' : 'SOLID'}</small></span>`).join('');
-    const manualRows = (state.manualRows || []).map((row, index) => `<span class="stacking-row manual"><b>${state.rowSequence.length + index + 1}</b><span>${row.quantity}/${geometry.across} boards × ${row.length} ft</span><small>MANUAL PARTIAL</small></span>`).join('');
-    const rows = automaticRows + manualRows;
+    const entries = orderedStackingEntries(state);
+    const rows = entries.map((entry, rowIndex) => {
+      const drag = stackingEditable ? `draggable="true" data-lift="${liftIndex}" data-token="${entry.token}"` : '';
+      if (entry.kind === 'manual') return `<span class="stacking-row manual" ${drag}><b>${rowIndex + 1}</b><span>${entry.row.length} ft · manual row</span><small><input class="inline-row-quantity" type="number" min="1" max="${geometry.across}" step="1" value="${entry.row.quantity}" data-lift="${liftIndex}" data-row-id="${entry.row.id}"> / ${geometry.across} boards <button class="inline-row-remove" type="button" data-lift="${liftIndex}" data-row-id="${entry.row.id}" aria-label="Remove manual row">×</button></small><i class="drag-handle" aria-hidden="true">⋮⋮</i></span>`;
+      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag}><b>${rowIndex + 1}</b><span>${makePatternLabel(entry.row.pattern)}</span><small>${entry.row.type === 'joined' ? 'JOINED' : 'SOLID'}</small>${stackingEditable ? '<i class="drag-handle" aria-hidden="true">⋮⋮</i>' : ''}</span>`;
+    }).join('');
     const boards = [...usedMapForStates([state], geometry).values()].reduce((sum, quantity) => sum + quantity, 0);
-    return `<section class="stacking-lift"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state)} ft maximum</b></div><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div></section>`;
+    const compatible = [...inlineStock.entries()].filter(([length, quantity]) => Number(quantity) > 0 && Number(length) <= occupiedLiftLength(state)).sort(([left], [right]) => Number(right) - Number(left));
+    const hasPartialSpace = (state.manualRows || []).some((row) => Number(row.quantity) < geometry.across && Number(inlineStock.get(Number(row.length)) || 0) > 0);
+    const canAdd = stackingEditable && compatible.length > 0 && (effectiveLiftRows(state) < Number(state.rowCapacity || geometry.rows) || hasPartialSpace);
+    const options = compatible.map(([length, quantity]) => `<option value="${length}">${length} ft · ${quantity} remaining</option>`).join('');
+    return `<section class="stacking-lift" data-lift="${liftIndex}"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state)} ft maximum</b></div><div class="stacking-lift-actions"><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span>${stackingEditable ? `<button class="inline-add-toggle secondary" type="button" data-lift="${liftIndex}" ${canAdd ? '' : 'disabled'}>+ Add boards</button>` : ''}</div></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div>${stackingEditable ? `<form class="inline-fill-panel" data-lift="${liftIndex}" hidden><label>Length<select class="inline-fill-length">${options}</select></label><label>Quantity<input class="inline-fill-quantity" type="number" min="1" max="${geometry.across}" step="1" value="1"></label><button type="submit" ${canAdd ? '' : 'disabled'}>Add to lift</button><small>Uses only unallocated remainder; no optimizer run.</small></form>` : ''}</section>`;
   }).join('');
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
@@ -2751,6 +2781,7 @@ function calculate(allowOptimization = false) {
     ${requiredFillLabel === 'none' ? '' : `<div class="fill-warning"><b>Material required to complete selected lifts:</b> ${requiredFillLabel}</div>`}
     <details class="technical-details stacking-details"><summary><span><b>Exact row-by-row stacking sequence</b><small>Each numbered tile is one physical row from bottom to top</small></span><strong>${activeStates.length} lift${activeStates.length === 1 ? '' : 's'}</strong></summary><div class="stacking-schedule">${rowSchedule}</div></details>
   `;
+  bindInlineStackingEditor();
 
   $('orderLoads').innerHTML = `
     <div class="order-flow">
@@ -2883,6 +2914,157 @@ function calculate(allowOptimization = false) {
   renderLoadNavigation();
 }
 
+function rebuildAfterOperatorEdit(previousPlans) {
+  const geometry = computeGeometry();
+  const physicalKilnLength = Math.floor(num('kiln'));
+  const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
+  const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
+  try {
+    globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), geometry, kilnLength).map(restorePlanTypes);
+    calculate(false);
+    persistActiveOrder(true);
+  } catch (error) {
+    globalOrderPlans = previousPlans;
+    calculate(false);
+    throw error;
+  }
+}
+
+function addManualBoardsToLift(loadNumber, liftIndex, length, quantity) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const geometry = computeGeometry();
+  const state = plan.activeStates?.[liftIndex];
+  const available = Number(finalUnallocatedStock().get(length) || 0);
+  if (!state || !Number.isFinite(length) || quantity < 1 || quantity > geometry.across || quantity > available) {
+    throw new Error('Only available remainder boards may be added, up to one row at a time.');
+  }
+  if (length > occupiedLiftLength(state)) throw new Error('The selected board is longer than this lift.');
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  state.manualRows = (state.manualRows || []).map((row) => ({ ...row }));
+  const partial = state.manualRows.find((row) => Number(row.length) === length && Number(row.quantity) < geometry.across);
+  if (partial) {
+    const positions = geometry.across - Number(partial.quantity || 0);
+    if (quantity > positions) throw new Error(`Only ${positions} positions remain in the existing manual row.`);
+    partial.quantity = Number(partial.quantity || 0) + quantity;
+  } else {
+    const capacity = Number(state.rowCapacity || geometry.rows);
+    if (effectiveLiftRows(state) >= capacity) throw new Error('This lift has reached its maximum row height.');
+    const row = { id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, length, quantity, addedAt: new Date().toISOString() };
+    state.manualRows.push(row);
+    state.stackingOrder = [...normalizedStackingOrder(state).filter((token) => token !== `manual:${row.id}`), `manual:${row.id}`];
+  }
+  state.operatorAdjusted = true;
+  rebuildAfterOperatorEdit(previousPlans);
+}
+
+function changeManualRowQuantity(loadNumber, liftIndex, rowId, quantity) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const state = plan.activeStates?.[liftIndex];
+  const row = state?.manualRows?.find((item) => String(item.id) === String(rowId));
+  if (!row) throw new Error('The manual row could not be found.');
+  const geometry = computeGeometry();
+  const nextQuantity = Math.floor(Number(quantity));
+  const totalAvailable = Number(finalUnallocatedStock().get(Number(row.length)) || 0) + Number(row.quantity || 0);
+  if (nextQuantity < 1 || nextQuantity > geometry.across || nextQuantity > totalAvailable) {
+    throw new Error(`Enter 1–${Math.min(geometry.across, totalAvailable)} boards.`);
+  }
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  row.quantity = nextQuantity;
+  state.operatorAdjusted = true;
+  rebuildAfterOperatorEdit(previousPlans);
+}
+
+function removeManualRowById(loadNumber, liftIndex, rowId) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const state = plan.activeStates?.[liftIndex];
+  const rowIndex = state?.manualRows?.findIndex((row) => String(row.id) === String(rowId));
+  if (!state || rowIndex < 0) throw new Error('The manual row could not be found.');
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  state.manualRows.splice(rowIndex, 1);
+  state.stackingOrder = normalizedStackingOrder(state);
+  state.operatorAdjusted = true;
+  rebuildAfterOperatorEdit(previousPlans);
+}
+
+function reorderStackingRows(loadNumber, liftIndex, sourceToken, targetToken) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const state = plan.activeStates?.[liftIndex];
+  if (!state || sourceToken === targetToken) return;
+  const order = normalizedStackingOrder(state);
+  const from = order.indexOf(sourceToken);
+  const to = order.indexOf(targetToken);
+  if (from < 0 || to < 0) throw new Error('The dragged row no longer matches this lift.');
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  order.splice(to, 0, order.splice(from, 1)[0]);
+  state.stackingOrder = order;
+  state.operatorAdjusted = true;
+  rebuildAfterOperatorEdit(previousPlans);
+}
+
+function showInlineEditorError(error) {
+  const status = $('calculationStatus');
+  status.className = 'calculation-status pending';
+  status.textContent = `Manual lift change was not saved: ${error?.message || 'check the selected row and quantity.'}`;
+}
+
+function bindInlineStackingEditor() {
+  const container = $('productionNeed');
+  let dragged = null;
+  container.querySelectorAll('.stacking-row[draggable="true"]').forEach((row) => {
+    row.addEventListener('dragstart', (event) => {
+      dragged = { liftIndex: Number(row.dataset.lift), token: row.dataset.token };
+      row.classList.add('is-dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', row.dataset.token);
+    });
+    row.addEventListener('dragover', (event) => {
+      if (!dragged || dragged.liftIndex !== Number(row.dataset.lift)) return;
+      event.preventDefault();
+      row.classList.add('is-drop-target');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('is-drop-target'));
+    row.addEventListener('drop', (event) => {
+      event.preventDefault();
+      row.classList.remove('is-drop-target');
+      if (!dragged || dragged.liftIndex !== Number(row.dataset.lift)) return;
+      try { reorderStackingRows(currentLoadNumber, dragged.liftIndex, dragged.token, row.dataset.token); }
+      catch (error) { showInlineEditorError(error); }
+    });
+    row.addEventListener('dragend', () => {
+      container.querySelectorAll('.is-dragging,.is-drop-target').forEach((item) => item.classList.remove('is-dragging', 'is-drop-target'));
+      dragged = null;
+    });
+  });
+  container.querySelectorAll('.inline-add-toggle').forEach((button) => button.addEventListener('click', () => {
+    const panel = container.querySelector(`.inline-fill-panel[data-lift="${button.dataset.lift}"]`);
+    if (panel) panel.hidden = !panel.hidden;
+  }));
+  container.querySelectorAll('.inline-fill-panel').forEach((form) => form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    try {
+      addManualBoardsToLift(currentLoadNumber, Number(form.dataset.lift), Number(form.querySelector('.inline-fill-length').value), Math.floor(Number(form.querySelector('.inline-fill-quantity').value)));
+    } catch (error) { showInlineEditorError(error); }
+  }));
+  container.querySelectorAll('.inline-row-quantity').forEach((input) => input.addEventListener('change', () => {
+    try { changeManualRowQuantity(currentLoadNumber, Number(input.dataset.lift), input.dataset.rowId, input.value); }
+    catch (error) { showInlineEditorError(error); }
+  }));
+  container.querySelectorAll('.inline-row-remove').forEach((button) => button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try { removeManualRowById(currentLoadNumber, Number(button.dataset.lift), button.dataset.rowId); }
+    catch (error) { showInlineEditorError(error); }
+  }));
+}
+
 function finalUnallocatedStock() {
   if (!globalOrderPlans.length) return readInventory();
   return new Map(globalOrderPlans[globalOrderPlans.length - 1].stock || []);
@@ -2956,6 +3138,11 @@ function openManualFillDialog() {
     $('calculationStatus').textContent = `Kiln Load ${currentLoadNumber} is completed and cannot be changed.`;
     return;
   }
+  if (isLoadInProgress(currentLoadNumber)) {
+    $('calculationStatus').className = 'calculation-status pending';
+    $('calculationStatus').textContent = `Cancel the start of Kiln Load ${currentLoadNumber} before changing its rows.`;
+    return;
+  }
   editingManualLoadNumber = currentLoadNumber;
   $('manualFillTitle').textContent = `Manually fill Kiln Load ${currentLoadNumber}`;
   refreshManualFillDialog();
@@ -2964,72 +3151,25 @@ function openManualFillDialog() {
 
 function addManualBoards(event) {
   event.preventDefault();
-  const plan = globalOrderPlans[editingManualLoadNumber - 1];
-  if (!plan || isLoadCompleted(editingManualLoadNumber)) return;
-  const geometry = computeGeometry();
   const liftIndex = Number($('manualFillLift').value);
   const length = Number($('manualFillLength').value);
   const quantity = Math.floor(Number($('manualFillQuantity').value));
-  const state = plan.activeStates[liftIndex];
-  const available = Number(finalUnallocatedStock().get(length) || 0);
-  if (!state || !Number.isFinite(length) || quantity < 1 || quantity > geometry.across || quantity > available) {
-    refreshManualFillDialog('Check the lift, length and quantity. Only unallocated remainder can be added.');
-    return;
-  }
-  if (length > occupiedLiftLength(state)) {
-    refreshManualFillDialog('The selected board is longer than this lift. Choose another lift.');
-    return;
-  }
-  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
-  state.manualRows = (state.manualRows || []).map((row) => ({ ...row }));
-  const lastManual = state.manualRows.at(-1);
-  if (lastManual && Number(lastManual.length) === length && Number(lastManual.quantity) < geometry.across) {
-    const positions = geometry.across - Number(lastManual.quantity);
-    if (quantity > positions) {
-      refreshManualFillDialog(`Only ${positions} open positions remain in the current partial row.`);
-      return;
-    }
-    lastManual.quantity = Number(lastManual.quantity) + quantity;
-  } else {
-    const capacity = Number(state.rowCapacity || geometry.rows);
-    if (effectiveLiftRows(state) >= capacity) {
-      refreshManualFillDialog('This lift has reached its maximum row height.');
-      return;
-    }
-    state.manualRows.push({ id: `manual-${Date.now()}`, length, quantity, addedAt: new Date().toISOString() });
-  }
-  const physicalKilnLength = Math.floor(num('kiln'));
-  const kilnLength = Math.max(1, physicalKilnLength - Math.floor(num('supplierClearance')));
   try {
-    globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), geometry, kilnLength).map(restorePlanTypes);
-    calculate(false);
-    persistActiveOrder(true);
+    addManualBoardsToLift(editingManualLoadNumber, liftIndex, length, quantity);
     refreshManualFillDialog(`${quantity} board${quantity === 1 ? '' : 's'} at ${length} ft added without rerunning the optimizer.`);
   } catch (error) {
-    globalOrderPlans = previousPlans;
-    calculate(false);
     refreshManualFillDialog(`Boards were not added: ${error?.message || 'inventory balance validation failed.'}`);
   }
 }
 
 function removeManualRow(liftIndex, rowIndex) {
-  if (isLoadCompleted(editingManualLoadNumber)) return;
   const plan = globalOrderPlans[editingManualLoadNumber - 1];
-  const state = plan?.activeStates?.[liftIndex];
-  if (!state?.manualRows?.[rowIndex]) return;
-  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
-  state.manualRows.splice(rowIndex, 1);
-  const geometry = computeGeometry();
-  const physicalKilnLength = Math.floor(num('kiln'));
-  const kilnLength = Math.max(1, physicalKilnLength - Math.floor(num('supplierClearance')));
+  const row = plan?.activeStates?.[liftIndex]?.manualRows?.[rowIndex];
+  if (!row) return;
   try {
-    globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), geometry, kilnLength).map(restorePlanTypes);
-    calculate(false);
-    persistActiveOrder(true);
+    removeManualRowById(editingManualLoadNumber, liftIndex, row.id);
     refreshManualFillDialog('Manual row removed and the inventory balance restored.');
   } catch (error) {
-    globalOrderPlans = previousPlans;
-    calculate(false);
     refreshManualFillDialog(`Manual row was not removed: ${error?.message || 'inventory balance validation failed.'}`);
   }
 }

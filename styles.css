@@ -815,8 +815,15 @@ th {
 .stacking-lift > header div { display:flex; align-items:baseline; gap:8px; }
 .stacking-lift > header small { color:var(--green); font-size:10px; font-weight:900; letter-spacing:.08em; }
 .stacking-lift > header span { color:var(--muted); font-size:11px; }
+.stacking-lift > header .stacking-lift-actions { align-items:center; justify-content:flex-end; }
+.inline-add-toggle { min-height:0; padding:5px 9px; font-size:10px; white-space:nowrap; }
 .stacking-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:5px; padding:8px; }
-.stacking-row { display:grid; grid-template-columns:25px 1fr; grid-template-rows:auto auto; column-gap:7px; align-items:center; min-width:0; padding:6px 7px; border:1px solid #d7dfda; border-left:4px solid var(--green); border-radius:7px; background:#f8faf8; }
+.stacking-row { position:relative; display:grid; grid-template-columns:25px minmax(0,1fr); grid-template-rows:auto auto; column-gap:7px; align-items:center; min-width:0; padding:6px 25px 6px 7px; border:1px solid #d7dfda; border-left:4px solid var(--green); border-radius:7px; background:#f8faf8; }
+.stacking-row[draggable="true"] { cursor:grab; touch-action:pan-y; }
+.stacking-row[draggable="true"]:active { cursor:grabbing; }
+.stacking-row.is-dragging { opacity:.35; }
+.stacking-row.is-drop-target { outline:2px solid #b98522; outline-offset:1px; }
+.drag-handle { position:absolute; top:50%; right:6px; transform:translateY(-50%); color:#8ca096; font-size:12px; font-style:normal; letter-spacing:-3px; }
 .stacking-row > b { grid-row:1 / 3; display:grid; place-items:center; width:23px; height:23px; border-radius:50%; background:var(--green); color:#fff; font-size:10px; }
 .stacking-row > span { overflow:hidden; color:var(--ink); font-size:11px; font-weight:800; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
 .stacking-row > small { color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.06em; }
@@ -826,6 +833,14 @@ th {
 .stacking-row.manual { border-left-color:#7652a8; background:#f7f2ff; }
 .stacking-row.manual > b { background:#7652a8; }
 .stacking-row.manual > small { color:#62438d; }
+.inline-row-quantity { width:35px; min-height:0; padding:1px 3px; border:1px solid #c9b9dc; border-radius:4px; font:inherit; text-align:center; }
+.inline-row-remove { min-height:0; margin-left:2px; padding:0 4px; border:0; color:#8b3451; background:transparent; font-size:15px; line-height:1; }
+.inline-fill-panel { display:grid; grid-template-columns:minmax(120px,1fr) minmax(100px,.7fr) auto minmax(170px,1.2fr); align-items:end; gap:8px; padding:8px 10px; border-top:1px solid var(--line); background:#fbfcfb; }
+.inline-fill-panel[hidden] { display:none !important; }
+.inline-fill-panel label { display:grid; gap:3px; color:var(--muted); font-size:10px; font-weight:800; }
+.inline-fill-panel select, .inline-fill-panel input { min-height:34px; padding:6px 8px; }
+.inline-fill-panel button { min-height:34px; padding:6px 10px; white-space:nowrap; }
+.inline-fill-panel > small { align-self:center; color:var(--muted); font-size:10px; }
 .stacking-empty { color:var(--muted); }
 .remaining-details summary { display:flex; justify-content:space-between; gap:12px; }
 .remaining-details summary span, .lift-editor-block > summary span { margin-left:10px; color:var(--muted); font-size:12px; }
@@ -1118,6 +1133,10 @@ th {
 @media (max-width:900px) {
   .optimization-audit { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .manual-fill-fields { grid-template-columns:1fr; }
+  .stacking-lift > header { align-items:flex-start; }
+  .stacking-lift > header .stacking-lift-actions { flex-wrap:wrap; }
+  .inline-fill-panel { grid-template-columns:1fr 1fr; }
+  .inline-fill-panel > small { grid-column:1 / -1; }
 }
 
 @media print {
@@ -1126,7 +1145,12 @@ th {
   .optimization-audit b { font-size:12px; }
   .optimization-audit p { padding:1.5mm 2mm; }
   .manual-plan-actions,
-  .manual-fill-dialog { display:none !important; }
+  .manual-fill-dialog,
+  .inline-add-toggle,
+  .inline-fill-panel,
+  .inline-row-remove,
+  .drag-handle { display:none !important; }
+  .inline-row-quantity { width:7mm; min-height:0; padding:0; border:0; background:transparent; color:inherit; }
 }
 
 .metal-box {

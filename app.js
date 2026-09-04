@@ -323,13 +323,87 @@ function writeCompletedCycles(records) {
   localStorage.setItem(COMPLETED_CYCLES_STORAGE, JSON.stringify(records));
 }
 
-function completionRecordId(loadNumber) {
-  return `${activeOrder?.id || globalOrderSignature || 'current-order'}::${loadNumber}`;
+function quantityFingerprint(value) {
+  const entries = value instanceof Map ? [...value] : Object.entries(value || {});
+  return entries
+    .map(([length, quantity]) => [Number(length), Number(quantity || 0)])
+    .filter(([length, quantity]) => Number.isFinite(length) && quantity > 0)
+    .sort(([left], [right]) => left - right)
+    .map(([length, quantity]) => `${length}:${quantity}`)
+    .join('|');
+}
+
+function loadPlanFingerprint(loadNumber) {
+  const number = Number(loadNumber);
+  const plan = globalOrderPlans[number - 1];
+  const snapshot = loadRecords.get(number);
+  const used = snapshot?.used || plan?.usedMap;
+  if (!used) return '';
+  const lifts = (plan?.activeStates || []).map((state) => ({
+    length: Number(state.length),
+    rows: Number(state.rowCapacity || 0),
+    sticker: Number(state.stickerThickness || 0),
+    sequence: (state.rowSequence || []).map((row) => (row.pattern || []).map(Number)),
+    manual: (state.manualRows || []).map((row) => [Number(row.length), Number(row.quantity)]),
+  }));
+  return JSON.stringify({ used: quantityFingerprint(used), lifts });
+}
+
+function shortFingerprint(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function completionRecordId(loadNumber, fingerprint = loadPlanFingerprint(loadNumber)) {
+  const orderId = activeOrder?.id || globalOrderSignature || 'current-order';
+  return fingerprint ? `${orderId}::cycle-${shortFingerprint(fingerprint)}` : `${orderId}::${loadNumber}`;
+}
+
+function completedLoadAssignments() {
+  const records = completionRecordsForActiveOrder();
+  const loadNumbers = loadRecords.size
+    ? [...loadRecords.keys()].map(Number).sort((left, right) => left - right)
+    : globalOrderPlans.map((_, index) => index + 1);
+  const assignedLoads = new Map();
+  const assignedRecords = new Set();
+  records.forEach((record, recordIndex) => {
+    if (!record.planFingerprint) return;
+    const loadNumber = loadNumbers.find((number) => !assignedLoads.has(number) && loadPlanFingerprint(number) === record.planFingerprint);
+    if (!loadNumber) return;
+    assignedLoads.set(loadNumber, record);
+    assignedRecords.add(recordIndex);
+  });
+  records.forEach((record, recordIndex) => {
+    if (assignedRecords.has(recordIndex)) return;
+    const recordQuantities = quantityFingerprint(record.quantities);
+    let candidates = loadNumbers.filter((number) => {
+      if (assignedLoads.has(number)) return false;
+      const used = loadRecords.get(number)?.used || globalOrderPlans[number - 1]?.usedMap;
+      return recordQuantities && quantityFingerprint(used) === recordQuantities;
+    });
+    const originalNumber = Number(record.loadNumber);
+    const loadNumber = candidates.includes(originalNumber) ? originalNumber : candidates[0];
+    if (loadNumber) {
+      assignedLoads.set(loadNumber, record);
+      assignedRecords.add(recordIndex);
+    } else if (!recordQuantities && loadNumbers.includes(originalNumber) && !assignedLoads.has(originalNumber)) {
+      assignedLoads.set(originalNumber, record);
+      assignedRecords.add(recordIndex);
+    }
+  });
+  return assignedLoads;
+}
+
+function completedRecordForLoad(loadNumber) {
+  return completedLoadAssignments().get(Number(loadNumber)) || null;
 }
 
 function isLoadCompleted(loadNumber) {
-  const id = completionRecordId(loadNumber);
-  return readCompletedCycles().some((record) => record.id === id);
+  return Boolean(completedRecordForLoad(loadNumber));
 }
 
 function isLoadInProgress(loadNumber) {
@@ -353,7 +427,8 @@ function reconcileProductionState() {
     const value = Date.parse(record.createdAt || record.completedAt || record.completedDate || '');
     return Number.isFinite(value) ? Math.max(latest, value) : latest;
   }, 0);
-  const activeWasCompleted = completions.some((record) => Number(record.loadNumber) === activeLoadNumber);
+  const activeWasCompleted = isLoadCompleted(activeLoadNumber)
+    || (!loadRecords.size && completions.some((record) => Number(record.loadNumber) === activeLoadNumber));
   const activePredatesCompletion = completions.length > 0
     && (!Number.isFinite(activeStartedAt) || latestCompletionAt >= activeStartedAt);
   if (!activeWasCompleted && !activePredatesCompletion) return false;
@@ -366,10 +441,7 @@ function reconcileProductionState() {
 }
 
 function lockedLoadNumbers() {
-  const locked = new Set();
-  readCompletedCycles().forEach((record) => {
-    if (record.orderId === activeOrder?.id && Number(record.loadNumber) > 0) locked.add(Number(record.loadNumber));
-  });
+  const locked = new Set(completedLoadAssignments().keys());
   const active = Number(activeOrder?.activeCycleNumber || 0);
   if (active > 0) locked.add(active);
   globalOrderPlans.forEach((plan, index) => {
@@ -3204,6 +3276,7 @@ function removeManualRow(liftIndex, rowIndex) {
 }
 
 function renderLoadNavigation() {
+  reconcileProductionState();
   const history = $('loadHistory');
   history.innerHTML = '';
   [...loadRecords.values()].sort((left, right) => left.number - right.number).forEach((snapshot) => {
@@ -3456,7 +3529,8 @@ function saveCompletedCycle(event) {
   const snapshot = loadRecords.get(completingLoadNumber);
   if (!snapshot) return;
   const records = readCompletedCycles();
-  const id = completionRecordId(completingLoadNumber);
+  const planFingerprint = loadPlanFingerprint(completingLoadNumber);
+  const id = completionRecordId(completingLoadNumber, planFingerprint);
   const record = {
     id,
     orderId: activeOrder?.id || globalOrderSignature || 'current-order',
@@ -3469,6 +3543,7 @@ function saveCompletedCycle(event) {
     species: $('species').value.trim(),
     size: materialSizeLabel(),
     quantities: Object.fromEntries(snapshot.used),
+    planFingerprint,
     boards: snapshot.usedBoards,
     bf: snapshot.usedBf,
     createdAt: new Date().toISOString(),

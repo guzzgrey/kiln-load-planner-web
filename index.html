@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
-    <link rel="stylesheet" href="styles.css?v=remainder-transfer-v1" />
+    <link rel="stylesheet" href="styles.css?v=frozen-manual-v5" />
   </head>
   <body>
     <main class="wrap">
@@ -228,6 +228,7 @@
 
           <div class="actions">
             <button id="calc">Calculate Load</button>
+            <button id="optimizeRemaining" class="secondary" type="button">Optimize unstarted cycles</button>
             <button id="nextLoad" type="button">Load Remaining in Next Kiln →</button>
             <button class="secondary" id="addLength">Add Length</button>
             <button class="secondary" id="clear">Clear Quantities</button>
@@ -235,6 +236,7 @@
           <div id="calculationStatus" class="calculation-status idle">
             Enter the order, then click Calculate Load.
           </div>
+          <div id="optimizationAudit" class="optimization-audit"></div>
           <div class="load-progress">
             <div class="load-progress-heading">
               <strong>Current calculation: Kiln Load <span id="loadNumber">1</span></strong>
@@ -297,7 +299,11 @@
                 <tbody id="liftEditor"></tbody>
               </table>
             </div>
-            <button id="applyLiftChanges" type="button" class="primary">Apply changes to plan &amp; visualization</button>
+            <div class="manual-plan-actions">
+              <button id="applyLiftChanges" type="button" class="primary">Apply changes to plan &amp; visualization</button>
+              <button id="openManualFill" type="button" class="secondary">+ Manually add boards to a lift</button>
+            </div>
+            <div id="manualFillSummary" class="manual-fill-summary"></div>
           </details>
 
           <div id="productionNeed" class="note wrap-block"></div>
@@ -321,6 +327,26 @@
         </section>
       </div>
     </main>
+
+    <dialog id="manualFillDialog" class="cycle-dialog manual-fill-dialog">
+      <form id="manualFillForm" method="dialog">
+        <div class="dialog-heading">
+          <div><small>OPERATOR CONTROL</small><h2 id="manualFillTitle">Manually fill Kiln Load</h2></div>
+          <button id="closeManualFill" class="secondary" type="button">Close</button>
+        </div>
+        <p class="note">Adds boards only from the final unallocated remainder. A partial manual row may contain fewer than the normal number of boards; physically verify stickers, support and airflow before starting the cycle.</p>
+        <div class="manual-fill-fields">
+          <label>Lift<select id="manualFillLift"></select></label>
+          <label>Board length<select id="manualFillLength"></select></label>
+          <label>Quantity<input id="manualFillQuantity" type="number" min="1" step="1" value="1"></label>
+        </div>
+        <div id="manualFillAvailability" class="calculation-status idle"></div>
+        <div id="manualFillRows" class="manual-fill-rows"></div>
+        <div class="dialog-actions">
+          <button id="addManualBoards" type="submit">Add without recalculation</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="remainderTransferDialog" class="cycle-dialog remainder-transfer-dialog">
       <form id="remainderTransferForm" method="dialog">
@@ -419,6 +445,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="app.js?v=physical-pack-v4"></script>
+    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=frozen-manual-v7"></script>
   </body>
 </html>

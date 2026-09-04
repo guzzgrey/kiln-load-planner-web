@@ -204,6 +204,10 @@
   }
 
   async function boot() {
+    if (['127.0.0.1', 'localhost'].includes(window.location.hostname)) {
+      loadApplication();
+      return;
+    }
     if (!config || !window.supabase) {
       showLogin('Cloud configuration could not be loaded.');
       return;

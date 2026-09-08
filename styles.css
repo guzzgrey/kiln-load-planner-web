@@ -824,6 +824,7 @@ th {
 .stacking-row.is-dragging { opacity:.35; }
 .stacking-row.is-drop-target { outline:2px solid #b98522; outline-offset:1px; }
 .drag-handle { position:absolute; top:50%; right:6px; transform:translateY(-50%); color:#8ca096; font-size:12px; font-style:normal; letter-spacing:-3px; }
+.inline-auto-remove { position:absolute; top:2px; right:17px; min-height:0; padding:0 3px; border:0; color:#8b3451; background:transparent; font-size:13px; line-height:1; }
 .stacking-row > b { grid-row:1 / 3; display:grid; place-items:center; width:23px; height:23px; border-radius:50%; background:var(--green); color:#fff; font-size:10px; }
 .stacking-row > span { overflow:hidden; color:var(--ink); font-size:11px; font-weight:800; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
 .stacking-row > small { color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.06em; }
@@ -835,11 +836,12 @@ th {
 .stacking-row.manual > small { color:#62438d; }
 .inline-row-quantity { width:35px; min-height:0; padding:1px 3px; border:1px solid #c9b9dc; border-radius:4px; font:inherit; text-align:center; }
 .inline-row-remove { min-height:0; margin-left:2px; padding:0 4px; border:0; color:#8b3451; background:transparent; font-size:15px; line-height:1; }
-.inline-fill-panel { display:grid; grid-template-columns:minmax(120px,1fr) minmax(100px,.7fr) auto minmax(170px,1.2fr); align-items:end; gap:8px; padding:8px 10px; border-top:1px solid var(--line); background:#fbfcfb; }
+.inline-fill-panel { display:grid; grid-template-columns:minmax(120px,1fr) minmax(100px,.7fr) auto auto minmax(170px,1.2fr); align-items:end; gap:8px; padding:8px 10px; border-top:1px solid var(--line); background:#fbfcfb; }
 .inline-fill-panel[hidden] { display:none !important; }
 .inline-fill-panel label { display:grid; gap:3px; color:var(--muted); font-size:10px; font-weight:800; }
 .inline-fill-panel select, .inline-fill-panel input { min-height:34px; padding:6px 8px; }
 .inline-fill-panel button { min-height:34px; padding:6px 10px; white-space:nowrap; }
+.inline-fill-cancel { color:#7a3d13; border-color:#d9a86c; background:#fff8ee; }
 .inline-fill-panel > small { align-self:center; color:var(--muted); font-size:10px; }
 .stacking-empty { color:var(--muted); }
 .remaining-details summary { display:flex; justify-content:space-between; gap:12px; }
@@ -1149,6 +1151,8 @@ th {
   .inline-add-toggle,
   .inline-fill-panel,
   .inline-row-remove,
+  .inline-auto-remove,
+  .inline-fill-cancel,
   .drag-handle { display:none !important; }
   .inline-row-quantity { width:7mm; min-height:0; padding:0; border:0; background:transparent; color:inherit; }
 }

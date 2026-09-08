@@ -2863,7 +2863,7 @@ function calculate(allowOptimization = false) {
     const rows = entries.map((entry, rowIndex) => {
       const drag = stackingEditable ? `draggable="true" data-lift="${liftIndex}" data-token="${entry.token}"` : '';
       if (entry.kind === 'manual') return `<span class="stacking-row manual" ${drag}><b>${rowIndex + 1}</b><span>${entry.row.length} ft · manual row</span><small><input class="inline-row-quantity" type="number" min="1" max="${geometry.across}" step="1" value="${entry.row.quantity}" data-lift="${liftIndex}" data-row-id="${entry.row.id}"> / ${geometry.across} boards <button class="inline-row-remove" type="button" data-lift="${liftIndex}" data-row-id="${entry.row.id}" aria-label="Remove manual row">×</button></small><i class="drag-handle" aria-hidden="true">⋮⋮</i></span>`;
-      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag}><b>${rowIndex + 1}</b><span>${makePatternLabel(entry.row.pattern)}</span><small>${entry.row.type === 'joined' ? 'JOINED' : 'SOLID'}</small>${stackingEditable ? '<i class="drag-handle" aria-hidden="true">⋮⋮</i>' : ''}</span>`;
+      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag}><b>${rowIndex + 1}</b><span>${makePatternLabel(entry.row.pattern)}</span><small>${entry.row.type === 'joined' ? 'JOINED' : 'SOLID'}</small>${stackingEditable ? `<button class="inline-auto-remove" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Remove row ${rowIndex + 1}" title="Remove this row">×</button><i class="drag-handle" aria-hidden="true">⋮⋮</i>` : ''}</span>`;
     }).join('');
     const boards = [...usedMapForStates([state], geometry).values()].reduce((sum, quantity) => sum + quantity, 0);
     const compatible = [...inlineStock.entries()].filter(([length, quantity]) => Number(quantity) > 0 && Number(length) <= occupiedLiftLength(state)).sort(([left], [right]) => Number(right) - Number(left));
@@ -3093,6 +3093,26 @@ function removeManualRowById(loadNumber, liftIndex, rowId) {
   rebuildAfterOperatorEdit(previousPlans);
 }
 
+function removeAutomaticRow(loadNumber, liftIndex, autoIndex) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const state = plan.activeStates?.[liftIndex];
+  const index = Math.floor(Number(autoIndex));
+  if (!state?.rowSequence?.[index]) throw new Error('The selected calculated row could not be found.');
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  const previousOrder = normalizedStackingOrder(state);
+  state.rowSequence.splice(index, 1);
+  state.stackingOrder = previousOrder.flatMap((token) => {
+    if (!token.startsWith('auto:')) return [token];
+    const oldIndex = Number(token.slice(5));
+    if (oldIndex === index) return [];
+    return [`auto:${oldIndex > index ? oldIndex - 1 : oldIndex}`];
+  });
+  state.operatorAdjusted = true;
+  rebuildAfterOperatorEdit(previousPlans);
+}
+
 function reorderStackingRows(loadNumber, liftIndex, sourceToken, targetToken) {
   const plan = globalOrderPlans[loadNumber - 1];
   if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
@@ -3148,12 +3168,23 @@ function bindInlineStackingEditor() {
     const panel = container.querySelector(`.inline-fill-panel[data-lift="${button.dataset.lift}"]`);
     if (panel) panel.hidden = !panel.hidden;
   }));
-  container.querySelectorAll('.inline-fill-panel').forEach((form) => form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    try {
-      addManualBoardsToLift(currentLoadNumber, Number(form.dataset.lift), Number(form.querySelector('.inline-fill-length').value), Math.floor(Number(form.querySelector('.inline-fill-quantity').value)));
-    } catch (error) { showInlineEditorError(error); }
-  }));
+  container.querySelectorAll('.inline-fill-panel').forEach((form) => {
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'inline-fill-cancel secondary';
+    cancel.textContent = 'Cancel';
+    form.querySelector('button[type="submit"]').insertAdjacentElement('afterend', cancel);
+    cancel.addEventListener('click', () => {
+      form.hidden = true;
+      form.querySelector('.inline-fill-quantity').value = '1';
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      try {
+        addManualBoardsToLift(currentLoadNumber, Number(form.dataset.lift), Number(form.querySelector('.inline-fill-length').value), Math.floor(Number(form.querySelector('.inline-fill-quantity').value)));
+      } catch (error) { showInlineEditorError(error); }
+    });
+  });
   container.querySelectorAll('.inline-row-quantity').forEach((input) => input.addEventListener('change', () => {
     try { changeManualRowQuantity(currentLoadNumber, Number(input.dataset.lift), input.dataset.rowId, input.value); }
     catch (error) { showInlineEditorError(error); }
@@ -3162,6 +3193,13 @@ function bindInlineStackingEditor() {
     event.preventDefault();
     event.stopPropagation();
     try { removeManualRowById(currentLoadNumber, Number(button.dataset.lift), button.dataset.rowId); }
+    catch (error) { showInlineEditorError(error); }
+  }));
+  container.querySelectorAll('.inline-auto-remove').forEach((button) => button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!window.confirm('Remove this complete row from the lift and return its boards to the remainder?')) return;
+    try { removeAutomaticRow(currentLoadNumber, Number(button.dataset.lift), Number(button.dataset.autoIndex)); }
     catch (error) { showInlineEditorError(error); }
   }));
 }

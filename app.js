@@ -2987,15 +2987,20 @@ function calculate(allowOptimization = false) {
       const [comboPart, gapPart] = key.split('|');
       const combo = comboPart;
       const gap = Number(gapPart) || 0;
-      const pieces = combo.split(' + ').length;
+      const comboLengths = combo.split(' + ').map(Number);
+      const pieces = comboLengths.length;
       const boards = pieces * geometry.across * count;
+      const boardsPerSegment = geometry.across * count;
+      const allocation = new Map();
+      comboLengths.forEach((length) => allocation.set(length, Number(allocation.get(length) || 0) + boardsPerSegment));
+      const allocationLabel = [...allocation.entries()].map(([length, quantity]) => `${fmt(quantity)} × ${length} ft`).join(' + ');
       liftBoards += boards;
       const type = pieces === 1 ? 'Solid' : pieces === 2 ? 'Double mix' : 'Triple mix';
       patterns.push(`<div class="lift-pattern">
         <span class="pattern-type">${type}</span>
-        <b>${makePatternLabel(combo.split(' + ').map(Number))}</b>
+        <b>${makePatternLabel(comboLengths)}</b>
         <span>${count} row${count === 1 ? '' : 's'}</span>
-        <strong>${fmt(boards)} boards</strong>
+        <strong class="pattern-quantity">${pieces === 1 ? `${fmt(boards)} boards` : `<span>${allocationLabel}</span><small>${fmt(boards)} pieces total</small>`}</strong>
         ${gap ? `<em>${gap} ft step</em>` : ''}
       </div>`);
     });

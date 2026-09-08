@@ -876,11 +876,14 @@ th {
 .lift-total span { opacity:.72; font-size:11px; }
 .lift-total strong { grid-column:1 / -1; font-size:12px; }
 .lift-patterns { padding:5px 14px; }
-.lift-pattern { display:grid; grid-template-columns:90px minmax(110px,1fr) 70px 90px; align-items:center; gap:10px; min-height:48px; border-bottom:1px solid var(--line); }
+.lift-pattern { display:grid; grid-template-columns:90px minmax(110px,1fr) 70px minmax(145px,auto); align-items:center; gap:10px; min-height:48px; border-bottom:1px solid var(--line); }
 .lift-pattern:last-child { border-bottom:0; }
 .pattern-type { color:var(--green); font-size:11px; font-weight:800; text-transform:uppercase; }
 .lift-pattern > span:not(.pattern-type) { color:var(--muted); font-size:12px; }
 .lift-pattern strong { text-align:right; font-size:12px; }
+.pattern-quantity { display:grid; gap:2px; }
+.pattern-quantity > span { color:var(--ink); white-space:nowrap; }
+.pattern-quantity > small { color:var(--muted); font-size:9px; font-weight:700; }
 .lift-pattern em { grid-column:2 / -1; margin-top:-8px; color:var(--amber); font-size:11px; font-style:normal; }
 
 .residuals-block {
@@ -1221,7 +1224,7 @@ th {
   .order-flow { grid-template-columns:1fr; }
   .order-flow i { display:none; }
   .lift-plan-grid { grid-template-columns:1fr; }
-  .lift-pattern { grid-template-columns:78px minmax(90px,1fr) 58px 78px; gap:6px; }
+  .lift-pattern { grid-template-columns:78px minmax(90px,1fr) 58px minmax(130px,auto); gap:6px; }
 }
 
 .remainder-page { max-width: 1800px; }

@@ -410,6 +410,54 @@ function isLoadInProgress(loadNumber) {
   return Number(activeOrder?.activeCycleNumber || 0) === Number(loadNumber) && !isLoadCompleted(loadNumber);
 }
 
+function unmatchedCompletionRecords() {
+  const assignedIds = new Set([...completedLoadAssignments().values()].map((record) => record.id));
+  return completionRecordsForActiveOrder().filter((record) => !assignedIds.has(record.id));
+}
+
+function linkCompletionRecordToLoad(record, loadNumber) {
+  const number = Number(loadNumber);
+  const records = readCompletedCycles();
+  const index = records.findIndex((item) => item.id === record?.id);
+  if (index < 0 || !loadRecords.has(number)) throw new Error('The completed production record could not be matched to this kiln load.');
+  records[index] = {
+    ...records[index],
+    originalLoadNumber: records[index].originalLoadNumber || records[index].loadNumber,
+    loadNumber: number,
+    planFingerprint: loadPlanFingerprint(number),
+    reconciledAt: new Date().toISOString(),
+  };
+  writeCompletedCycles(records);
+  if (Number(activeOrder?.activeCycleNumber || 0) === number) {
+    delete activeOrder.activeCycleNumber;
+    delete activeOrder.activeCycleStartedAt;
+  }
+  activeOrder.updatedAt = new Date().toISOString();
+  storeOrder(activeOrder);
+  writeActiveOrderPointer(activeOrder);
+}
+
+function reconcileActiveCompletionByTotals() {
+  const number = Number(activeOrder?.activeCycleNumber || 0);
+  const snapshot = loadRecords.get(number);
+  if (!number || !snapshot || isLoadCompleted(number)) return false;
+  const matches = unmatchedCompletionRecords().filter((record) => {
+    const recordedBoards = Number(record.boards || Object.values(record.quantities || {}).reduce((sum, quantity) => sum + Number(quantity || 0), 0));
+    return recordedBoards === Number(snapshot.usedBoards || 0);
+  });
+  if (matches.length !== 1) return false;
+  linkCompletionRecordToLoad(matches[0], number);
+  return true;
+}
+
+function completionCandidatesForLoad(loadNumber) {
+  const snapshot = loadRecords.get(Number(loadNumber));
+  if (!snapshot) return [];
+  const sameTotal = (record) => Number(record.boards || Object.values(record.quantities || {}).reduce((sum, quantity) => sum + Number(quantity || 0), 0)) === Number(snapshot.usedBoards || 0);
+  const unmatched = unmatchedCompletionRecords().filter(sameTotal);
+  return unmatched.length ? unmatched : completionRecordsForActiveOrder().filter(sameTotal);
+}
+
 function completionRecordsForActiveOrder() {
   return readCompletedCycles().filter((record) =>
     record.orderId === activeOrder?.id
@@ -429,7 +477,7 @@ function reconcileProductionState() {
   }, 0);
   const activeWasCompleted = isLoadCompleted(activeLoadNumber)
     || (!loadRecords.size && completions.some((record) => Number(record.loadNumber) === activeLoadNumber));
-  const activePredatesCompletion = completions.length > 0
+  const activePredatesCompletion = !loadRecords.size && completions.length > 0
     && (!Number.isFinite(activeStartedAt) || latestCompletionAt >= activeStartedAt);
   if (!activeWasCompleted && !activePredatesCompletion) return false;
   delete activeOrder.activeCycleNumber;
@@ -2856,21 +2904,21 @@ function calculate(allowOptimization = false) {
     .sort(([left], [right]) => right - left)
     .map(([length, quantity]) => `${quantity}×${length} ft`)
     .join(', ') || 'none';
-  const inlineStock = finalUnallocatedStock();
+  const inlineStock = editableStockForLoad(currentLoadNumber);
   const stackingEditable = !isLoadCompleted(currentLoadNumber) && !isLoadInProgress(currentLoadNumber);
   const rowSchedule = activeStates.map((state, liftIndex) => {
     const entries = orderedStackingEntries(state);
     const rows = entries.map((entry, rowIndex) => {
       const drag = stackingEditable ? `draggable="true" data-lift="${liftIndex}" data-token="${entry.token}"` : '';
       if (entry.kind === 'manual') return `<span class="stacking-row manual" ${drag}><b>${rowIndex + 1}</b><span>${entry.row.length} ft · manual row</span><small><input class="inline-row-quantity" type="number" min="1" max="${geometry.across}" step="1" value="${entry.row.quantity}" data-lift="${liftIndex}" data-row-id="${entry.row.id}"> / ${geometry.across} boards <button class="inline-row-remove" type="button" data-lift="${liftIndex}" data-row-id="${entry.row.id}" aria-label="Remove manual row">×</button></small><i class="drag-handle" aria-hidden="true">⋮⋮</i></span>`;
-      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag}><b>${rowIndex + 1}</b><span>${makePatternLabel(entry.row.pattern)}</span><small>${entry.row.type === 'joined' ? 'JOINED' : 'SOLID'}</small>${stackingEditable ? `<button class="inline-auto-remove" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Remove row ${rowIndex + 1}" title="Remove this row">×</button><i class="drag-handle" aria-hidden="true">⋮⋮</i>` : ''}</span>`;
+      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag}><b>${rowIndex + 1}</b><span>${makePatternLabel(entry.row.pattern)}</span><small>${entry.row.type === 'joined' ? 'JOINED' : 'SOLID'}</small>${stackingEditable ? `<button class="inline-auto-edit" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Edit row ${rowIndex + 1}" title="Edit combination and repetitions">✎</button><button class="inline-auto-remove" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Remove row ${rowIndex + 1}" title="Remove this row">×</button><i class="drag-handle" aria-hidden="true">⋮⋮</i>` : ''}</span>`;
     }).join('');
     const boards = [...usedMapForStates([state], geometry).values()].reduce((sum, quantity) => sum + quantity, 0);
     const compatible = [...inlineStock.entries()].filter(([length, quantity]) => Number(quantity) > 0 && Number(length) <= occupiedLiftLength(state)).sort(([left], [right]) => Number(right) - Number(left));
     const hasPartialSpace = (state.manualRows || []).some((row) => Number(row.quantity) < geometry.across && Number(inlineStock.get(Number(row.length)) || 0) > 0);
     const canAdd = stackingEditable && compatible.length > 0 && (effectiveLiftRows(state) < Number(state.rowCapacity || geometry.rows) || hasPartialSpace);
     const options = compatible.map(([length, quantity]) => `<option value="${length}">${length} ft · ${quantity} remaining</option>`).join('');
-    return `<section class="stacking-lift" data-lift="${liftIndex}"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state)} ft maximum</b></div><div class="stacking-lift-actions"><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span>${stackingEditable ? `<button class="inline-add-toggle secondary" type="button" data-lift="${liftIndex}" ${canAdd ? '' : 'disabled'}>+ Add boards</button>` : ''}</div></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div>${stackingEditable ? `<form class="inline-fill-panel" data-lift="${liftIndex}" hidden><label>Length<select class="inline-fill-length">${options}</select></label><label>Quantity<input class="inline-fill-quantity" type="number" min="1" max="${geometry.across}" step="1" value="1"></label><button type="submit" ${canAdd ? '' : 'disabled'}>Add to lift</button><small>Uses only unallocated remainder; no optimizer run.</small></form>` : ''}</section>`;
+    return `<section class="stacking-lift" data-lift="${liftIndex}"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state)} ft maximum</b></div><div class="stacking-lift-actions"><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span>${stackingEditable ? `<button class="inline-add-toggle secondary" type="button" data-lift="${liftIndex}" ${canAdd ? '' : 'disabled'}>+ Add boards</button>` : ''}</div></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div>${stackingEditable ? `<form class="inline-fill-panel" data-lift="${liftIndex}" hidden><label>Length<select class="inline-fill-length">${options}</select></label><label>Quantity<input class="inline-fill-quantity" type="number" min="1" max="${geometry.across}" step="1" value="1"></label><button type="submit" ${canAdd ? '' : 'disabled'}>Add to lift</button><small>Replans all unstarted cycles; completed and started cycles stay fixed.</small></form>` : ''}</section>`;
   }).join('');
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
@@ -3017,12 +3065,12 @@ function calculate(allowOptimization = false) {
 
 function rebuildAfterOperatorEdit(previousPlans) {
   const geometry = computeGeometry();
-  const physicalKilnLength = Math.floor(num('kiln'));
-  const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
-  const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
   try {
-    globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), geometry, kilnLength).map(restorePlanTypes);
-    calculate(false);
+    globalOrderPlans = globalOrderPlans.map((plan) => {
+      const activeStates = (plan.activeStates || []).map((state) => ({ ...state }));
+      return { ...plan, states: activeStates, activeStates, usedMap: usedMapForStates(activeStates, geometry) };
+    });
+    calculate(true);
     persistActiveOrder(true);
   } catch (error) {
     globalOrderPlans = previousPlans;
@@ -3031,15 +3079,29 @@ function rebuildAfterOperatorEdit(previousPlans) {
   }
 }
 
+function editableStockForLoad(loadNumber) {
+  const stock = new Map(readInventory());
+  const number = Number(loadNumber);
+  const locked = lockedLoadNumbers();
+  globalOrderPlans.forEach((plan, index) => {
+    const candidate = index + 1;
+    if (candidate !== number && !locked.has(candidate)) return;
+    usedMapForStates(plan.activeStates || [], computeGeometry()).forEach((quantity, length) => {
+      stock.set(Number(length), Math.max(0, Number(stock.get(Number(length)) || 0) - Number(quantity || 0)));
+    });
+  });
+  return stock;
+}
+
 function addManualBoardsToLift(loadNumber, liftIndex, length, quantity) {
   const plan = globalOrderPlans[loadNumber - 1];
   if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
   if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
   const geometry = computeGeometry();
   const state = plan.activeStates?.[liftIndex];
-  const available = Number(finalUnallocatedStock().get(length) || 0);
+  const available = Number(editableStockForLoad(loadNumber).get(length) || 0);
   if (!state || !Number.isFinite(length) || quantity < 1 || quantity > geometry.across || quantity > available) {
-    throw new Error('Only available remainder boards may be added, up to one row at a time.');
+    throw new Error('Only boards available for replanning may be added, up to one row at a time.');
   }
   if (length > occupiedLiftLength(state)) throw new Error('The selected board is longer than this lift.');
   const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
@@ -3069,7 +3131,7 @@ function changeManualRowQuantity(loadNumber, liftIndex, rowId, quantity) {
   if (!row) throw new Error('The manual row could not be found.');
   const geometry = computeGeometry();
   const nextQuantity = Math.floor(Number(quantity));
-  const totalAvailable = Number(finalUnallocatedStock().get(Number(row.length)) || 0) + Number(row.quantity || 0);
+  const totalAvailable = Number(editableStockForLoad(loadNumber).get(Number(row.length)) || 0) + Number(row.quantity || 0);
   if (nextQuantity < 1 || nextQuantity > geometry.across || nextQuantity > totalAvailable) {
     throw new Error(`Enter 1–${Math.min(geometry.across, totalAvailable)} boards.`);
   }
@@ -3108,6 +3170,47 @@ function removeAutomaticRow(loadNumber, liftIndex, autoIndex) {
     const oldIndex = Number(token.slice(5));
     if (oldIndex === index) return [];
     return [`auto:${oldIndex > index ? oldIndex - 1 : oldIndex}`];
+  });
+  state.operatorAdjusted = true;
+  rebuildAfterOperatorEdit(previousPlans);
+}
+
+function parseRowPattern(value) {
+  const pattern = String(value || '').split(/[+,]/).map((part) => Math.floor(Number(part.trim()))).filter(Number.isFinite);
+  if (!pattern.length || pattern.some((length) => length < 3 || length > 20)) {
+    throw new Error('Enter board lengths separated by +, for example 6 + 13.');
+  }
+  return pattern;
+}
+
+function replaceAutomaticRow(loadNumber, liftIndex, autoIndex, patternValue, repetitions) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const state = plan.activeStates?.[liftIndex];
+  const index = Math.floor(Number(autoIndex));
+  if (!state?.rowSequence?.[index]) throw new Error('The selected calculated row could not be found.');
+  const pattern = parseRowPattern(patternValue);
+  if (pattern.reduce((sum, length) => sum + length, 0) > occupiedLiftLength(state)) {
+    throw new Error(`This combination is longer than the ${occupiedLiftLength(state)} ft lift.`);
+  }
+  const repeat = Math.floor(Number(repetitions));
+  const capacity = Number(state.rowCapacity || computeGeometry().rows);
+  const maximum = capacity - effectiveLiftRows(state) + 1;
+  if (repeat < 1 || repeat > maximum) throw new Error(`This lift has room for at most ${maximum} replacement rows.`);
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  const previousOrder = normalizedStackingOrder(state);
+  const replacement = Array.from({ length: repeat }, () => ({
+    type: pattern.length > 1 ? 'joined' : 'solid',
+    pattern: [...pattern],
+  }));
+  state.rowSequence.splice(index, 1, ...replacement);
+  state.stackingOrder = previousOrder.flatMap((token) => {
+    if (!token.startsWith('auto:')) return [token];
+    const oldIndex = Number(token.slice(5));
+    if (oldIndex < index) return [token];
+    if (oldIndex === index) return replacement.map((_, offset) => `auto:${index + offset}`);
+    return [`auto:${oldIndex + repeat - 1}`];
   });
   state.operatorAdjusted = true;
   rebuildAfterOperatorEdit(previousPlans);
@@ -3195,6 +3298,29 @@ function bindInlineStackingEditor() {
     try { removeManualRowById(currentLoadNumber, Number(button.dataset.lift), button.dataset.rowId); }
     catch (error) { showInlineEditorError(error); }
   }));
+  container.querySelectorAll('.inline-auto-edit').forEach((button) => button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    container.querySelectorAll('.inline-row-editor').forEach((form) => form.remove());
+    const liftIndex = Number(button.dataset.lift);
+    const autoIndex = Number(button.dataset.autoIndex);
+    const state = globalOrderPlans[currentLoadNumber - 1]?.activeStates?.[liftIndex];
+    const row = state?.rowSequence?.[autoIndex];
+    if (!row) return;
+    const maximum = Number(state.rowCapacity || computeGeometry().rows) - effectiveLiftRows(state) + 1;
+    const form = document.createElement('form');
+    form.className = 'inline-row-editor';
+    form.innerHTML = `<label>Row combination<input class="inline-pattern-input" type="text" value="${row.pattern.join(' + ')}" inputmode="numeric" aria-label="Board lengths separated by plus"></label><label>Repeat rows<input class="inline-repeat-input" type="number" min="1" max="${maximum}" step="1" value="1"></label><button type="submit">Apply & replan</button><button class="inline-row-edit-cancel secondary" type="button">Cancel</button><small>Example: 6 + 13. The edited cycle is fixed; all other unstarted cycles are recalculated.</small>`;
+    button.closest('.stacking-lift')?.querySelector('.stacking-grid')?.insertAdjacentElement('afterend', form);
+    form.querySelector('.inline-row-edit-cancel').addEventListener('click', () => form.remove());
+    form.addEventListener('submit', (submitEvent) => {
+      submitEvent.preventDefault();
+      try {
+        replaceAutomaticRow(currentLoadNumber, liftIndex, autoIndex, form.querySelector('.inline-pattern-input').value, form.querySelector('.inline-repeat-input').value);
+      } catch (error) { showInlineEditorError(error); }
+    });
+    form.querySelector('.inline-pattern-input').focus();
+  }));
   container.querySelectorAll('.inline-auto-remove').forEach((button) => button.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -3223,7 +3349,7 @@ function refreshManualFillDialog(message = '') {
   const plan = globalOrderPlans[editingManualLoadNumber - 1];
   if (!plan) return;
   const geometry = computeGeometry();
-  const stock = finalUnallocatedStock();
+  const stock = editableStockForLoad(editingManualLoadNumber);
   const liftSelect = $('manualFillLift');
   const previousLift = Number(liftSelect.value || 0);
   liftSelect.innerHTML = (plan.activeStates || []).map((state, index) => {
@@ -3314,6 +3440,7 @@ function removeManualRow(liftIndex, rowIndex) {
 }
 
 function renderLoadNavigation() {
+  reconcileActiveCompletionByTotals();
   reconcileProductionState();
   const history = $('loadHistory');
   history.innerHTML = '';
@@ -3323,12 +3450,30 @@ function renderLoadNavigation() {
     historyRow.dataset.load = snapshot.number;
     const completed = isLoadCompleted(snapshot.number);
     const inProgress = isLoadInProgress(snapshot.number);
+    const completionCandidates = inProgress ? completionCandidatesForLoad(snapshot.number) : [];
     const actionLabel = completed ? '✓ Completed' : inProgress ? 'Complete' : 'Start';
     historyRow.classList.toggle('in-progress', inProgress);
     const hasDryingData = dryingPrograms.has(String(snapshot.number));
     const stateLabel = completed ? 'Processed' : inProgress ? 'In progress' : `${fmt(snapshot.remainingBoards)} remaining`;
     const hasThermoData = thermoPrograms.has(String(snapshot.number));
     historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button>${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
+    if (completionCandidates.length) {
+      const match = document.createElement('button');
+      match.type = 'button';
+      match.className = 'match-completed-record';
+      match.textContent = 'Match completed';
+      match.title = 'Link the existing processed record without transferring boards again';
+      historyRow.querySelector('.cancel-cycle-start')?.insertAdjacentElement('afterend', match);
+      match.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const record = completionCandidates[0];
+        if (!window.confirm(`Mark Kiln Load ${snapshot.number} completed using the existing ${fmt(snapshot.usedBoards)}-board production record? Boards will not be transferred again.`)) return;
+        try {
+          linkCompletionRecordToLoad(record, snapshot.number);
+          calculate(false);
+        } catch (error) { showInlineEditorError(error); }
+      });
+    }
     historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
       event.stopPropagation();
       if (inProgress) openCycleCompletion(snapshot.number);

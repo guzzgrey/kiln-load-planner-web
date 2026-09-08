@@ -202,6 +202,7 @@ function numericMap(value) {
 function restorePlanTypes(plan) {
   const availableStock = numericMap(plan?.availableStock);
   const usedMap = numericMap(plan?.usedMap);
+  const completedUsedMap = numericMap(plan?.completedUsedMap);
   let stock = numericMap(plan?.stock);
   if (!stock.size && availableStock.size) {
     stock = new Map([...availableStock].map(([length, quantity]) => [
@@ -217,7 +218,7 @@ function restorePlanTypes(plan) {
         ? new Map(state.groups.__kilnMap)
         : new Map(Object.entries(state.groups || {})),
   }));
-  return { ...plan, stock, availableStock, usedMap, states: activeStates, activeStates };
+  return { ...plan, stock, availableStock, usedMap, completedUsedMap, states: activeStates, activeStates };
 }
 function deserializeCalculatedPlans(value) {
   if (!value) return [];
@@ -371,6 +372,14 @@ function completedLoadAssignments() {
   const assignedLoads = new Map();
   const assignedRecords = new Set();
   records.forEach((record, recordIndex) => {
+    if (!record.reconciledAt) return;
+    const loadNumber = Number(record.loadNumber);
+    if (!loadNumbers.includes(loadNumber) || assignedLoads.has(loadNumber)) return;
+    assignedLoads.set(loadNumber, record);
+    assignedRecords.add(recordIndex);
+  });
+  records.forEach((record, recordIndex) => {
+    if (assignedRecords.has(recordIndex)) return;
     if (!record.planFingerprint) return;
     const loadNumber = loadNumbers.find((number) => !assignedLoads.has(number) && loadPlanFingerprint(number) === record.planFingerprint);
     if (!loadNumber) return;
@@ -424,7 +433,6 @@ function linkCompletionRecordToLoad(record, loadNumber) {
     ...records[index],
     originalLoadNumber: records[index].originalLoadNumber || records[index].loadNumber,
     loadNumber: number,
-    planFingerprint: loadPlanFingerprint(number),
     reconciledAt: new Date().toISOString(),
   };
   writeCompletedCycles(records);
@@ -488,10 +496,15 @@ function reconcileProductionState() {
   return true;
 }
 
-function lockedLoadNumbers() {
+function productionLockedLoadNumbers() {
   const locked = new Set(completedLoadAssignments().keys());
   const active = Number(activeOrder?.activeCycleNumber || 0);
   if (active > 0) locked.add(active);
+  return locked;
+}
+
+function lockedLoadNumbers() {
+  const locked = productionLockedLoadNumbers();
   globalOrderPlans.forEach((plan, index) => {
     if ((plan.activeStates || []).some((state) => (state.manualRows || []).length > 0 || state.operatorAdjusted)) locked.add(index + 1);
   });
@@ -2192,7 +2205,8 @@ function rebuildPlanBalances(plans, sourceStock, geometry, kilnLength) {
       manualRows: (state.manualRows || []).map((row) => ({ ...row })),
     }));
     const availableStock = new Map(stock);
-    const usedMap = usedMapForStates(activeStates, geometry);
+    const completedUsedMap = numericMap(sourcePlan.completedUsedMap);
+    const usedMap = completedUsedMap.size ? new Map(completedUsedMap) : usedMapForStates(activeStates, geometry);
     usedMap.forEach((quantity, length) => {
       const available = Number(stock.get(length) || 0);
       if (quantity > available) throw new Error(`Inventory balance error: ${quantity} boards at ${length} ft requested, only ${available} available.`);
@@ -2216,6 +2230,7 @@ function rebuildPlanBalances(plans, sourceStock, geometry, kilnLength) {
       activeStates,
       availableStock,
       usedMap,
+      completedUsedMap,
       stock: new Map(stock),
       activeLength,
       chamberGap,
@@ -2679,15 +2694,18 @@ function buildOptimizedPlanSet(sourceStock, geometry, kilnLength, maxStack, sele
   ).map(restorePlanTypes);
 }
 
-function optimizeUnlockedPlans(originalStock, geometry, kilnLength, maxStack, selectedMetal) {
-  const locked = lockedLoadNumbers();
+function optimizeUnlockedPlans(originalStock, geometry, kilnLength, maxStack, selectedMetal, respectOperatorLocks = true) {
+  const locked = respectOperatorLocks ? lockedLoadNumbers() : productionLockedLoadNumbers();
   const previousPlans = globalOrderPlans.map(restorePlanTypes);
   if (!locked.size) return buildOptimizedPlanSet(originalStock, geometry, kilnLength, maxStack, selectedMetal, true);
   const lockedUsed = new Map();
   locked.forEach((loadNumber) => {
     const plan = previousPlans[loadNumber - 1];
     if (!plan) throw new Error(`Kiln Load ${loadNumber} is locked but its saved plan is unavailable.`);
-    plan.usedMap.forEach((quantity, length) => {
+    const completedRecord = completedRecordForLoad(loadNumber);
+    const lockedMap = completedRecord?.quantities ? numericMap(completedRecord.quantities) : plan.usedMap;
+    if (completedRecord) plan.completedUsedMap = new Map(lockedMap);
+    lockedMap.forEach((quantity, length) => {
       lockedUsed.set(Number(length), Number(lockedUsed.get(Number(length)) || 0) + Number(quantity || 0));
     });
   });
@@ -2740,13 +2758,18 @@ function calculate(allowOptimization = false) {
   if (signature !== globalOrderSignature && !allowOptimization) {
     throw new Error('Optimization is locked. Use the Calculate Load button to create a new plan.');
   }
-  if (allowOptimization) {
+  const completionBalanceMismatch = [...completedLoadAssignments()].some(([loadNumber, record]) => {
+    const actual = quantityFingerprint(record.quantities);
+    const planned = quantityFingerprint(globalOrderPlans[loadNumber - 1]?.usedMap);
+    return actual && actual !== planned;
+  });
+  if (allowOptimization || completionBalanceMismatch) {
     const previousLoadNumber = currentLoadNumber;
     globalOrderSignature = signature;
     // Use the same proven sequential planner in local files and on the web.
     // The HiGHS global model produced a different plan only after deployment,
     // because its WASM module cannot initialize from file:// URLs.
-    globalOrderPlans = optimizeUnlockedPlans(originalStock, geometry, kilnLength, maxStack, selectedMetal);
+    globalOrderPlans = optimizeUnlockedPlans(originalStock, geometry, kilnLength, maxStack, selectedMetal, !completionBalanceMismatch);
     loadRecords.clear();
     currentLoadNumber = Math.min(previousLoadNumber, Math.max(1, globalOrderPlans.length));
   }
@@ -3079,7 +3102,9 @@ function rebuildAfterOperatorEdit(previousPlans) {
   try {
     globalOrderPlans = globalOrderPlans.map((plan) => {
       const activeStates = (plan.activeStates || []).map((state) => ({ ...state }));
-      return { ...plan, states: activeStates, activeStates, usedMap: usedMapForStates(activeStates, geometry) };
+      const completedUsedMap = numericMap(plan.completedUsedMap);
+      const usedMap = completedUsedMap.size ? completedUsedMap : usedMapForStates(activeStates, geometry);
+      return { ...plan, states: activeStates, activeStates, usedMap, completedUsedMap };
     });
     calculate(true);
     if (anchorTop !== null) {
@@ -3102,7 +3127,9 @@ function editableStockForLoad(loadNumber) {
   globalOrderPlans.forEach((plan, index) => {
     const candidate = index + 1;
     if (candidate !== number && !locked.has(candidate)) return;
-    usedMapForStates(plan.activeStates || [], computeGeometry()).forEach((quantity, length) => {
+    const completedUsedMap = numericMap(plan.completedUsedMap);
+    const usedMap = completedUsedMap.size ? completedUsedMap : usedMapForStates(plan.activeStates || [], computeGeometry());
+    usedMap.forEach((quantity, length) => {
       stock.set(Number(length), Math.max(0, Number(stock.get(Number(length)) || 0) - Number(quantity || 0)));
     });
   });
@@ -3743,6 +3770,9 @@ function saveCompletedCycle(event) {
     size: materialSizeLabel(),
     quantities: Object.fromEntries(snapshot.used),
     planFingerprint,
+    planSnapshot: globalOrderPlans[completingLoadNumber - 1]
+      ? JSON.parse(serializeCalculatedPlans([globalOrderPlans[completingLoadNumber - 1]]))[0]
+      : null,
     boards: snapshot.usedBoards,
     bf: snapshot.usedBf,
     createdAt: new Date().toISOString(),

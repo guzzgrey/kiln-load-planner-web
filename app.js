@@ -2721,6 +2721,7 @@ function optimizeUnlockedPlans(originalStock, geometry, kilnLength, maxStack, se
 }
 
 function calculate(allowOptimization = false) {
+  const stackingDetailsWasOpen = Boolean($('productionNeed')?.querySelector('.stacking-details')?.open);
   const physicalKilnLength = Math.floor(num('kiln'));
   const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
   const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
@@ -2931,6 +2932,8 @@ function calculate(allowOptimization = false) {
     <details class="technical-details stacking-details"><summary><span><b>Exact row-by-row stacking sequence</b><small>Each numbered tile is one physical row from bottom to top</small></span><strong>${activeStates.length} lift${activeStates.length === 1 ? '' : 's'}</strong></summary><div class="stacking-schedule">${rowSchedule}</div></details>
   `;
   bindInlineStackingEditor();
+  const refreshedStackingDetails = $('productionNeed').querySelector('.stacking-details');
+  if (stackingDetailsWasOpen && refreshedStackingDetails) refreshedStackingDetails.open = true;
 
   $('orderLoads').innerHTML = `
     <div class="order-flow">
@@ -3065,12 +3068,20 @@ function calculate(allowOptimization = false) {
 
 function rebuildAfterOperatorEdit(previousPlans) {
   const geometry = computeGeometry();
+  const stackingDetails = $('productionNeed')?.querySelector('.stacking-details');
+  const anchorTop = stackingDetails?.open ? stackingDetails.getBoundingClientRect().top : null;
+  const previousScrollY = window.scrollY;
   try {
     globalOrderPlans = globalOrderPlans.map((plan) => {
       const activeStates = (plan.activeStates || []).map((state) => ({ ...state }));
       return { ...plan, states: activeStates, activeStates, usedMap: usedMapForStates(activeStates, geometry) };
     });
     calculate(true);
+    if (anchorTop !== null) {
+      const refreshed = $('productionNeed')?.querySelector('.stacking-details');
+      const offset = refreshed ? refreshed.getBoundingClientRect().top - anchorTop : 0;
+      window.scrollTo(0, Math.max(0, previousScrollY + offset));
+    }
     persistActiveOrder(true);
   } catch (error) {
     globalOrderPlans = previousPlans;

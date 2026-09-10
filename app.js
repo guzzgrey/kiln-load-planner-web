@@ -3979,11 +3979,17 @@ function init() {
   });
   $('orderNumber').value = activeOrder.number || newOrderNumber();
   if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
-  try {
-    const lastSupplier = localStorage.getItem(LAST_SUPPLIER_STORAGE) || '';
-    if (lastSupplier) $('supplier').value = lastSupplier;
-  } catch (_) {
-    // Ignore unavailable browser storage.
+  // A supplier saved on the order belongs to that order and must never be
+  // replaced by the browser-wide convenience default. Use the last supplier
+  // only when opening a genuinely new draft that has no supplier of its own.
+  const orderSupplier = String(activeOrder.inputs?.supplier || '').trim();
+  if (!orderSupplier) {
+    try {
+      const lastSupplier = localStorage.getItem(LAST_SUPPLIER_STORAGE) || '';
+      if (lastSupplier) $('supplier').value = lastSupplier;
+    } catch (_) {
+      // Ignore unavailable browser storage.
+    }
   }
   loadSupplierProfile();
   buildInventoryRows();

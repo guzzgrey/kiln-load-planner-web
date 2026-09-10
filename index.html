@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
-    <link rel="stylesheet" href="styles.css?v=quantity-breakdown-v8" />
+    <link rel="stylesheet" href="styles.css?v=material-split-v9" />
   </head>
   <body>
     <main class="wrap">
@@ -12,7 +12,7 @@
         <div>
           <h1>Kiln Load Planner</h1>
           <p class="lead">
-            One species, one board size, a fully occupied kiln, stable lifts, and clear inventory tracking.
+            One board size, a fully occupied kiln, stable lifts, and material-specific inventory tracking.
           </p>
           <p id="reportMeta" class="report-meta"></p>
         </div>
@@ -72,7 +72,7 @@
               </select>
             </div>
             <div>
-              <label>Wood species</label>
+              <label>Primary material / product</label>
               <input id="species" value="Hemlock" />
             </div>
             <div>
@@ -182,7 +182,7 @@
             <div class="inventory-heading-actions"><button id="addFromRemainder" class="secondary" type="button">+ Add from remainder</button><button id="clearTop" class="secondary clear-inventory" type="button">Clear Inventory</button></div>
           </div>
           <p class="note">
-            Each kiln load uses only the selected species and board size.
+            Physical quantities are entered once. Use Material composition to identify multiple materials of the same length without duplicating boards.
           </p>
 
           <div class="scroll">
@@ -194,6 +194,7 @@
                   <th>Before this load</th>
                   <th>Processed now</th>
                   <th>After this load</th>
+                  <th>Material composition</th>
                 </tr>
               </thead>
               <tbody id="inventory"></tbody>
@@ -204,6 +205,7 @@
                   <th id="beforeTotal">0</th>
                   <th id="usedTotal">0</th>
                   <th id="remainTotal">0</th>
+                  <th></th>
                 </tr>
               </tfoot>
             </table>
@@ -314,6 +316,7 @@
 
           <div id="shortage"></div>
           <div id="cycleYield" class="cycle-yield"></div>
+          <div id="materialBreakdown" class="material-breakdown"></div>
         </section>
 
         <section class="card s12">
@@ -385,6 +388,27 @@
       </form>
     </dialog>
 
+    <dialog id="materialSplitDialog" class="cycle-dialog material-split-dialog">
+      <form id="materialSplitForm" method="dialog">
+        <div class="dialog-heading">
+          <div><small>MATERIAL IDENTITY</small><h2>Split boards of one length</h2></div>
+          <button id="closeMaterialSplit" class="secondary" type="button">Close</button>
+        </div>
+        <p id="materialSplitSummary" class="note"></p>
+        <div class="dialog-fields">
+          <label>Primary material / product<input id="primaryMaterialName" required placeholder="SPF / Gordon Elite"></label>
+          <label>Additional material<input id="secondaryMaterialName" required placeholder="Hemlock"></label>
+          <label>Additional material quantity<input id="secondaryMaterialQuantity" type="number" min="0" step="1" required></label>
+        </div>
+        <p class="note">The total board quantity and kiln calculation do not change. The additional material is assigned to complete rows first; the balance remains the primary material.</p>
+        <div id="materialSplitStatus" class="calculation-status idle"></div>
+        <div class="dialog-actions">
+          <button id="removeMaterialSplit" class="secondary" type="button">Remove split</button>
+          <button type="submit">Save material split</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="dryingProgramDialog" class="cycle-dialog drying-program-dialog">
       <form id="dryingProgramForm" method="dialog">
         <div class="dialog-heading">
@@ -445,6 +469,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=order-supplier-v17"></script>
+    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=material-split-v18"></script>
   </body>
 </html>

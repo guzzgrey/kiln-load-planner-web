@@ -33,6 +33,7 @@ let completingLoadNumber = null;
 let editingDryingLoadNumber = null;
 let editingThermoLoadNumber = null;
 let editingManualLoadNumber = null;
+let editingMaterialLength = null;
 let dryingBaselineRows = [];
 let dryingCalculatedScenarioRows = null;
 let activeOrder = null;
@@ -152,7 +153,7 @@ function inputSnapshot() {
   return Object.fromEntries(ids.map((id) => [id, $(id).value]));
 }
 function inventorySnapshot() { return Object.fromEntries([...readInventory()]); }
-const CACHED_HTML_IDS = ['status','resultIntro','liftEditor','productionNeed','orderLoads','orderRemaining','plan','shortage','cycleYield','visualMeta','kilnVisual','finalInventoryVisual','residualsTableBody','optimizationAudit','manualFillSummary'];
+const CACHED_HTML_IDS = ['status','resultIntro','liftEditor','productionNeed','orderLoads','orderRemaining','plan','shortage','cycleYield','materialBreakdown','visualMeta','kilnVisual','finalInventoryVisual','residualsTableBody','optimizationAudit','manualFillSummary'];
 const CACHED_TEXT_IDS = ['rows','lines','needPieces','capacity','capacityLabel','loadBF','fillPct','missingBF','unusedBF','visualTitle','qtyTotal','beforeTotal','usedTotal','remainTotal'];
 function serializeLoadRecords() {
   return [...loadRecords.values()].map((record) => ({ ...record, available: Object.fromEntries(record.available), used: Object.fromEntries(record.used), remaining: Object.fromEntries(record.remaining) }));
@@ -291,6 +292,7 @@ function persistActiveOrder(calculated = false) {
   activeOrder.updatedAt = new Date().toISOString();
   activeOrder.inputs = inputSnapshot();
   activeOrder.inventory = inventorySnapshot();
+  activeOrder.materialSplits = { ...(activeOrder.materialSplits || {}) };
   activeOrder.liftStickerOverrides = Object.fromEntries(manualLiftStickers);
   activeOrder.liftTargetOverrides = Object.fromEntries(manualLiftTargets);
   activeOrder.dryingPrograms = Object.fromEntries(dryingPrograms);
@@ -769,6 +771,118 @@ function fmtMeasure(value, digits = 3) {
   return `${Number(value).toLocaleString('en-US', { maximumFractionDigits: digits })}″`;
 }
 
+function materialSplitForLength(length, total = Number(readInventory().get(Number(length)) || 0)) {
+  const saved = activeOrder?.materialSplits?.[String(Number(length))] || {};
+  const primary = String(saved.primary || $('species')?.value || 'Primary material').trim() || 'Primary material';
+  const secondary = String(saved.secondary || '').trim();
+  const secondaryQuantity = secondary
+    ? Math.min(Math.max(0, Math.floor(Number(saved.secondaryQuantity) || 0)), Math.max(0, Number(total) || 0))
+    : 0;
+  return { primary, secondary, secondaryQuantity, primaryQuantity: Math.max(0, Number(total) - secondaryQuantity) };
+}
+
+function refreshMaterialSplitCells() {
+  document.querySelectorAll('#inventory tr').forEach((row) => {
+    const length = Math.floor(Number(row.querySelector('.len')?.value) || 0);
+    const quantity = Math.max(0, Math.floor(Number(row.querySelector('.qty')?.value) || 0));
+    const cell = row.querySelector('.material-composition');
+    if (!cell) return;
+    if (!quantity || length < MIN_BOARD_LENGTH || length > MAX_BOARD_LENGTH) {
+      cell.innerHTML = '<span class="material-empty">—</span>';
+      return;
+    }
+    const split = materialSplitForLength(length, quantity);
+    const label = split.secondaryQuantity
+      ? `<span><b>${fmt(split.primaryQuantity)}</b> ${escapeHtml(split.primary)} + <b>${fmt(split.secondaryQuantity)}</b> ${escapeHtml(split.secondary)}</span>`
+      : `<span><b>${fmt(quantity)}</b> ${escapeHtml(split.primary)}</span>`;
+    cell.innerHTML = `${label}<button class="material-split-open secondary" type="button">${split.secondaryQuantity ? 'Edit split' : '+ Split'}</button>`;
+    cell.querySelector('.material-split-open').addEventListener('click', () => openMaterialSplit(length));
+  });
+}
+
+function openMaterialSplit(length) {
+  const total = Number(readInventory().get(Number(length)) || 0);
+  if (!total) return;
+  editingMaterialLength = Number(length);
+  const split = materialSplitForLength(length, total);
+  $('materialSplitSummary').innerHTML = `<b>${fmt(total)} boards × ${fmt(length)} ft</b> · identify the two materials without changing the kiln quantity.`;
+  $('primaryMaterialName').value = split.primary;
+  $('secondaryMaterialName').value = split.secondary || 'Hemlock';
+  $('secondaryMaterialQuantity').value = String(split.secondaryQuantity || 0);
+  $('secondaryMaterialQuantity').max = String(total);
+  $('materialSplitStatus').className = 'calculation-status idle';
+  $('materialSplitStatus').textContent = split.secondaryQuantity
+    ? `${fmt(split.primaryQuantity)} ${split.primary} + ${fmt(split.secondaryQuantity)} ${split.secondary} = ${fmt(total)} boards.`
+    : 'Enter the quantity belonging to the additional material.';
+  $('removeMaterialSplit').disabled = !split.secondaryQuantity;
+  $('materialSplitDialog').showModal();
+}
+
+function saveMaterialSplit(event) {
+  event.preventDefault();
+  const length = Number(editingMaterialLength);
+  const total = Number(readInventory().get(length) || 0);
+  const primary = $('primaryMaterialName').value.trim();
+  const secondary = $('secondaryMaterialName').value.trim();
+  const secondaryQuantity = Math.max(0, Math.floor(Number($('secondaryMaterialQuantity').value) || 0));
+  const status = $('materialSplitStatus');
+  if (!total || !primary || !secondary || primary.toLocaleLowerCase() === secondary.toLocaleLowerCase()
+      || secondaryQuantity <= 0 || secondaryQuantity >= total) {
+    status.className = 'calculation-status pending';
+    status.textContent = `Use two different material names and an additional quantity from 1 to ${Math.max(1, total - 1)}.`;
+    return;
+  }
+  activeOrder.materialSplits = { ...(activeOrder.materialSplits || {}), [String(length)]: { primary, secondary, secondaryQuantity } };
+  $('species').value = primary;
+  markCalculationPending();
+  activeOrder.calculated = false;
+  delete activeOrder.viewCache;
+  persistActiveOrder(false);
+  refreshMaterialSplitCells();
+  $('materialSplitDialog').close();
+}
+
+function removeMaterialSplit() {
+  if (!editingMaterialLength) return;
+  activeOrder.materialSplits = { ...(activeOrder.materialSplits || {}) };
+  delete activeOrder.materialSplits[String(editingMaterialLength)];
+  markCalculationPending();
+  activeOrder.calculated = false;
+  delete activeOrder.viewCache;
+  persistActiveOrder(false);
+  refreshMaterialSplitCells();
+  $('materialSplitDialog').close();
+}
+
+function materialBreakdownForPlan(plan, originalStock) {
+  const totals = new Map();
+  const primaryDefault = String($('species').value || 'Primary material').trim() || 'Primary material';
+  numericMap(plan?.usedMap).forEach((usedQuantity, length) => {
+    const used = Math.max(0, Number(usedQuantity) || 0);
+    if (!used) return;
+    const original = Number(originalStock.get(Number(length)) || 0);
+    const availableBefore = Number(numericMap(plan?.availableStock).get(Number(length)) || 0);
+    const alreadyUsed = Math.max(0, original - availableBefore);
+    const split = materialSplitForLength(length, original);
+    const secondaryRemaining = Math.max(0, split.secondaryQuantity - alreadyUsed);
+    const secondaryUsed = Math.min(used, secondaryRemaining);
+    const primaryUsed = used - secondaryUsed;
+    if (secondaryUsed) totals.set(split.secondary, Number(totals.get(split.secondary) || 0) + secondaryUsed);
+    if (primaryUsed) {
+      const primary = split.primary || primaryDefault;
+      totals.set(primary, Number(totals.get(primary) || 0) + primaryUsed);
+    }
+  });
+  return Object.fromEntries(totals);
+}
+
+function materialBreakdownLabel(materials) {
+  return Object.entries(materials || {})
+    .filter(([, quantity]) => Number(quantity) > 0)
+    .map(([name, quantity]) => `${fmt(quantity)} ${escapeHtml(name)}`)
+    .join(' · ');
+}
+
 function addRow(length, quantity = 0) {
   const row = document.createElement('tr');
   row.innerHTML = `
@@ -777,6 +891,7 @@ function addRow(length, quantity = 0) {
     <td class="before">0</td>
     <td class="used">0</td>
     <td class="remain">0</td>
+    <td class="material-composition"></td>
   `;
 
   $('inventory').appendChild(row);
@@ -784,6 +899,7 @@ function addRow(length, quantity = 0) {
     input.addEventListener('input', () => {
       markCalculationPending();
       scheduleDraftSave();
+      refreshMaterialSplitCells();
     });
   });
 
@@ -804,6 +920,7 @@ function buildInventoryRows() {
   DEFAULT_LENGTHS.forEach((length) => {
     addRow(length, Number(activeOrder?.inventory?.[length] || 0));
   });
+  refreshMaterialSplitCells();
 }
 
 function readInventory() {
@@ -2908,6 +3025,7 @@ function calculate(allowOptimization = false) {
     row.querySelector('.used').textContent = used;
     row.querySelector('.remain').textContent = remainingByLength.get(length) || 0;
   });
+  refreshMaterialSplitCells();
 
   $('qtyTotal').textContent = fmt(totalQty);
   $('beforeTotal').textContent = fmt(totalBefore);
@@ -3048,6 +3166,11 @@ function calculate(allowOptimization = false) {
       <strong>${fmt(totalUsed)} boards</strong>
       <b>${fmt(usedBf, 1)} BF total output</b>
     ` : '<span>Enter an order to calculate production output.</span>';
+  const selectedMaterials = materialBreakdownForPlan(bestPlan, originalStock);
+  const selectedMaterialLabel = materialBreakdownLabel(selectedMaterials);
+  $('materialBreakdown').innerHTML = selectedMaterialLabel
+    ? `<span>Material identity · Kiln Load ${currentLoadNumber}</span><strong>${selectedMaterialLabel}</strong><small>Tracked separately; physical board total remains ${fmt(totalUsed)}.</small>`
+    : '';
 
   renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance);
   renderFinalInventory(globalOrderPlans, originalStock, geometry);
@@ -3067,6 +3190,7 @@ function calculate(allowOptimization = false) {
         usedBoards,
         remainingBoards: [...plan.stock.values()].reduce((sum, quantity) => sum + quantity, 0),
         usedBf: bf(1, plan.usedFt),
+        materials: materialBreakdownForPlan(plan, originalStock),
         valid: plan.valid,
         layout: plan.activeStates.map((state) => `${state.length} ft`).join(' → ') || '—',
         global: true,
@@ -3082,6 +3206,7 @@ function calculate(allowOptimization = false) {
       usedBoards: totalUsed,
       remainingBoards: [...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0),
       usedBf,
+      materials: selectedMaterials,
       valid: bestPlan.valid,
       layout: activeStates.map((state) => `${state.length} ft`).join(' → ') || '—',
       global: false,
@@ -3746,7 +3871,8 @@ function openCycleCompletion(loadNumber) {
   $('completeMarking').value = '';
   $('finalProcessDate').value = '';
   const lengths = [...snapshot.used.entries()].sort((a, b) => a[0] - b[0]);
-  $('completeCycleSummary').innerHTML = `<b>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</b><span>${lengths.map(([length, quantity]) => `${quantity} × ${length} ft`).join(' · ')}</span>`;
+  const materials = materialBreakdownLabel(snapshot.materials);
+  $('completeCycleSummary').innerHTML = `<b>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</b><span>${lengths.map(([length, quantity]) => `${quantity} × ${length} ft`).join(' · ')}</span>${materials ? `<span><b>Materials:</b> ${materials}</span>` : ''}`;
   $('completeCycleDialog').showModal();
 }
 
@@ -3769,6 +3895,7 @@ function saveCompletedCycle(event) {
     species: $('species').value.trim(),
     size: materialSizeLabel(),
     quantities: Object.fromEntries(snapshot.used),
+    materials: { ...(snapshot.materials || {}) },
     planFingerprint,
     planSnapshot: globalOrderPlans[completingLoadNumber - 1]
       ? JSON.parse(serializeCalculatedPlans([globalOrderPlans[completingLoadNumber - 1]]))[0]
@@ -3834,6 +3961,8 @@ function bindEvents() {
     document.querySelectorAll('.qty').forEach((input) => {
       input.value = 0;
     });
+    activeOrder.materialSplits = {};
+    refreshMaterialSplitCells();
     $('loadNumber').textContent = '1';
     renderLoadNavigation();
     markCalculationPending();
@@ -3865,6 +3994,9 @@ function bindEvents() {
   $('nextSavedLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber + 1));
   $('completeCycleForm').addEventListener('submit', saveCompletedCycle);
   $('cancelCompleteCycle').addEventListener('click', () => $('completeCycleDialog').close());
+  $('materialSplitForm').addEventListener('submit', saveMaterialSplit);
+  $('closeMaterialSplit').addEventListener('click', () => $('materialSplitDialog').close());
+  $('removeMaterialSplit').addEventListener('click', removeMaterialSplit);
   $('dryingProgramForm').addEventListener('submit', calculateAndSaveDryingProgram);
   $('calculateDryingComparison').addEventListener('click', calculateDryingComparison);
   $('dryingScenarioRows').addEventListener('input', () => {
@@ -3922,6 +4054,7 @@ function bindEvents() {
     markCalculationPending();
   });
   $('supplierClearance').addEventListener('change', saveSupplierProfile);
+  $('species').addEventListener('input', refreshMaterialSplitCells);
 
   $('size').addEventListener('change', () => {
     const custom = $('size').value === 'custom';

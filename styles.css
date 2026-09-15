@@ -1324,6 +1324,10 @@ th {
   border-radius: 10px;
   background: #f8faf8;
 }
+.quality-allocation-grid .quality-panel-disabled {
+  opacity: .58;
+  background: #f2f4f2;
+}
 .quality-allocation-grid h3 { margin: 0 0 10px; color: var(--green); }
 .quality-allocation-grid p {
   display: flex;

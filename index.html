@@ -391,14 +391,14 @@
     <dialog id="materialSplitDialog" class="cycle-dialog material-split-dialog">
       <form id="materialSplitForm" method="dialog">
         <div class="dialog-heading">
-          <div><small>MATERIAL IDENTITY</small><h2>Split boards of one length</h2></div>
+          <div><small>MATERIAL IDENTITY</small><h2>Material and quality by length</h2></div>
           <button id="closeMaterialSplit" class="secondary" type="button">Close</button>
         </div>
         <p id="materialSplitSummary" class="note"></p>
         <div class="dialog-fields">
           <label>Primary material / product<input id="primaryMaterialName" required placeholder="SPF / Gordon Elite"></label>
-          <label>Additional material<input id="secondaryMaterialName" required placeholder="Hemlock"></label>
-          <label>Additional material quantity<input id="secondaryMaterialQuantity" type="number" min="0" step="1" required></label>
+          <label>Additional material (optional)<input id="secondaryMaterialName" placeholder="Hemlock"></label>
+          <label>Additional material quantity<input id="secondaryMaterialQuantity" type="number" min="0" step="1" value="0"></label>
         </div>
         <div class="quality-allocation-grid">
           <section>
@@ -419,8 +419,8 @@
         <p class="note">Quality categories are exclusive: count each board once under its main sorting result. No.1 / good is calculated automatically. Total physical quantity and kiln optimization do not change.</p>
         <div id="materialSplitStatus" class="calculation-status idle"></div>
         <div class="dialog-actions">
-          <button id="removeMaterialSplit" class="secondary" type="button">Remove split</button>
-          <button type="submit">Save material split</button>
+          <button id="removeMaterialSplit" class="secondary" type="button">Clear material &amp; quality</button>
+          <button type="submit">Save material &amp; quality</button>
         </div>
       </form>
     </dialog>
@@ -485,6 +485,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=material-quality-v19"></script>
+    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=single-material-quality-v20"></script>
   </body>
 </html>

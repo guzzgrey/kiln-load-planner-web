@@ -830,10 +830,11 @@ function refreshMaterialSplitCells() {
     const split = materialSplitForLength(length, quantity);
     const primaryQuality = qualitySummary(split.primaryQuality);
     const secondaryQuality = qualitySummary(split.secondaryQuality);
+    const hasSavedClassification = Boolean(activeOrder?.materialSplits?.[String(length)]);
     const label = split.secondaryQuantity
       ? `<span><b>${fmt(split.primaryQuantity)}</b> ${escapeHtml(split.primary)}<small>${escapeHtml(primaryQuality)}</small> + <b>${fmt(split.secondaryQuantity)}</b> ${escapeHtml(split.secondary)}<small>${escapeHtml(secondaryQuality)}</small></span>`
       : `<span><b>${fmt(quantity)}</b> ${escapeHtml(split.primary)}<small>${escapeHtml(primaryQuality)}</small></span>`;
-    cell.innerHTML = `${label}<button class="material-split-open secondary" type="button">${split.secondaryQuantity ? 'Material & quality' : '+ Material & quality'}</button>`;
+    cell.innerHTML = `${label}<button class="material-split-open secondary" type="button">${hasSavedClassification ? 'Material & quality' : '+ Material & quality'}</button>`;
     cell.querySelector('.material-split-open').addEventListener('click', () => openMaterialSplit(length));
   });
 }
@@ -843,9 +844,9 @@ function openMaterialSplit(length) {
   if (!total) return;
   editingMaterialLength = Number(length);
   const split = materialSplitForLength(length, total);
-  $('materialSplitSummary').innerHTML = `<b>${fmt(total)} boards × ${fmt(length)} ft</b> · identify the two materials without changing the kiln quantity.`;
+  $('materialSplitSummary').innerHTML = `<b>${fmt(total)} boards × ${fmt(length)} ft</b> · classify one material or optionally split the quantity between two materials.`;
   $('primaryMaterialName').value = split.primary;
-  $('secondaryMaterialName').value = split.secondary || 'Hemlock';
+  $('secondaryMaterialName').value = split.secondary || '';
   $('secondaryMaterialQuantity').value = String(split.secondaryQuantity || 0);
   $('secondaryMaterialQuantity').max = String(total);
   ['crooked', 'cracked', 'knots'].forEach((quality) => {
@@ -853,7 +854,7 @@ function openMaterialSplit(length) {
     $(`secondary${quality[0].toUpperCase()}${quality.slice(1)}Quantity`).value = String(split.secondaryQuality[quality] || 0);
   });
   updateMaterialQualityPreview();
-  $('removeMaterialSplit').disabled = !split.secondaryQuantity;
+  $('removeMaterialSplit').disabled = !activeOrder?.materialSplits?.[String(Number(length))];
   $('materialSplitDialog').showModal();
 }
 
@@ -869,15 +870,23 @@ function updateMaterialQualityPreview() {
   const total = Number(readInventory().get(Number(editingMaterialLength)) || 0);
   const secondaryQuantity = Math.min(total, Math.max(0, Math.floor(Number($('secondaryMaterialQuantity').value) || 0)));
   const primaryQuantity = Math.max(0, total - secondaryQuantity);
+  const hasSecondary = secondaryQuantity > 0;
   const primary = qualityCounts(primaryQuantity, qualityInputs('primary'));
-  const secondary = qualityCounts(secondaryQuantity, qualityInputs('secondary'));
+  const secondary = qualityCounts(secondaryQuantity, hasSecondary ? qualityInputs('secondary') : {});
+  $('secondaryMaterialName').required = hasSecondary;
+  ['secondaryCrookedQuantity', 'secondaryCrackedQuantity', 'secondaryKnotsQuantity'].forEach((id) => {
+    $(id).disabled = !hasSecondary;
+  });
+  $('secondaryQualityTitle').closest('section').classList.toggle('quality-panel-disabled', !hasSecondary);
   $('primaryQualityTitle').textContent = `${$('primaryMaterialName').value.trim() || 'Primary material'} · ${fmt(primaryQuantity)} boards`;
   $('secondaryQualityTitle').textContent = `${$('secondaryMaterialName').value.trim() || 'Additional material'} · ${fmt(secondaryQuantity)} boards`;
   $('primaryGoodQuantity').textContent = primary.valid ? fmt(primary.good) : 'ERROR';
-  $('secondaryGoodQuantity').textContent = secondary.valid ? fmt(secondary.good) : 'ERROR';
+  $('secondaryGoodQuantity').textContent = hasSecondary && secondary.valid ? fmt(secondary.good) : '0';
   $('materialSplitStatus').className = `calculation-status ${primary.valid && secondary.valid ? 'idle' : 'pending'}`;
   $('materialSplitStatus').textContent = primary.valid && secondary.valid
-    ? `${fmt(primaryQuantity)} + ${fmt(secondaryQuantity)} = ${fmt(total)} boards. Quality balance is valid.`
+    ? hasSecondary
+      ? `${fmt(primaryQuantity)} + ${fmt(secondaryQuantity)} = ${fmt(total)} boards. Material and quality balance is valid.`
+      : `${fmt(total)} boards assigned to one material. Quality balance is valid and can be saved.`
     : 'Defect quantities cannot exceed the board count of their material.';
 }
 
@@ -888,24 +897,27 @@ function saveMaterialSplit(event) {
   const primary = $('primaryMaterialName').value.trim();
   const secondary = $('secondaryMaterialName').value.trim();
   const secondaryQuantity = Math.max(0, Math.floor(Number($('secondaryMaterialQuantity').value) || 0));
+  const hasSecondary = secondaryQuantity > 0;
   const primaryQuality = qualityCounts(total - secondaryQuantity, qualityInputs('primary'));
-  const secondaryQuality = qualityCounts(secondaryQuantity, qualityInputs('secondary'));
+  const secondaryQuality = qualityCounts(secondaryQuantity, hasSecondary ? qualityInputs('secondary') : {});
   const status = $('materialSplitStatus');
-  if (!total || !primary || !secondary || primary.toLocaleLowerCase() === secondary.toLocaleLowerCase()
-      || secondaryQuantity <= 0 || secondaryQuantity >= total || !primaryQuality.valid || !secondaryQuality.valid) {
+  const invalidSplit = hasSecondary && (!secondary || primary.toLocaleLowerCase() === secondary.toLocaleLowerCase() || secondaryQuantity >= total);
+  if (!total || !primary || invalidSplit || !primaryQuality.valid || !secondaryQuality.valid) {
     status.className = 'calculation-status pending';
     status.textContent = !primaryQuality.valid || !secondaryQuality.valid
       ? 'Defect quantities cannot exceed the quantity of their material.'
-      : `Use two different material names and an additional quantity from 1 to ${Math.max(1, total - 1)}.`;
+      : hasSecondary
+        ? `Use two different material names and an additional quantity from 1 to ${Math.max(1, total - 1)}.`
+        : 'Enter the primary material name.';
     return;
   }
   activeOrder.materialSplits = {
     ...(activeOrder.materialSplits || {}),
     [String(length)]: {
       primary,
-      secondary,
-      secondaryQuantity,
-      quality: { primary: qualityInputs('primary'), secondary: qualityInputs('secondary') },
+      secondary: hasSecondary ? secondary : '',
+      secondaryQuantity: hasSecondary ? secondaryQuantity : 0,
+      quality: { primary: qualityInputs('primary'), secondary: hasSecondary ? qualityInputs('secondary') : normalizedDefects() },
     },
   };
   $('species').value = primary;

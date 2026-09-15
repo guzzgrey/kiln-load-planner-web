@@ -771,6 +771,27 @@ function fmtMeasure(value, digits = 3) {
   return `${Number(value).toLocaleString('en-US', { maximumFractionDigits: digits })}″`;
 }
 
+const QUALITY_CATEGORIES = [
+  { key: 'good', label: 'No.1 / good' },
+  { key: 'crooked', label: 'Crooked / bowed' },
+  { key: 'cracked', label: 'Cracked' },
+  { key: 'knots', label: 'Large or damaged knots' },
+];
+
+function normalizedDefects(value = {}) {
+  return {
+    crooked: Math.max(0, Math.floor(Number(value.crooked) || 0)),
+    cracked: Math.max(0, Math.floor(Number(value.cracked) || 0)),
+    knots: Math.max(0, Math.floor(Number(value.knots) || 0)),
+  };
+}
+
+function qualityCounts(total, defects = {}) {
+  const clean = normalizedDefects(defects);
+  const defective = clean.crooked + clean.cracked + clean.knots;
+  return { good: Math.max(0, Number(total) - defective), ...clean, defective, valid: defective <= Number(total) };
+}
+
 function materialSplitForLength(length, total = Number(readInventory().get(Number(length)) || 0)) {
   const saved = activeOrder?.materialSplits?.[String(Number(length))] || {};
   const primary = String(saved.primary || $('species')?.value || 'Primary material').trim() || 'Primary material';
@@ -778,7 +799,22 @@ function materialSplitForLength(length, total = Number(readInventory().get(Numbe
   const secondaryQuantity = secondary
     ? Math.min(Math.max(0, Math.floor(Number(saved.secondaryQuantity) || 0)), Math.max(0, Number(total) || 0))
     : 0;
-  return { primary, secondary, secondaryQuantity, primaryQuantity: Math.max(0, Number(total) - secondaryQuantity) };
+  const primaryQuantity = Math.max(0, Number(total) - secondaryQuantity);
+  return {
+    primary,
+    secondary,
+    secondaryQuantity,
+    primaryQuantity,
+    primaryQuality: qualityCounts(primaryQuantity, saved.quality?.primary),
+    secondaryQuality: qualityCounts(secondaryQuantity, saved.quality?.secondary),
+  };
+}
+
+function qualitySummary(counts) {
+  const parts = QUALITY_CATEGORIES
+    .filter(({ key }) => Number(counts?.[key]) > 0)
+    .map(({ key, label }) => `${fmt(counts[key])} ${label}`);
+  return parts.join(' · ');
 }
 
 function refreshMaterialSplitCells() {
@@ -792,10 +828,12 @@ function refreshMaterialSplitCells() {
       return;
     }
     const split = materialSplitForLength(length, quantity);
+    const primaryQuality = qualitySummary(split.primaryQuality);
+    const secondaryQuality = qualitySummary(split.secondaryQuality);
     const label = split.secondaryQuantity
-      ? `<span><b>${fmt(split.primaryQuantity)}</b> ${escapeHtml(split.primary)} + <b>${fmt(split.secondaryQuantity)}</b> ${escapeHtml(split.secondary)}</span>`
-      : `<span><b>${fmt(quantity)}</b> ${escapeHtml(split.primary)}</span>`;
-    cell.innerHTML = `${label}<button class="material-split-open secondary" type="button">${split.secondaryQuantity ? 'Edit split' : '+ Split'}</button>`;
+      ? `<span><b>${fmt(split.primaryQuantity)}</b> ${escapeHtml(split.primary)}<small>${escapeHtml(primaryQuality)}</small> + <b>${fmt(split.secondaryQuantity)}</b> ${escapeHtml(split.secondary)}<small>${escapeHtml(secondaryQuality)}</small></span>`
+      : `<span><b>${fmt(quantity)}</b> ${escapeHtml(split.primary)}<small>${escapeHtml(primaryQuality)}</small></span>`;
+    cell.innerHTML = `${label}<button class="material-split-open secondary" type="button">${split.secondaryQuantity ? 'Material & quality' : '+ Material & quality'}</button>`;
     cell.querySelector('.material-split-open').addEventListener('click', () => openMaterialSplit(length));
   });
 }
@@ -810,12 +848,37 @@ function openMaterialSplit(length) {
   $('secondaryMaterialName').value = split.secondary || 'Hemlock';
   $('secondaryMaterialQuantity').value = String(split.secondaryQuantity || 0);
   $('secondaryMaterialQuantity').max = String(total);
-  $('materialSplitStatus').className = 'calculation-status idle';
-  $('materialSplitStatus').textContent = split.secondaryQuantity
-    ? `${fmt(split.primaryQuantity)} ${split.primary} + ${fmt(split.secondaryQuantity)} ${split.secondary} = ${fmt(total)} boards.`
-    : 'Enter the quantity belonging to the additional material.';
+  ['crooked', 'cracked', 'knots'].forEach((quality) => {
+    $(`primary${quality[0].toUpperCase()}${quality.slice(1)}Quantity`).value = String(split.primaryQuality[quality] || 0);
+    $(`secondary${quality[0].toUpperCase()}${quality.slice(1)}Quantity`).value = String(split.secondaryQuality[quality] || 0);
+  });
+  updateMaterialQualityPreview();
   $('removeMaterialSplit').disabled = !split.secondaryQuantity;
   $('materialSplitDialog').showModal();
+}
+
+function qualityInputs(prefix) {
+  return normalizedDefects({
+    crooked: $(`${prefix}CrookedQuantity`).value,
+    cracked: $(`${prefix}CrackedQuantity`).value,
+    knots: $(`${prefix}KnotsQuantity`).value,
+  });
+}
+
+function updateMaterialQualityPreview() {
+  const total = Number(readInventory().get(Number(editingMaterialLength)) || 0);
+  const secondaryQuantity = Math.min(total, Math.max(0, Math.floor(Number($('secondaryMaterialQuantity').value) || 0)));
+  const primaryQuantity = Math.max(0, total - secondaryQuantity);
+  const primary = qualityCounts(primaryQuantity, qualityInputs('primary'));
+  const secondary = qualityCounts(secondaryQuantity, qualityInputs('secondary'));
+  $('primaryQualityTitle').textContent = `${$('primaryMaterialName').value.trim() || 'Primary material'} · ${fmt(primaryQuantity)} boards`;
+  $('secondaryQualityTitle').textContent = `${$('secondaryMaterialName').value.trim() || 'Additional material'} · ${fmt(secondaryQuantity)} boards`;
+  $('primaryGoodQuantity').textContent = primary.valid ? fmt(primary.good) : 'ERROR';
+  $('secondaryGoodQuantity').textContent = secondary.valid ? fmt(secondary.good) : 'ERROR';
+  $('materialSplitStatus').className = `calculation-status ${primary.valid && secondary.valid ? 'idle' : 'pending'}`;
+  $('materialSplitStatus').textContent = primary.valid && secondary.valid
+    ? `${fmt(primaryQuantity)} + ${fmt(secondaryQuantity)} = ${fmt(total)} boards. Quality balance is valid.`
+    : 'Defect quantities cannot exceed the board count of their material.';
 }
 
 function saveMaterialSplit(event) {
@@ -825,14 +888,26 @@ function saveMaterialSplit(event) {
   const primary = $('primaryMaterialName').value.trim();
   const secondary = $('secondaryMaterialName').value.trim();
   const secondaryQuantity = Math.max(0, Math.floor(Number($('secondaryMaterialQuantity').value) || 0));
+  const primaryQuality = qualityCounts(total - secondaryQuantity, qualityInputs('primary'));
+  const secondaryQuality = qualityCounts(secondaryQuantity, qualityInputs('secondary'));
   const status = $('materialSplitStatus');
   if (!total || !primary || !secondary || primary.toLocaleLowerCase() === secondary.toLocaleLowerCase()
-      || secondaryQuantity <= 0 || secondaryQuantity >= total) {
+      || secondaryQuantity <= 0 || secondaryQuantity >= total || !primaryQuality.valid || !secondaryQuality.valid) {
     status.className = 'calculation-status pending';
-    status.textContent = `Use two different material names and an additional quantity from 1 to ${Math.max(1, total - 1)}.`;
+    status.textContent = !primaryQuality.valid || !secondaryQuality.valid
+      ? 'Defect quantities cannot exceed the quantity of their material.'
+      : `Use two different material names and an additional quantity from 1 to ${Math.max(1, total - 1)}.`;
     return;
   }
-  activeOrder.materialSplits = { ...(activeOrder.materialSplits || {}), [String(length)]: { primary, secondary, secondaryQuantity } };
+  activeOrder.materialSplits = {
+    ...(activeOrder.materialSplits || {}),
+    [String(length)]: {
+      primary,
+      secondary,
+      secondaryQuantity,
+      quality: { primary: qualityInputs('primary'), secondary: qualityInputs('secondary') },
+    },
+  };
   $('species').value = primary;
   markCalculationPending();
   activeOrder.calculated = false;
@@ -854,26 +929,67 @@ function removeMaterialSplit() {
   $('materialSplitDialog').close();
 }
 
-function materialBreakdownForPlan(plan, originalStock) {
-  const totals = new Map();
-  const primaryDefault = String($('species').value || 'Primary material').trim() || 'Primary material';
+function qualityLotsForMaterial(length, material, total, counts) {
+  return QUALITY_CATEGORIES
+    .map(({ key, label }) => ({ length: Number(length), material, quality: key, qualityLabel: label, quantity: Number(counts?.[key] || 0) }))
+    .filter((lot) => lot.quantity > 0 && total > 0);
+}
+
+function originalMaterialQualityLots(length, total) {
+  const split = materialSplitForLength(length, total);
+  return [
+    ...qualityLotsForMaterial(length, split.secondary, split.secondaryQuantity, split.secondaryQuality),
+    ...qualityLotsForMaterial(length, split.primary, split.primaryQuantity, split.primaryQuality),
+  ];
+}
+
+function materialQualityLotsForPlan(plan, originalStock) {
+  const selected = [];
+  const availableMap = numericMap(plan?.availableStock);
   numericMap(plan?.usedMap).forEach((usedQuantity, length) => {
-    const used = Math.max(0, Number(usedQuantity) || 0);
-    if (!used) return;
     const original = Number(originalStock.get(Number(length)) || 0);
-    const availableBefore = Number(numericMap(plan?.availableStock).get(Number(length)) || 0);
-    const alreadyUsed = Math.max(0, original - availableBefore);
-    const split = materialSplitForLength(length, original);
-    const secondaryRemaining = Math.max(0, split.secondaryQuantity - alreadyUsed);
-    const secondaryUsed = Math.min(used, secondaryRemaining);
-    const primaryUsed = used - secondaryUsed;
-    if (secondaryUsed) totals.set(split.secondary, Number(totals.get(split.secondary) || 0) + secondaryUsed);
-    if (primaryUsed) {
-      const primary = split.primary || primaryDefault;
-      totals.set(primary, Number(totals.get(primary) || 0) + primaryUsed);
+    let skip = Math.max(0, original - Number(availableMap.get(Number(length)) || 0));
+    let remaining = Math.max(0, Number(usedQuantity) || 0);
+    originalMaterialQualityLots(length, original).forEach((lot) => {
+      if (!remaining) return;
+      const skipped = Math.min(skip, lot.quantity);
+      skip -= skipped;
+      const available = lot.quantity - skipped;
+      const quantity = Math.min(available, remaining);
+      if (quantity > 0) selected.push({ ...lot, quantity });
+      remaining -= quantity;
+    });
+    if (remaining > 0) {
+      selected.push({
+        length: Number(length),
+        material: String($('species').value || 'Primary material'),
+        quality: 'unclassified',
+        qualityLabel: 'Unclassified',
+        quantity: remaining,
+      });
     }
   });
+  return selected;
+}
+
+function materialBreakdownForPlan(plan, originalStock) {
+  const totals = new Map();
+  materialQualityLotsForPlan(plan, originalStock).forEach((lot) => {
+    totals.set(lot.material, Number(totals.get(lot.material) || 0) + lot.quantity);
+  });
   return Object.fromEntries(totals);
+}
+
+function materialQualityBreakdownLabel(lots) {
+  const grouped = new Map();
+  (lots || []).forEach((lot) => {
+    const key = `${lot.material}\u0000${lot.qualityLabel}`;
+    grouped.set(key, Number(grouped.get(key) || 0) + Number(lot.quantity || 0));
+  });
+  return [...grouped.entries()].map(([key, quantity]) => {
+    const [material, quality] = key.split('\u0000');
+    return `${fmt(quantity)} ${escapeHtml(material)} — ${escapeHtml(quality)}`;
+  }).join(' · ');
 }
 
 function materialBreakdownLabel(materials) {
@@ -3167,9 +3283,11 @@ function calculate(allowOptimization = false) {
       <b>${fmt(usedBf, 1)} BF total output</b>
     ` : '<span>Enter an order to calculate production output.</span>';
   const selectedMaterials = materialBreakdownForPlan(bestPlan, originalStock);
+  const selectedQualityLots = materialQualityLotsForPlan(bestPlan, originalStock);
   const selectedMaterialLabel = materialBreakdownLabel(selectedMaterials);
+  const selectedQualityLabel = materialQualityBreakdownLabel(selectedQualityLots);
   $('materialBreakdown').innerHTML = selectedMaterialLabel
-    ? `<span>Material identity · Kiln Load ${currentLoadNumber}</span><strong>${selectedMaterialLabel}</strong><small>Tracked separately; physical board total remains ${fmt(totalUsed)}.</small>`
+    ? `<span>Material & quality · Kiln Load ${currentLoadNumber}</span><strong>${selectedQualityLabel || selectedMaterialLabel}</strong><small>Tracked separately; physical board total remains ${fmt(totalUsed)}.</small>`
     : '';
 
   renderVisual(bestPlan, geometry, kilnLength, metalBox, safetyClearance);
@@ -3191,6 +3309,7 @@ function calculate(allowOptimization = false) {
         remainingBoards: [...plan.stock.values()].reduce((sum, quantity) => sum + quantity, 0),
         usedBf: bf(1, plan.usedFt),
         materials: materialBreakdownForPlan(plan, originalStock),
+        qualityLots: materialQualityLotsForPlan(plan, originalStock),
         valid: plan.valid,
         layout: plan.activeStates.map((state) => `${state.length} ft`).join(' → ') || '—',
         global: true,
@@ -3207,6 +3326,7 @@ function calculate(allowOptimization = false) {
       remainingBoards: [...remainingByLength.values()].reduce((sum, quantity) => sum + quantity, 0),
       usedBf,
       materials: selectedMaterials,
+      qualityLots: selectedQualityLots,
       valid: bestPlan.valid,
       layout: activeStates.map((state) => `${state.length} ft`).join(' → ') || '—',
       global: false,
@@ -3872,7 +3992,8 @@ function openCycleCompletion(loadNumber) {
   $('finalProcessDate').value = '';
   const lengths = [...snapshot.used.entries()].sort((a, b) => a[0] - b[0]);
   const materials = materialBreakdownLabel(snapshot.materials);
-  $('completeCycleSummary').innerHTML = `<b>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</b><span>${lengths.map(([length, quantity]) => `${quantity} × ${length} ft`).join(' · ')}</span>${materials ? `<span><b>Materials:</b> ${materials}</span>` : ''}`;
+  const quality = materialQualityBreakdownLabel(snapshot.qualityLots);
+  $('completeCycleSummary').innerHTML = `<b>${fmt(snapshot.usedBoards)} boards · ${fmt(snapshot.usedBf, 1)} BF</b><span>${lengths.map(([length, quantity]) => `${quantity} × ${length} ft`).join(' · ')}</span>${materials ? `<span><b>Materials:</b> ${materials}</span>` : ''}${quality ? `<span><b>Quality:</b> ${quality}</span>` : ''}`;
   $('completeCycleDialog').showModal();
 }
 
@@ -3896,6 +4017,7 @@ function saveCompletedCycle(event) {
     size: materialSizeLabel(),
     quantities: Object.fromEntries(snapshot.used),
     materials: { ...(snapshot.materials || {}) },
+    qualityLots: (snapshot.qualityLots || []).map((lot) => ({ ...lot })),
     planFingerprint,
     planSnapshot: globalOrderPlans[completingLoadNumber - 1]
       ? JSON.parse(serializeCalculatedPlans([globalOrderPlans[completingLoadNumber - 1]]))[0]
@@ -3997,6 +4119,10 @@ function bindEvents() {
   $('materialSplitForm').addEventListener('submit', saveMaterialSplit);
   $('closeMaterialSplit').addEventListener('click', () => $('materialSplitDialog').close());
   $('removeMaterialSplit').addEventListener('click', removeMaterialSplit);
+  ['primaryMaterialName', 'secondaryMaterialName', 'secondaryMaterialQuantity',
+    'primaryCrookedQuantity', 'primaryCrackedQuantity', 'primaryKnotsQuantity',
+    'secondaryCrookedQuantity', 'secondaryCrackedQuantity', 'secondaryKnotsQuantity']
+    .forEach((id) => $(id).addEventListener('input', updateMaterialQualityPreview));
   $('dryingProgramForm').addEventListener('submit', calculateAndSaveDryingProgram);
   $('calculateDryingComparison').addEventListener('click', calculateDryingComparison);
   $('dryingScenarioRows').addEventListener('input', () => {

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
-    <link rel="stylesheet" href="styles.css?v=remainder-inventory-v1" />
+    <link rel="stylesheet" href="styles.css?v=material-quality-v10" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -108,7 +108,8 @@
           <label>ORDER #<input id="yardOrder" required /></label>
           <label>PRODUCT / MO #<input id="yardProduct" required /></label>
           <label>DATE<input id="yardDate" type="date" required /></label>
-          <label>QUALITY GRADE<select id="yardQuality"><option value="grade-1">Grade #1</option><option value="downgraded">Downgraded / defects</option></select></label>
+          <label>MATERIAL / PRODUCT<select id="yardMaterial"></select></label>
+          <label>QUALITY GRADE<select id="yardQuality"><option value="good">No.1 / good</option><option value="crooked">Crooked / bowed</option><option value="cracked">Cracked</option><option value="knots">Large or damaged knots</option><option value="recovered-grade-1">Recovered Grade #1</option><option value="unclassified">Unclassified</option></select></label>
           <label>DEFECT / SORT NOTE<input id="yardDefectNote" placeholder="Bow, large knots, cracks…" /></label>
         </div>
         <p class="note">Select one finished length for this YARD lift. Quantities already reflect every confirmed recovery cut; one TAG cannot contain multiple lengths.</p>
@@ -121,6 +122,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="warehouse.js?v=remainder-transfer-v1"></script>
+    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="warehouse.js?v=material-quality-v2"></script>
   </body>
 </html>

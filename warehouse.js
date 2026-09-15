@@ -52,7 +52,43 @@ function sumQuantities(records) {
 function totalBoards(quantities) { return Object.values(quantities || {}).reduce((sum, value) => sum + Number(value || 0), 0); }
 function totalLinearFeet(quantities) { return LENGTHS.reduce((sum, length) => sum + length * Number(quantities?.[length] || 0), 0); }
 function sourceQuantities(tag) { return tag.sourceQuantities || tag.quantities || {}; }
-function qualityLabel(value) { return ({ 'grade-1': 'Grade #1', 'recovered-grade-1': 'Recovered Grade #1', downgraded: 'Downgraded' })[value] || 'Grade #1'; }
+function qualityLabel(value) {
+  return ({
+    good: 'No.1 / good',
+    'grade-1': 'No.1 / good',
+    crooked: 'Crooked / bowed',
+    cracked: 'Cracked',
+    knots: 'Large or damaged knots',
+    'recovered-grade-1': 'Recovered Grade #1',
+    downgraded: 'Downgraded / defects',
+    unclassified: 'Unclassified',
+  })[value] || 'Unclassified';
+}
+function completedQualityLots() {
+  return completed().flatMap((record) => {
+    if (Array.isArray(record.qualityLots) && record.qualityLots.length) return record.qualityLots.map((lot) => ({ ...lot, loadNumber: record.loadNumber }));
+    return Object.entries(record.quantities || {}).filter(([, quantity]) => Number(quantity) > 0).map(([length, quantity]) => ({
+      length: Number(length),
+      material: record.species || record.marking || 'Unclassified material',
+      quality: 'unclassified',
+      qualityLabel: 'Unclassified',
+      quantity: Number(quantity),
+      loadNumber: record.loadNumber,
+    }));
+  });
+}
+function recordQualitySummary(record) {
+  const grouped = new Map();
+  (record.qualityLots || []).forEach((lot) => {
+    const key = `${lot.material || record.species || 'Material'}\u0000${qualityLabel(lot.quality)}`;
+    grouped.set(key, Number(grouped.get(key) || 0) + Number(lot.quantity || 0));
+  });
+  if (!grouped.size) return esc(record.species || 'Unclassified');
+  return [...grouped.entries()].map(([key, quantity]) => {
+    const [material, quality] = key.split('\u0000');
+    return `<span><b>${fmt(quantity)} ${esc(material)}</b><small>${esc(quality)}</small></span>`;
+  }).join('');
+}
 function recoveryLabel(tag) {
   return (tag.recoveryCuts || []).map((cut) => `${fmt(cut.quantity)}× ${cut.sourceLength} ft → ${cut.outputs.join(' + ')} ft`).join('; ');
 }
@@ -157,18 +193,18 @@ function allocateSourceLoads(requested) {
 }
 
 function completedHeader() {
-  return `<thead><tr><th>Completed</th><th>Supplier</th><th>Marking</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
+  return `<thead><tr><th>Completed</th><th>Supplier</th><th>Marking</th><th>Material / quality</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
 }
 function tagHeader() {
-  return `<thead><tr><th>TAG</th><th>ORDER #</th><th>PRODUCT / MO #</th><th>DATE</th><th>QUALITY</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
+  return `<thead><tr><th>TAG</th><th>ORDER #</th><th>PRODUCT / MO #</th><th>DATE</th><th>MATERIAL / QUALITY</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
 }
 
 function renderCompleted() {
   const records = completed();
   $('emptyCompleted').hidden = records.length > 0;
   const totals = sumQuantities(records);
-  const rows = records.map((record) => `<tr><td><b>${esc(record.completedDate)}</b><small>Kiln Load ${record.loadNumber}</small></td><td>${esc(record.supplier)}</td><td>${esc(record.marking)}</td>${LENGTHS.map((l) => `<td>${record.quantities?.[l] ? fmt(record.quantities[l]) : ''}</td>`).join('')}<td><b>${fmt(record.boards)}</b></td><td>${fmt(record.bf, 1)}</td><td><button class="danger small-action delete-completed" type="button" data-id="${esc(record.id)}">Delete</button></td></tr>`).join('');
-  const footer = `<tfoot><tr><th colspan="3">TOTAL PROCESSED</th>${LENGTHS.map((l) => `<th>${totals[l] ? fmt(totals[l]) : ''}</th>`).join('')}<th>${fmt(totalBoards(totals))}</th><th>${fmt(records.reduce((sum, record) => sum + Number(record.bf || 0), 0), 1)}</th><th></th></tr></tfoot>`;
+  const rows = records.map((record) => `<tr><td><b>${esc(record.completedDate)}</b><small>Kiln Load ${record.loadNumber}</small></td><td>${esc(record.supplier)}</td><td>${esc(record.marking)}</td><td class="quality-lot-summary">${recordQualitySummary(record)}</td>${LENGTHS.map((l) => `<td>${record.quantities?.[l] ? fmt(record.quantities[l]) : ''}</td>`).join('')}<td><b>${fmt(record.boards)}</b></td><td>${fmt(record.bf, 1)}</td><td><button class="danger small-action delete-completed" type="button" data-id="${esc(record.id)}">Delete</button></td></tr>`).join('');
+  const footer = `<tfoot><tr><th colspan="4">TOTAL PROCESSED</th>${LENGTHS.map((l) => `<th>${totals[l] ? fmt(totals[l]) : ''}</th>`).join('')}<th>${fmt(totalBoards(totals))}</th><th>${fmt(records.reduce((sum, record) => sum + Number(record.bf || 0), 0), 1)}</th><th></th></tr></tfoot>`;
   $('completedTable').innerHTML = `${completedHeader()}<tbody>${rows}</tbody>${footer}`;
   const order = activeOrder();
   const received = totalBoards(order?.inventory || {});
@@ -195,7 +231,7 @@ function renderWarehouseTags() {
     <td><input data-field="orderNumber" data-row="${rowIndex}" value="${esc(tag.orderNumber)}" placeholder="ORDER #"></td>
     <td><input data-field="productMo" data-row="${rowIndex}" value="${esc(tag.productMo)}" placeholder="PRODUCT / MO #"></td>
     <td><input type="date" data-field="date" data-row="${rowIndex}" value="${esc(tag.date)}"></td>
-    <td><b>${esc(qualityLabel(tag.quality))}</b>${tag.defectNote ? `<small>${esc(tag.defectNote)}</small>` : ''}</td>
+    <td><b>${esc(tag.material || 'Unclassified material')}</b><small>${esc(qualityLabel(tag.quality))}</small>${tag.defectNote ? `<small>${esc(tag.defectNote)}</small>` : ''}</td>
     ${LENGTHS.map((length) => `<td><input class="matrix-qty" type="number" readonly aria-label="${length} ft finished quantity" value="${Number(tag.quantities?.[length] || 0) || ''}"></td>`).join('')}
     <td><b>${fmt(totalBoards(tag.quantities))}</b></td><td>${fmt(tagBf(tag), 1)}</td><td><button class="danger small-action delete-yard-tag" type="button" data-id="${esc(tag.id)}">Delete</button></td></tr>`).join('');
   const availableRow = `<tfoot><tr><th colspan="5">UNTAGGED PROCESSED INVENTORY</th>${LENGTHS.map((length) => `<th>${available[length] ? fmt(available[length]) : ''}</th>`).join('')}<th>${fmt(totalBoards(available))}</th><th>—</th><th></th></tr></tfoot>`;
@@ -278,13 +314,19 @@ function openYardBuilder() {
   const available = availableForYard();
   const source = completed().at(-1) || {};
   const order = activeOrder();
+  const qualityLots = completedQualityLots();
+  const materialNames = [...new Set(qualityLots.map((lot) => String(lot.material || '').trim()).filter(Boolean))];
   $('yardTag').value = '';
   $('yardOrder').value = order?.number || '';
   $('yardProduct').value = source.marking || '';
   $('yardDate').value = new Date().toISOString().slice(0, 10);
-  $('yardQuality').value = 'grade-1';
+  $('yardMaterial').innerHTML = materialNames.length
+    ? materialNames.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join('')
+    : '<option value="Unclassified material">Unclassified material</option>';
+  $('yardQuality').value = qualityLots[0]?.quality || 'unclassified';
   $('yardDefectNote').value = '';
-  $('yardAvailableSource').innerHTML = LENGTHS.filter((length) => available[length]).map((length) => `<span><b>${length} ft</b>${fmt(available[length])} finished boards</span>`).join('');
+  const lotReference = qualityLots.map((lot) => `<span><b>${fmt(lot.quantity)} × ${fmt(lot.length)} ft</b>${esc(lot.material || 'Unclassified material')} · ${esc(qualityLabel(lot.quality))}</span>`).join('');
+  $('yardAvailableSource').innerHTML = `${LENGTHS.filter((length) => available[length]).map((length) => `<span><b>${length} ft</b>${fmt(available[length])} finished boards</span>`).join('')}${lotReference ? `<div class="yard-quality-reference"><strong>Planned material / quality lots</strong>${lotReference}</div>` : ''}`;
   $('yardBuilderRows').innerHTML = LENGTHS.map((length) => `<tr><td><b>${length} ft</b></td><td>${fmt(available[length])}</td><td><input class="yard-build-qty" type="number" min="0" max="${available[length]}" data-length="${length}" value=""></td></tr>`).join('');
   $('yardDialogStatus').className = 'calculation-status idle';
   $('yardDialogStatus').textContent = totalBoards(available) ? `${fmt(totalBoards(available))} processed boards are available for YARD allocation.` : 'No unallocated completed boards are available.';
@@ -421,14 +463,15 @@ function createYardTag(event) {
   document.querySelectorAll('.yard-build-qty').forEach((input) => { directQuantities[input.dataset.length] = Math.max(0, Math.floor(Number(input.value) || 0)); });
   const quantities = { ...directQuantities };
   const tagValue = $('yardTag').value.trim();
-  const missingFields = !tagValue || !$('yardOrder').value.trim() || !$('yardProduct').value.trim() || !$('yardDate').value;
+  const selectedMaterial = $('yardMaterial').value.trim();
+  const missingFields = !tagValue || !$('yardOrder').value.trim() || !$('yardProduct').value.trim() || !$('yardDate').value || !selectedMaterial;
   const duplicateTag = warehouseTags().some((tag) => String(tag.tag || '').trim().toLowerCase() === tagValue.toLowerCase());
   const selectedLengths = LENGTHS.filter((length) => quantities[length] > 0);
   const invalid = LENGTHS.filter((length) => quantities[length] > available[length]);
   if (missingFields || duplicateTag || invalid.length || selectedLengths.length !== 1) {
     $('yardDialogStatus').className = 'calculation-status pending';
     $('yardDialogStatus').textContent = missingFields
-      ? 'Complete TAG, ORDER #, PRODUCT / MO # and DATE.'
+      ? 'Complete TAG, ORDER #, PRODUCT / MO #, DATE and MATERIAL.'
       : duplicateTag
         ? 'This TAG already exists. Enter a unique TAG.'
         : invalid.length
@@ -450,6 +493,7 @@ function createYardTag(event) {
     supplier: source.supplier || '',
     marking: source.marking || '',
     size: source.size || '',
+    material: selectedMaterial,
     quality: $('yardQuality').value,
     defectNote: $('yardDefectNote').value.trim(),
     directQuantities: quantities,
@@ -471,7 +515,7 @@ function createYardTag(event) {
 function renderShippingSelection() {
   const sentTagIds = new Set(currentShipments().flatMap((shipment) => shipment.tagIds || []));
   const tags = currentTags();
-  $('shippingTagSelection').innerHTML = tags.length ? tags.map((tag, index) => `<label class="tag-option ${sentTagIds.has(tag.id) ? 'is-shipped' : ''}"><input type="checkbox" value="${esc(tag.id)}" ${sentTagIds.has(tag.id) ? 'disabled' : ''}><span><b>${esc(tag.tag || `Untagged row ${index + 1}`)}</b><small>${fmt(totalBoards(tag.quantities))} PCS · ${fmt(tagBf(tag), 1)} BFM · ${esc(tag.productMo || 'No product/MO')}</small></span></label>`).join('') : '<div class="empty-state">Create YARD TAGs before forming a shipping order.</div>';
+  $('shippingTagSelection').innerHTML = tags.length ? tags.map((tag, index) => `<label class="tag-option ${sentTagIds.has(tag.id) ? 'is-shipped' : ''}"><input type="checkbox" value="${esc(tag.id)}" ${sentTagIds.has(tag.id) ? 'disabled' : ''}><span><b>${esc(tag.tag || `Untagged row ${index + 1}`)}</b><small>${fmt(totalBoards(tag.quantities))} PCS · ${fmt(tagBf(tag), 1)} BFM · ${esc(tag.productMo || 'No product/MO')}</small><small>${esc(tag.material || 'Unclassified material')} · ${esc(qualityLabel(tag.quality))}</small></span></label>`).join('') : '<div class="empty-state">Create YARD TAGs before forming a shipping order.</div>';
   $('shipmentHistory').innerHTML = currentShipments().map((shipment) => {
     const tagNames = (shipment.tagIds || []).map((id) => tags.find((tag) => tag.id === id)?.tag || id);
     return `<article><b>${esc(shipment.orderNumber)}</b><span>${esc(shipment.date)}</span><span>${tagNames.map(esc).join(', ')}</span><span>${fmt(shipment.boards)} PCS · ${fmt(shipment.bf, 1)} BFM</span><button class="danger small-action delete-shipment" type="button" data-id="${esc(shipment.id)}">Delete</button></article>`;
@@ -545,9 +589,9 @@ function renderOrderArchive() {
     const tags = record.tags || [];
     const shipmentRows = record.shipments || [];
     const quantities = rows.filter((row) => row.incoming || row.processed || row.shipped).map((row) => `<tr><td>${fmt(row.length)} ft</td><td>${fmt(row.incoming)}</td><td>${fmt(row.processed)}</td><td>${fmt(row.finished)}</td><td>${fmt(row.shipped)}</td><td>${fmt(row.unprocessed)}</td></tr>`).join('');
-    const tagRows = tags.map((tag) => `<tr><td>${esc(tag.tag)}</td><td>${esc(tag.productMo)}</td><td>${esc(tag.date)}</td><td>${esc(qualityLabel(tag.quality))}</td><td>${Object.entries(tag.quantities || {}).filter(([, quantity]) => Number(quantity) > 0).map(([length, quantity]) => `${fmt(quantity)} × ${esc(length)} ft`).join(', ')}</td><td>${fmt(totalBoards(tag.quantities))}</td><td>${fmt(tagBf(tag), 1)}</td></tr>`).join('');
+    const tagRows = tags.map((tag) => `<tr><td>${esc(tag.tag)}</td><td>${esc(tag.productMo)}</td><td>${esc(tag.date)}</td><td><b>${esc(tag.material || 'Unclassified material')}</b><small>${esc(qualityLabel(tag.quality))}</small></td><td>${Object.entries(tag.quantities || {}).filter(([, quantity]) => Number(quantity) > 0).map(([length, quantity]) => `${fmt(quantity)} × ${esc(length)} ft`).join(', ')}</td><td>${fmt(totalBoards(tag.quantities))}</td><td>${fmt(tagBf(tag), 1)}</td></tr>`).join('');
     const shipmentDetails = shipmentRows.map((shipment) => { const names = (shipment.tagIds || []).map((id) => tags.find((tag) => tag.id === id)?.tag || id); return `<tr><td>${esc(shipment.orderNumber)}</td><td>${esc(shipment.date)}</td><td>${names.map(esc).join(', ')}</td><td>${fmt(shipment.boards)}</td><td>${fmt(shipment.bf, 1)}</td></tr>`; }).join('');
-    return `<details class="archived-order"><summary><b>${esc(record.number)}</b><span>${esc(record.completedAt.slice(0,10))}</span><span>${fmt(record.received)} received · ${fmt(record.shipped)} shipped</span><span>${fmt(tags.length)} TAGs · ${fmt(shipmentRows.length)} shipments</span></summary><div class="archive-content"><p><b>Supplier:</b> ${esc(record.supplier || '—')} · <b>Final process date:</b> ${esc(record.finalProcessDate || '—')} · <b>Removed footage:</b> ${fmt(record.removedFt)} ft</p><table class="archive-table"><thead><tr><th>Length</th><th>Received</th><th>Kiln processed</th><th>Finished</th><th>Shipped</th><th>Unprocessed</th></tr></thead><tbody>${quantities}</tbody></table><h4>YARD TAGs</h4><table class="archive-table"><thead><tr><th>TAG</th><th>Product / MO</th><th>Date</th><th>Quality</th><th>Contents</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${tagRows || '<tr><td colspan="7">No TAG records</td></tr>'}</tbody></table><h4>Shipping orders</h4><table class="archive-table"><thead><tr><th>Shipping #</th><th>Date</th><th>TAGs</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${shipmentDetails || '<tr><td colspan="5">No Shipping records</td></tr>'}</tbody></table><p><b>Saved kiln programs:</b> ${fmt(Object.keys(record.dryingPrograms || {}).length)} Drying · ${fmt(Object.keys(record.thermoPrograms || {}).length)} Thermo Vacuum.</p></div></details>`;
+    return `<details class="archived-order"><summary><b>${esc(record.number)}</b><span>${esc(record.completedAt.slice(0,10))}</span><span>${fmt(record.received)} received · ${fmt(record.shipped)} shipped</span><span>${fmt(tags.length)} TAGs · ${fmt(shipmentRows.length)} shipments</span></summary><div class="archive-content"><p><b>Supplier:</b> ${esc(record.supplier || '—')} · <b>Final process date:</b> ${esc(record.finalProcessDate || '—')} · <b>Removed footage:</b> ${fmt(record.removedFt)} ft</p><table class="archive-table"><thead><tr><th>Length</th><th>Received</th><th>Kiln processed</th><th>Finished</th><th>Shipped</th><th>Unprocessed</th></tr></thead><tbody>${quantities}</tbody></table><h4>YARD TAGs</h4><table class="archive-table"><thead><tr><th>TAG</th><th>Product / MO</th><th>Date</th><th>Material / quality</th><th>Contents</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${tagRows || '<tr><td colspan="7">No TAG records</td></tr>'}</tbody></table><h4>Shipping orders</h4><table class="archive-table"><thead><tr><th>Shipping #</th><th>Date</th><th>TAGs</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${shipmentDetails || '<tr><td colspan="5">No Shipping records</td></tr>'}</tbody></table><p><b>Saved kiln programs:</b> ${fmt(Object.keys(record.dryingPrograms || {}).length)} Drying · ${fmt(Object.keys(record.thermoPrograms || {}).length)} Thermo Vacuum.</p></div></details>`;
   }).join('') : '<div class="empty-state">No completed orders yet.</div>';
 }
 

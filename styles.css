@@ -1299,12 +1299,49 @@ th {
   color: var(--green);
   font-size: 12px;
 }
+.material-composition > span small {
+  display: block;
+  margin: 2px 0 4px;
+  color: var(--muted);
+  font-weight: 500;
+  line-height: 1.25;
+}
 .material-composition .material-split-open {
   padding: 5px 9px;
   font-size: 11px;
 }
 .material-composition .material-empty { color: var(--muted); }
 .material-split-dialog { width: min(760px, calc(100vw - 32px)); }
+.quality-allocation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+.quality-allocation-grid section {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8faf8;
+}
+.quality-allocation-grid h3 { margin: 0 0 10px; color: var(--green); }
+.quality-allocation-grid p {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--pale);
+}
+.quality-allocation-grid p b { font-size: 22px; }
+.quality-allocation-grid p span { color: var(--muted); font-size: 12px; }
+.quality-allocation-grid label { display: grid; grid-template-columns: 1fr 90px; align-items: center; gap: 8px; margin-top: 7px; }
+.quality-allocation-grid input { min-width: 0; padding: 7px; }
+@media (max-width: 700px) {
+  .quality-allocation-grid { grid-template-columns: 1fr; }
+  .material-breakdown { grid-template-columns: 1fr; gap: 5px; }
+}
 .material-breakdown {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -1320,6 +1357,35 @@ th {
 .material-breakdown span,
 .material-breakdown small { color: var(--muted); }
 .material-breakdown strong { color: var(--green); }
+.quality-lot-summary span {
+  display: block;
+  min-width: 150px;
+  margin-bottom: 5px;
+}
+.quality-lot-summary small,
+#warehouseTagTable td > small,
+.archive-table td > small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.yard-quality-reference {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.yard-quality-reference > strong { grid-column: 1 / -1; color: var(--green); }
+.yard-quality-reference span {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f7fbf8;
+}
+.yard-quality-reference span b { display: block; }
 @media print {
   #addFromRemainder,
   .remainder-transfer-dialog,

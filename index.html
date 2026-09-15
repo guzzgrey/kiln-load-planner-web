@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
-    <link rel="stylesheet" href="styles.css?v=material-split-v9" />
+    <link rel="stylesheet" href="styles.css?v=material-quality-v10" />
   </head>
   <body>
     <main class="wrap">
@@ -400,7 +400,23 @@
           <label>Additional material<input id="secondaryMaterialName" required placeholder="Hemlock"></label>
           <label>Additional material quantity<input id="secondaryMaterialQuantity" type="number" min="0" step="1" required></label>
         </div>
-        <p class="note">The total board quantity and kiln calculation do not change. The additional material is assigned to complete rows first; the balance remains the primary material.</p>
+        <div class="quality-allocation-grid">
+          <section>
+            <h3 id="primaryQualityTitle">Primary material quality</h3>
+            <p><b id="primaryGoodQuantity">0</b><span>No.1 / good (calculated)</span></p>
+            <label>Crooked / bowed<input id="primaryCrookedQuantity" type="number" min="0" step="1" value="0"></label>
+            <label>Cracked<input id="primaryCrackedQuantity" type="number" min="0" step="1" value="0"></label>
+            <label>Large or damaged knots<input id="primaryKnotsQuantity" type="number" min="0" step="1" value="0"></label>
+          </section>
+          <section>
+            <h3 id="secondaryQualityTitle">Additional material quality</h3>
+            <p><b id="secondaryGoodQuantity">0</b><span>No.1 / good (calculated)</span></p>
+            <label>Crooked / bowed<input id="secondaryCrookedQuantity" type="number" min="0" step="1" value="0"></label>
+            <label>Cracked<input id="secondaryCrackedQuantity" type="number" min="0" step="1" value="0"></label>
+            <label>Large or damaged knots<input id="secondaryKnotsQuantity" type="number" min="0" step="1" value="0"></label>
+          </section>
+        </div>
+        <p class="note">Quality categories are exclusive: count each board once under its main sorting result. No.1 / good is calculated automatically. Total physical quantity and kiln optimization do not change.</p>
         <div id="materialSplitStatus" class="calculation-status idle"></div>
         <div class="dialog-actions">
           <button id="removeMaterialSplit" class="secondary" type="button">Remove split</button>
@@ -469,6 +485,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=material-split-v18"></script>
+    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=material-quality-v19"></script>
   </body>
 </html>

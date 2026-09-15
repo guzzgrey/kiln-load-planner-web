@@ -812,6 +812,11 @@ th {
 .stacking-details > summary span { display:grid; gap:2px; }
 .stacking-details > summary small { color:var(--muted); font-weight:500; }
 .stacking-details > summary strong { padding:4px 9px; border-radius:999px; background:var(--pale); color:var(--green); font-size:11px; white-space:nowrap; }
+.bulk-row-form { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(280px,1.5fr); align-items:end; gap:10px; padding:10px 12px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:#f5faf7; }
+.bulk-row-form label { display:grid; gap:4px; color:var(--green); font-size:11px; font-weight:900; }
+.bulk-row-form input { min-height:36px; padding:7px 10px; }
+.bulk-row-form button { min-height:36px; padding:7px 12px; white-space:nowrap; }
+.bulk-row-form > small { align-self:center; color:var(--muted); font-size:10px; }
 .stacking-schedule { display:grid; gap:10px; padding:10px; border-top:1px solid var(--line); }
 .stacking-lift { overflow:hidden; border:1px solid var(--line); border-radius:9px; background:#fff; }
 .stacking-lift > header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; background:#e8f2ed; }
@@ -1151,6 +1156,8 @@ th {
   .stacking-lift > header .stacking-lift-actions { flex-wrap:wrap; }
   .inline-fill-panel { grid-template-columns:1fr 1fr; }
   .inline-fill-panel > small { grid-column:1 / -1; }
+  .bulk-row-form { grid-template-columns:1fr auto; }
+  .bulk-row-form > small { grid-column:1 / -1; }
 }
 
 @media print {
@@ -1161,6 +1168,7 @@ th {
   .manual-plan-actions,
   .manual-fill-dialog,
   .inline-add-toggle,
+  .bulk-row-form,
   .inline-fill-panel,
   .inline-row-remove,
   .inline-auto-remove,

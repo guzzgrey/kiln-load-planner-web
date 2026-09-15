@@ -3204,6 +3204,7 @@ function calculate(allowOptimization = false) {
     const options = compatible.map(([length, quantity]) => `<option value="${length}">${length} ft · ${quantity} remaining</option>`).join('');
     return `<section class="stacking-lift" data-lift="${liftIndex}"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state)} ft maximum</b></div><div class="stacking-lift-actions"><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span>${stackingEditable ? `<button class="inline-add-toggle secondary" type="button" data-lift="${liftIndex}" ${canAdd ? '' : 'disabled'}>+ Add boards</button>` : ''}</div></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div>${stackingEditable ? `<form class="inline-fill-panel" data-lift="${liftIndex}" hidden><label>Length<select class="inline-fill-length">${options}</select></label><label>Quantity<input class="inline-fill-quantity" type="number" min="1" max="${geometry.across}" step="1" value="1"></label><button type="submit" ${canAdd ? '' : 'disabled'}>Add to lift</button><small>Replans all unstarted cycles; completed and started cycles stay fixed.</small></form>` : ''}</section>`;
   }).join('');
+  const bulkRowForm = stackingEditable ? `<form class="bulk-row-form"><label>Bulk manual rows<input class="bulk-row-input" type="text" placeholder="5x8, 4x10" aria-label="Bulk rows: row count by board length"></label><button type="submit">Add row blocks</button><small>Format: <b>rows × length</b>. Example: 5x8, 4x10. Full-width rows are distributed between compatible lifts.</small></form>` : '';
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
       <span class="pill ${efficientCycle ? 'good' : 'warn'}">${efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — ADD MATERIAL'}</span>
@@ -3212,7 +3213,7 @@ function calculate(allowOptimization = false) {
       <span><b>${fmt(plannedBoards)}</b> boards scheduled</span>
     </div>
     ${requiredFillLabel === 'none' ? '' : `<div class="fill-warning"><b>Material required to complete selected lifts:</b> ${requiredFillLabel}</div>`}
-    <details class="technical-details stacking-details"><summary><span><b>Exact row-by-row stacking sequence</b><small>Each numbered tile is one physical row from bottom to top</small></span><strong>${activeStates.length} lift${activeStates.length === 1 ? '' : 's'}</strong></summary><div class="stacking-schedule">${rowSchedule}</div></details>
+    <details class="technical-details stacking-details"><summary><span><b>Exact row-by-row stacking sequence</b><small>Each numbered tile is one physical row from bottom to top</small></span><strong>${activeStates.length} lift${activeStates.length === 1 ? '' : 's'}</strong></summary>${bulkRowForm}<div class="stacking-schedule">${rowSchedule}</div></details>
   `;
   bindInlineStackingEditor();
   const refreshedStackingDetails = $('productionNeed').querySelector('.stacking-details');
@@ -3445,6 +3446,69 @@ function addManualBoardsToLift(loadNumber, liftIndex, length, quantity) {
   rebuildAfterOperatorEdit(previousPlans);
 }
 
+function parseBulkRowRequest(value) {
+  const source = String(value || '').trim();
+  const pattern = /(\d+)\s*(?:x|×|х|rows?\s*(?:of|x)?|ряд(?:а|ов)?\s*по)\s*(\d+)/giu;
+  const entries = [...source.matchAll(pattern)].map((match) => ({
+    rows: Math.floor(Number(match[1])),
+    length: Math.floor(Number(match[2])),
+  }));
+  if (!entries.length || entries.some((entry) => entry.rows < 1 || entry.rows > 200 || entry.length < MIN_BOARD_LENGTH || entry.length > MAX_BOARD_LENGTH)) {
+    throw new Error('Use format “5x8, 4x10” (row count × board length).');
+  }
+  return entries;
+}
+
+function addBulkRowsToCycle(loadNumber, request) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const geometry = computeGeometry();
+  const entries = parseBulkRowRequest(request);
+  const available = editableStockForLoad(loadNumber);
+  const required = new Map();
+  entries.forEach(({ rows, length }) => required.set(length, Number(required.get(length) || 0) + rows * geometry.across));
+  const shortage = [...required].filter(([length, quantity]) => quantity > Number(available.get(length) || 0));
+  if (shortage.length) {
+    throw new Error(`Not enough boards: ${shortage.map(([length, quantity]) => `${quantity} required at ${length} ft, ${Number(available.get(length) || 0)} available`).join('; ')}.`);
+  }
+
+  const simulatedRows = (plan.activeStates || []).map(effectiveLiftRows);
+  const placements = [];
+  const requests = entries.flatMap(({ rows, length }) => Array.from({ length: rows }, () => length)).sort((left, right) => right - left);
+  requests.forEach((length) => {
+    const candidates = (plan.activeStates || []).map((state, index) => ({
+      index,
+      liftLength: occupiedLiftLength(state),
+      capacity: Number(state.rowCapacity || liftGeometry(state, index, geometry, loadNumber).rows),
+    })).filter((candidate) => candidate.liftLength >= length && simulatedRows[candidate.index] < candidate.capacity)
+      .sort((left, right) => left.liftLength - right.liftLength || simulatedRows[left.index] - simulatedRows[right.index]);
+    if (!candidates.length) throw new Error(`No compatible row space remains for ${length} ft boards in this cycle.`);
+    placements.push({ liftIndex: candidates[0].index, length });
+    simulatedRows[candidates[0].index] += 1;
+  });
+
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  placements.forEach(({ liftIndex, length }, index) => {
+    const state = plan.activeStates[liftIndex];
+    const row = {
+      id: `bulk-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+      length,
+      quantity: geometry.across,
+      addedAt: new Date().toISOString(),
+      bulk: true,
+    };
+    state.manualRows = (state.manualRows || []).map((item) => ({ ...item }));
+    state.manualRows.push(row);
+    state.stackingOrder = normalizedStackingOrder(state);
+    state.operatorAdjusted = true;
+  });
+  rebuildAfterOperatorEdit(previousPlans);
+  const summary = entries.map(({ rows, length }) => `${rows}×${length} ft`).join(' · ');
+  $('calculationStatus').className = 'calculation-status ready';
+  $('calculationStatus').textContent = `Bulk manual rows added to Kiln Load ${loadNumber}: ${summary}. Future unstarted cycles were recalculated.`;
+}
+
 function changeManualRowQuantity(loadNumber, liftIndex, rowId, quantity) {
   const plan = globalOrderPlans[loadNumber - 1];
   if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
@@ -3566,6 +3630,11 @@ function showInlineEditorError(error) {
 function bindInlineStackingEditor() {
   const container = $('productionNeed');
   let dragged = null;
+  container.querySelector('.bulk-row-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    try { addBulkRowsToCycle(currentLoadNumber, event.currentTarget.querySelector('.bulk-row-input').value); }
+    catch (error) { showInlineEditorError(error); }
+  });
   container.querySelectorAll('.stacking-row[draggable="true"]').forEach((row) => {
     row.addEventListener('dragstart', (event) => {
       dragged = { liftIndex: Number(row.dataset.lift), token: row.dataset.token };

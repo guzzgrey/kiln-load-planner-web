@@ -3365,7 +3365,7 @@ function calculate(allowOptimization = false) {
   renderLoadNavigation();
 }
 
-function rebuildAfterOperatorEdit(previousPlans) {
+function rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture = true } = {}) {
   const geometry = computeGeometry();
   const stackingDetails = $('productionNeed')?.querySelector('.stacking-details');
   const anchorTop = stackingDetails?.open ? stackingDetails.getBoundingClientRect().top : null;
@@ -3377,7 +3377,16 @@ function rebuildAfterOperatorEdit(previousPlans) {
       const usedMap = completedUsedMap.size ? completedUsedMap : usedMapForStates(activeStates, geometry);
       return { ...plan, states: activeStates, activeStates, usedMap, completedUsedMap };
     });
-    calculate(true);
+    if (reoptimizeFuture) {
+      calculate(true);
+    } else {
+      const physicalKilnLength = Math.floor(num('kiln'));
+      const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
+      const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
+      globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), geometry, kilnLength).map(restorePlanTypes);
+      globalOrderSignature = orderSignature(readInventory(), geometry, kilnLength, Math.floor(num('maxStack')), Math.floor(Number($('metalBox').value)));
+      calculate(false);
+    }
     if (anchorTop !== null) {
       const refreshed = $('productionNeed')?.querySelector('.stacking-details');
       const offset = refreshed ? refreshed.getBoundingClientRect().top - anchorTop : 0;
@@ -3450,9 +3459,10 @@ function changeManualRowQuantity(loadNumber, liftIndex, rowId, quantity) {
     throw new Error(`Enter 1–${Math.min(geometry.across, totalAvailable)} boards.`);
   }
   const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  const previousQuantity = Number(row.quantity || 0);
   row.quantity = nextQuantity;
   state.operatorAdjusted = true;
-  rebuildAfterOperatorEdit(previousPlans);
+  rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture: nextQuantity > previousQuantity });
 }
 
 function removeManualRowById(loadNumber, liftIndex, rowId) {
@@ -3466,7 +3476,7 @@ function removeManualRowById(loadNumber, liftIndex, rowId) {
   state.manualRows.splice(rowIndex, 1);
   state.stackingOrder = normalizedStackingOrder(state);
   state.operatorAdjusted = true;
-  rebuildAfterOperatorEdit(previousPlans);
+  rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture: false });
 }
 
 function removeAutomaticRow(loadNumber, liftIndex, autoIndex) {
@@ -3486,7 +3496,7 @@ function removeAutomaticRow(loadNumber, liftIndex, autoIndex) {
     return [`auto:${oldIndex > index ? oldIndex - 1 : oldIndex}`];
   });
   state.operatorAdjusted = true;
-  rebuildAfterOperatorEdit(previousPlans);
+  rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture: false });
 }
 
 function parseRowPattern(value) {
@@ -3544,7 +3554,7 @@ function reorderStackingRows(loadNumber, liftIndex, sourceToken, targetToken) {
   order.splice(to, 0, order.splice(from, 1)[0]);
   state.stackingOrder = order;
   state.operatorAdjusted = true;
-  rebuildAfterOperatorEdit(previousPlans);
+  rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture: false });
 }
 
 function showInlineEditorError(error) {

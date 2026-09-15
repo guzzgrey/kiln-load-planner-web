@@ -149,7 +149,7 @@ async function createOrder() {
   window.location.reload();
 }
 function inputSnapshot() {
-  const ids = ['supplier','supplierClearance','species','size','customT','customW','batchProfile','kiln','height','maxStack','metalBox','actualT','actualW','liftWidth','sticker','topSticker'];
+  const ids = ['supplier','supplierClearance','species','size','customT','customW','batchProfile','kiln','height','maxStack','metalBox','actualT','actualW','liftWidth','sticker','topSticker','acrossMode','across'];
   return Object.fromEntries(ids.map((id) => [id, $(id).value]));
 }
 function inventorySnapshot() { return Object.fromEntries([...readInventory()]); }
@@ -1261,6 +1261,17 @@ function applyRemainderTransfer(event) {
   $('orderSaveState').textContent = 'Remainder transferred, saved and synchronized';
 }
 
+function syncAcrossControl() {
+  const actualW = num('actualW');
+  const liftWidth = num('liftWidth');
+  const physicalAcross = actualW > 0 ? Math.floor(liftWidth / actualW) : 0;
+  const manual = $('acrossMode').value === 'manual';
+  $('across').readOnly = !manual;
+  $('across').max = String(Math.max(1, physicalAcross));
+  if (!manual) $('across').value = String(physicalAcross);
+  return { manual, physicalAcross };
+}
+
 function computeGeometry() {
   const height = num('height');
   const actualT = num('actualT');
@@ -1268,9 +1279,10 @@ function computeGeometry() {
   const liftWidth = num('liftWidth');
   const sticker = num('sticker');
   const topSticker = Number($('topSticker').value);
-  const across = actualW > 0 ? Math.floor(liftWidth / actualW) : 0;
-
-  $('across').value = across;
+  const { manual, physicalAcross } = syncAcrossControl();
+  const requestedAcross = Math.floor(Number($('across').value) || 0);
+  const across = manual ? Math.min(physicalAcross, Math.max(0, requestedAcross)) : physicalAcross;
+  if (manual && requestedAcross > physicalAcross) $('across').value = String(physicalAcross);
 
   let rows = 0;
   let usedHeight = 0;
@@ -1289,6 +1301,8 @@ function computeGeometry() {
     rows,
     usedHeight,
     across,
+    physicalAcross,
+    manualAcross: manual,
     usedWidth: across * actualW,
     widthWaste: Math.max(0, liftWidth - across * actualW),
     lines: rows * across,
@@ -2997,7 +3011,7 @@ function calculate(allowOptimization = false) {
   const supplier = $('supplier').value.trim() || 'Not specified';
   saveSupplierProfile();
   $('reportMeta').textContent = `Supplier: ${supplier} · Ordered size: ${materialSizeLabel()} · Physical: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))} · Kiln: ${physicalKilnLength} ft physical / ${kilnLength} ft usable`;
-  $('geometryPreview').innerHTML = `<strong>Live physical capacity:</strong> ${geometry.across} boards across × ${geometry.rows} rows high = ${geometry.lines} board positions per full lift. Physical batch: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))}.`;
+  $('geometryPreview').innerHTML = `<strong>Live physical capacity:</strong> ${geometry.across} boards across × ${geometry.rows} rows high = ${geometry.lines} board positions per full lift. Physical batch: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))}.${geometry.manualAcross ? ` Manual row limit is active; width allows no more than ${geometry.physicalAcross}.` : ''}`;
 
   const signature = orderSignature(originalStock, geometry, kilnLength, maxStack, selectedMetal);
   if (signature !== globalOrderSignature && !allowOptimization) {
@@ -4177,7 +4191,7 @@ function bindEvents() {
     window.setTimeout(() => { document.title = previousTitle; }, 500);
   });
 
-  ['supplier', 'supplierClearance', 'species', 'size', 'batchProfile', 'kiln', 'height', 'maxStack', 'metalBox', 'liftWidth', 'sticker', 'topSticker']
+  ['supplier', 'supplierClearance', 'species', 'size', 'batchProfile', 'kiln', 'height', 'maxStack', 'metalBox', 'liftWidth', 'sticker', 'topSticker', 'acrossMode']
     .forEach((id) => {
       $(id).addEventListener('input', () => { markCalculationPending(); scheduleDraftSave(); });
       $(id).addEventListener('change', () => { markCalculationPending(); scheduleDraftSave(); });
@@ -4211,9 +4225,21 @@ function bindEvents() {
   ['actualT', 'actualW'].forEach((id) => {
     $(id).addEventListener('input', () => {
       $('batchProfile').value = 'manual';
+      if (id === 'actualW') syncAcrossControl();
       markCalculationPending();
       scheduleDraftSave();
     });
+  });
+
+  $('liftWidth').addEventListener('input', syncAcrossControl);
+  $('acrossMode').addEventListener('change', () => {
+    syncAcrossControl();
+    markCalculationPending();
+    scheduleDraftSave();
+  });
+  $('across').addEventListener('input', () => {
+    markCalculationPending();
+    scheduleDraftSave();
   });
 
   ['customT', 'customW'].forEach((id) => {
@@ -4266,6 +4292,7 @@ function init() {
   buildInventoryRows();
   bindEvents();
   applyPhysicalProfile();
+  syncAcrossControl();
   // Opening or refreshing the page must be read-only. Re-saving an unchanged
   // order here creates a new cloud revision and can make two open clients
   // continuously refresh one another.

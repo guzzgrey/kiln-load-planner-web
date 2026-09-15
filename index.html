@@ -140,8 +140,15 @@
               <input id="sticker" type="number" min="0" step="0.03125" value="0.65625" />
             </div>
             <div>
+              <label>Boards-across mode</label>
+              <select id="acrossMode">
+                <option value="auto" selected>Automatic from width</option>
+                <option value="manual">Manual row limit</option>
+              </select>
+            </div>
+            <div>
               <label>Boards across each row</label>
-              <input id="across" type="number" value="8" readonly />
+              <input id="across" type="number" min="1" step="1" value="8" readonly />
             </div>
             <div>
               <label>Sticker above the top row</label>
@@ -485,6 +492,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=single-material-quality-v20"></script>
+    <script src="cloud-sync.js?v=local-test-v4" data-app="app.js?v=manual-row-width-v21"></script>
   </body>
 </html>

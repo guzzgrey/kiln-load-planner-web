@@ -3953,21 +3953,46 @@ function hailwoodHorrobinEmc(tempC, relativeHumidity) {
   return (1800 / w) * ((kh / (1 - kh)) + ((k1 * kh + 2 * k1 * k2 * kh * kh) / (1 + k1 * kh + k1 * k2 * kh * kh)));
 }
 
+const DRYING_MAX_MODEL_RH = 0.9999;
+
+function calculateDryingRow(row) {
+  const mc = Number(row.mc);
+  const mbar = Number(row.mbar);
+  const temp = Number(row.temp);
+  if (!Number.isFinite(mc) || mc < 0 || mc > 100 || !Number.isFinite(mbar) || mbar <= 0 || !Number.isFinite(temp) || temp < -20 || temp > 120) {
+    throw new Error(`${row.phase}: check MC, mBar and temperature values.`);
+  }
+  const saturationMbar = saturationVapourPressureMbar(temp);
+  const relativeHumidity = mbar / saturationMbar;
+  const modelRelativeHumidity = Math.min(relativeHumidity, DRYING_MAX_MODEL_RH);
+  const modelLimited = relativeHumidity >= 1;
+  const emc = hailwoodHorrobinEmc(temp, modelRelativeHumidity);
+  return {
+    ...row,
+    mc,
+    mbar,
+    temp,
+    emc,
+    gradient: emc > 0 ? mc / emc : 0,
+    relativeHumidity,
+    modelRelativeHumidity,
+    saturationMbar,
+    modelLimited,
+  };
+}
+
+function dryingModelWarnings(rows) {
+  return rows.filter((row) => row.modelLimited).map((row) =>
+    `${row.phase}: ${row.mbar.toFixed(1)} mBar is at or above ${row.saturationMbar.toFixed(1)} mBar saturation at ${row.temp.toFixed(1)}°C; EMC is estimated at the 99.99% RH model limit.`
+  );
+}
+
 function readAndCalculateDryingRows() {
   return [...$('dryingScenarioRows').querySelectorAll('tr')].map((row) => {
     const mc = Number(row.querySelector('.drying-mc').value);
     const mbar = Number(row.querySelector('.drying-mbar').value);
     const temp = Number(row.querySelector('.drying-temp').value);
-    if (!Number.isFinite(mc) || mc < 0 || mc > 100 || !Number.isFinite(mbar) || mbar <= 0 || !Number.isFinite(temp) || temp < -20 || temp > 120) {
-      throw new Error('Check MC, mBar and temperature values in every phase.');
-    }
-    const relativeHumidity = mbar / saturationVapourPressureMbar(temp);
-    if (relativeHumidity >= 1) throw new Error(`${row.cells[0].textContent}: mBar is at or above saturation pressure for this temperature.`);
-    const emc = hailwoodHorrobinEmc(temp, relativeHumidity);
-    const gradient = emc > 0 ? mc / emc : 0;
-    row.querySelector('.drying-emc').textContent = emc.toFixed(2);
-    row.querySelector('.drying-gradient').textContent = gradient.toFixed(2);
-    return { phase: row.cells[0].textContent, mc, mbar, temp, emc, gradient, relativeHumidity };
+    return calculateDryingRow({ phase: row.cells[0].textContent, mc, mbar, temp });
   });
 }
 
@@ -3979,8 +4004,11 @@ function calculateDryingComparison() {
     dryingCalculatedScenarioRows = scenario.map((row) => ({ ...row }));
     renderDryingCurrentRows(baseline);
     renderDryingScenarioRows(scenario, baseline);
-    $('dryingProgramStatus').className = 'calculation-status ready';
-    $('dryingProgramStatus').textContent = 'Comparison calculated but not saved. Review Δ EMC and Δ Gradient.';
+    const warnings = dryingModelWarnings(scenario);
+    $('dryingProgramStatus').className = `calculation-status ${warnings.length ? 'pending' : 'ready'}`;
+    $('dryingProgramStatus').textContent = warnings.length
+      ? `Comparison calculated with model limits; all phase gradients and differences are available. ${warnings.join(' ')}`
+      : 'Comparison calculated but not saved. Review Δ EMC and Δ Gradient.';
   } catch (error) {
     $('dryingProgramStatus').className = 'calculation-status error';
     $('dryingProgramStatus').textContent = error.message;
@@ -3988,18 +4016,7 @@ function calculateDryingComparison() {
 }
 
 function calculateDryingValues(rows) {
-  return rows.map((row) => {
-    const mc = Number(row.mc);
-    const mbar = Number(row.mbar);
-    const temp = Number(row.temp);
-    if (!Number.isFinite(mc) || mc < 0 || mc > 100 || !Number.isFinite(mbar) || mbar <= 0 || !Number.isFinite(temp) || temp < -20 || temp > 120) {
-      throw new Error(`${row.phase}: check MC, mBar and temperature values.`);
-    }
-    const relativeHumidity = mbar / saturationVapourPressureMbar(temp);
-    if (relativeHumidity >= 1) throw new Error(`${row.phase}: mBar is at or above saturation pressure for this temperature.`);
-    const emc = hailwoodHorrobinEmc(temp, relativeHumidity);
-    return { ...row, mc, mbar, temp, emc, gradient: emc > 0 ? mc / emc : 0, relativeHumidity };
-  });
+  return rows.map(calculateDryingRow);
 }
 
 function calculateAndSaveDryingProgram(event) {

@@ -3417,7 +3417,7 @@ function calculate(allowOptimization = false) {
   </form>` : '';
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
-      <span class="pill ${efficientCycle ? 'good' : 'warn'}">${efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — ADD MATERIAL'}</span>
+      <span class="pill ${isLoadCompleted(currentLoadNumber) || efficientCycle ? 'good' : 'warn'}">${isLoadCompleted(currentLoadNumber) ? 'COMPLETED — VIEW ONLY' : efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — ADD MATERIAL'}</span>
       <span><b>${plannedCycles}</b> kiln cycles</span>
       <span><b>${plannedLifts}</b> total lifts</span>
       <span><b>${fmt(plannedBoards)}</b> boards scheduled</span>
@@ -4190,7 +4190,7 @@ function renderLoadNavigation() {
     const hasDryingData = dryingPrograms.has(String(snapshot.number));
     const stateLabel = completed ? 'Processed' : inProgress ? 'In progress' : `${fmt(snapshot.remainingBoards)} remaining`;
     const hasThermoData = thermoPrograms.has(String(snapshot.number));
-    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" ${completed ? 'disabled' : ''}>${actionLabel}</button>${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
+    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" title="${completed ? 'Open completed cycle details (view only)' : inProgress ? 'Complete this kiln cycle' : 'Start this kiln cycle'}">${actionLabel}</button>${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button></div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${stateLabel}</span>`;
     if (completionCandidates.length) {
       const match = document.createElement('button');
       match.type = 'button';
@@ -4210,7 +4210,8 @@ function renderLoadNavigation() {
     }
     historyRow.querySelector('.complete-cycle').addEventListener('click', (event) => {
       event.stopPropagation();
-      if (inProgress) openCycleCompletion(snapshot.number);
+      if (completed) openSavedLoadDetails(snapshot.number);
+      else if (inProgress) openCycleCompletion(snapshot.number);
       else startKilnCycle(snapshot.number);
     });
     historyRow.querySelector('.cancel-cycle-start')?.addEventListener('click', (event) => {
@@ -4225,7 +4226,7 @@ function renderLoadNavigation() {
       event.stopPropagation();
       openThermoProgram(snapshot.number);
     });
-    historyRow.addEventListener('click', () => selectSavedLoad(snapshot.number));
+    historyRow.addEventListener('click', () => openSavedLoadDetails(snapshot.number));
     history.appendChild(historyRow);
   });
   $('previousLoad').disabled = !loadRecords.has(currentLoadNumber - 1);
@@ -4508,20 +4509,24 @@ function saveCompletedCycle(event) {
   renderLoadNavigation();
 }
 
-function selectSavedLoad(loadNumber) {
+function selectSavedLoad(loadNumber, { scrollToDetails = false } = {}) {
   const snapshot = loadRecords.get(loadNumber);
-  if (!snapshot || loadNumber === currentLoadNumber) return;
+  if (!snapshot) return false;
+  if (loadNumber === currentLoadNumber) {
+    if (scrollToDetails) document.querySelector('.load-plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
+  }
   if (calculationDirty) {
     const status = $('calculationStatus');
     status.className = 'calculation-status pending';
     status.textContent = 'Inputs changed — click Calculate Load before opening another saved kiln load.';
-    return;
+    return false;
   }
   if (!globalOrderPlans.length || !globalOrderSignature) {
     const status = $('calculationStatus');
     status.className = 'calculation-status pending';
     status.textContent = 'This older saved result has no reusable plan data. Click Calculate Load once to save the complete plan.';
-    return;
+    return false;
   }
   const scrollPosition = window.scrollY;
   currentLoadNumber = loadNumber;
@@ -4533,9 +4538,17 @@ function selectSavedLoad(loadNumber) {
     const status = $('calculationStatus');
     status.className = 'calculation-status pending';
     status.textContent = 'The saved plan does not match the current inputs. Click Recalculate Load explicitly to replace it.';
-    return;
+    return false;
   }
-  requestAnimationFrame(() => window.scrollTo({ top: scrollPosition, behavior: 'auto' }));
+  requestAnimationFrame(() => {
+    if (scrollToDetails) document.querySelector('.load-plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else window.scrollTo({ top: scrollPosition, behavior: 'auto' });
+  });
+  return true;
+}
+
+function openSavedLoadDetails(loadNumber) {
+  return selectSavedLoad(Number(loadNumber), { scrollToDetails: true });
 }
 
 function loadRemainingInventory() {

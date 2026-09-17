@@ -3,6 +3,7 @@ const COMPLETED_KEY = 'kiln-planner-completed-cycles-v1';
 const TAGS_KEY = 'kiln-planner-shipping-tags-v1';
 const SHIPMENTS_KEY = 'kiln-planner-shipments-v1';
 const RECOVERY_KEY = 'kiln-planner-recovery-operations-v1';
+const TEST_BOARDS_KEY = 'kiln-planner-test-boards-v1';
 const FINAL_DATE_KEY = 'kiln-planner-final-process-date-v1';
 const ACTIVE_ORDER_KEY = 'kiln-planner-active-order-v1';
 const ORDER_ARCHIVE_KEY = 'kiln-planner-order-archive-v1';
@@ -42,6 +43,8 @@ function warehouseTags() {
 function shipments() { return read(SHIPMENTS_KEY); }
 function recoveryOperations() { return read(RECOVERY_KEY); }
 function currentRecoveries() { const order = activeOrder(); return recoveryOperations().filter((item) => belongsToOrder(item, order)); }
+function testBoardRecords() { return read(TEST_BOARDS_KEY); }
+function currentTests() { const order = activeOrder(); return testBoardRecords().filter((item) => belongsToOrder(item, order)); }
 function currentTags() { const order = activeOrder(); const sourceIds = new Set(completed().map((item) => item.id)); return warehouseTags().filter((tag) => belongsToOrder(tag, order) || (tag.sourceLoads || []).some((source) => sourceIds.has(source.id))); }
 function currentShipments() { const order = activeOrder(); const tagIds = new Set(currentTags().map((tag) => tag.id)); return shipments().filter((item) => belongsToOrder(item, order) || (item.tagIds || []).some((id) => tagIds.has(id))); }
 function sumQuantities(records) {
@@ -159,8 +162,9 @@ function adjustedProcessedInventory(records = currentRecoveries()) {
 
 function availableForYard() {
   const processed = adjustedProcessedInventory();
-  const consumed = sumQuantities(currentTags());
-  return Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processed[length] - consumed[length])]));
+  const tagged = sumQuantities(currentTags());
+  const tested = sumQuantities(currentTests());
+  return Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processed[length] - tagged[length] - tested[length])]));
 }
 
 function sumSourceQuantities(records) {
@@ -170,7 +174,7 @@ function sumSourceQuantities(records) {
 }
 
 function allocateSourceLoads(requested) {
-  const priorTagged = sumSourceQuantities(currentTags());
+  const priorTagged = sumSourceQuantities([...currentTags(), ...currentTests()]);
   const remainingPrior = { ...priorTagged };
   const sourceLoads = [];
   completed().forEach((record) => {
@@ -225,7 +229,8 @@ function renderWarehouseTags() {
   const tags = currentTags();
   const processedTotals = adjustedProcessedInventory();
   const consumedTotals = sumQuantities(tags);
-  const available = Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processedTotals[length] - consumedTotals[length])]));
+  const testedTotals = sumQuantities(currentTests());
+  const available = Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processedTotals[length] - consumedTotals[length] - testedTotals[length])]));
   const rows = tags.map((tag, rowIndex) => `<tr>
     <td><input data-field="tag" data-row="${rowIndex}" value="${esc(tag.tag)}" placeholder="TAG #"></td>
     <td><input data-field="orderNumber" data-row="${rowIndex}" value="${esc(tag.orderNumber)}" placeholder="ORDER #"></td>
@@ -240,6 +245,7 @@ function renderWarehouseTags() {
   document.querySelectorAll('#warehouseTagTable input').forEach((input) => input.addEventListener('change', updateWarehouseTag));
   document.querySelectorAll('.delete-yard-tag').forEach((button) => button.addEventListener('click', () => deleteYardTag(button.dataset.id)));
   renderRecoveryStage();
+  renderTestRegister();
   renderShippingSelection();
   renderOrderLedger();
 }
@@ -274,6 +280,12 @@ function updateWarehouseTag(event) {
 }
 
 function deleteCompletedRecord(id) {
+  const linkedTest = currentTests().find((record) => record.sourceCompletedId === id);
+  if (linkedTest) {
+    $('completedMessage').className = 'calculation-status pending';
+    $('completedMessage').textContent = 'Cannot delete this completed cycle: finished boards from it are recorded in TEST. Delete the TEST record first.';
+    return;
+  }
   const candidateCompleted = completed().filter((record) => record.id !== id);
   const candidateProduced = sumQuantities(candidateCompleted);
   const recovery = recoveryTotals();
@@ -429,10 +441,11 @@ function deleteRecoveryOperation(id) {
   const remaining = currentRecoveries().filter((record) => record.id !== id);
   const candidate = adjustedProcessedInventory(remaining);
   const tagged = sumQuantities(currentTags());
-  const blocked = LENGTHS.filter((length) => tagged[length] > candidate[length]);
+  const tested = sumQuantities(currentTests());
+  const blocked = LENGTHS.filter((length) => tagged[length] + tested[length] > candidate[length]);
   if (blocked.length) {
     $('recoveryMessage').className = 'calculation-status pending';
-    $('recoveryMessage').textContent = `Cannot undo this cut: its finished ${blocked.map((length) => `${length} ft`).join(', ')} product is already assigned to a TAG.`;
+    $('recoveryMessage').textContent = `Cannot undo this cut: its finished ${blocked.map((length) => `${length} ft`).join(', ')} product is already assigned to a TAG or TEST record.`;
     return;
   }
   if (!window.confirm('Undo this recovery cut and restore its source boards?')) return;
@@ -448,11 +461,122 @@ function renderRecoveryStage() {
   const recovery = recoveryTotals(records);
   const adjusted = adjustedProcessedInventory(records);
   const tagged = sumQuantities(currentTags());
-  const available = Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, adjusted[length] - tagged[length])]));
+  const tested = sumQuantities(currentTests());
+  const available = Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, adjusted[length] - tagged[length] - tested[length])]));
   $('recoveryHistory').innerHTML = records.length ? records.map((record) => `<article><span><b>${fmt(record.quantity)} × ${record.sourceLength} ft</b><small>${esc(record.createdAt?.slice(0, 10) || '')}</small></span><strong>→ ${(record.outputs || []).join(' + ')} ft</strong><span>${fmt(record.outputLinearFt)} useful ft · ${fmt(record.wasteLinearFt)} removed ft</span><button class="danger small-action delete-recovery" type="button" data-id="${esc(record.id)}">Undo</button></article>`).join('') : '<div class="empty-state">No confirmed recovery cuts. Processed inventory still matches kiln output.</div>';
   const visible = LENGTHS.filter((length) => original[length] || recovery.source[length] || recovery.output[length] || tagged[length]);
-  $('recoveryInventoryTable').innerHTML = `<thead><tr><th>Length</th><th>Kiln output</th><th>Cut out</th><th>Recovered</th><th>Actual finished</th><th>TAG assigned</th><th>Available</th></tr></thead><tbody>${visible.map((length) => `<tr><td><b>${length} ft</b></td><td>${fmt(original[length])}</td><td>${fmt(recovery.source[length])}</td><td>${fmt(recovery.output[length])}</td><td><b>${fmt(adjusted[length])}</b></td><td>${fmt(tagged[length])}</td><td><b>${fmt(available[length])}</b></td></tr>`).join('')}</tbody><tfoot><tr><th>TOTAL PIECES</th><th>${fmt(totalBoards(original))}</th><th>${fmt(totalBoards(recovery.source))}</th><th>${fmt(totalBoards(recovery.output))}</th><th>${fmt(totalBoards(adjusted))}</th><th>${fmt(totalBoards(tagged))}</th><th>${fmt(totalBoards(available))}</th></tr><tr><th>FOOTAGE BALANCE</th><th colspan="6">${fmt(recovery.inputLinearFt)} input ft = ${fmt(recovery.outputLinearFt)} recovered ft + ${fmt(recovery.wasteLinearFt)} removed ft</th></tr></tfoot>`;
+  $('recoveryInventoryTable').innerHTML = `<thead><tr><th>Length</th><th>Kiln output</th><th>Cut out</th><th>Recovered</th><th>Actual finished</th><th>TEST</th><th>TAG assigned</th><th>Available</th></tr></thead><tbody>${visible.map((length) => `<tr><td><b>${length} ft</b></td><td>${fmt(original[length])}</td><td>${fmt(recovery.source[length])}</td><td>${fmt(recovery.output[length])}</td><td><b>${fmt(adjusted[length])}</b></td><td>${fmt(tested[length])}</td><td>${fmt(tagged[length])}</td><td><b>${fmt(available[length])}</b></td></tr>`).join('')}</tbody><tfoot><tr><th>TOTAL PIECES</th><th>${fmt(totalBoards(original))}</th><th>${fmt(totalBoards(recovery.source))}</th><th>${fmt(totalBoards(recovery.output))}</th><th>${fmt(totalBoards(adjusted))}</th><th>${fmt(totalBoards(tested))}</th><th>${fmt(totalBoards(tagged))}</th><th>${fmt(totalBoards(available))}</th></tr><tr><th>FOOTAGE BALANCE</th><th colspan="7">${fmt(recovery.inputLinearFt)} input ft = ${fmt(recovery.outputLinearFt)} recovered ft + ${fmt(recovery.wasteLinearFt)} removed ft</th></tr></tfoot>`;
   document.querySelectorAll('.delete-recovery').forEach((button) => button.addEventListener('click', () => deleteRecoveryOperation(button.dataset.id)));
+}
+
+function testAvailableForCompleted(record) {
+  const available = Object.fromEntries(LENGTHS.map((length) => [length, Number(record?.quantities?.[length] || 0)]));
+  [...currentTags(), ...currentTests()].forEach((item) => {
+    (item.sourceLoads || []).filter((source) => source.id === record?.id).forEach((source) => {
+      LENGTHS.forEach((length) => { available[length] = Math.max(0, available[length] - Number(source.quantities?.[length] || 0)); });
+    });
+    if (item.sourceCompletedId === record?.id && !(item.sourceLoads || []).length) {
+      LENGTHS.forEach((length) => { available[length] = Math.max(0, available[length] - Number(item.quantities?.[length] || 0)); });
+    }
+  });
+  return available;
+}
+
+function updateTestSourceFields({ resetProduct = false } = {}) {
+  const source = completed().find((record) => record.id === $('testSourceLoad').value);
+  const previousLength = Number($('testLength').value);
+  const sourceAvailable = testAvailableForCompleted(source);
+  const aggregateAvailable = availableForYard();
+  const options = LENGTHS.filter((length) => Math.min(sourceAvailable[length], aggregateAvailable[length]) > 0)
+    .map((length) => `<option value="${length}">${length} ft · ${fmt(Math.min(sourceAvailable[length], aggregateAvailable[length]))} available</option>`).join('');
+  $('testLength').innerHTML = options || '<option value="">No unallocated boards in this cycle</option>';
+  if ([...$('testLength').options].some((option) => Number(option.value) === previousLength)) $('testLength').value = String(previousLength);
+  if (resetProduct && source) $('testProduct').value = source.marking || source.species || '';
+  $('testQuantity').max = options ? Math.min(sourceAvailable[Number($('testLength').value)] || 0, aggregateAvailable[Number($('testLength').value)] || 0) : 0;
+}
+
+function renderTestRegister() {
+  const records = currentTests();
+  const sources = completed();
+  const previousSource = $('testSourceLoad').value;
+  $('testSourceLoad').innerHTML = sources.length
+    ? sources.map((record) => `<option value="${esc(record.id)}">Kiln Load ${fmt(record.loadNumber)} · ${esc(record.completedDate || 'date unknown')} · ${esc(record.marking || record.species || 'product')}</option>`).join('')
+    : '<option value="">No completed kiln cycles</option>';
+  if (sources.some((record) => record.id === previousSource)) $('testSourceLoad').value = previousSource;
+  updateTestSourceFields({ resetProduct: !$('testProduct').value });
+  $('testBoardForm').querySelector('button[type="submit"]').disabled = !sources.length || !$('testLength').value;
+  $('testBoardHistory').innerHTML = records.length ? records.slice().reverse().map((record) => {
+    const drying = record.dryingProgram || activeOrder()?.dryingPrograms?.[record.loadNumber];
+    const thermo = record.thermoProgram || activeOrder()?.thermoPrograms?.[record.loadNumber];
+    return `<article class="test-board-record">
+      <header><span><b>${fmt(record.quantity)} × ${fmt(record.length)} ft · ${esc(record.product || 'Test sample')}</b><small>Kiln Load ${fmt(record.loadNumber)} · produced ${esc(record.completedDate || '—')} · taken ${esc(record.date || '—')}</small><small>${esc(record.note || 'No research note')}</small></span><strong>TEST · ${esc(record.takenBy || '—')}</strong><button class="danger small-action delete-test-record" type="button" data-id="${esc(record.id)}">Delete</button></header>
+      <details><summary>Production settings used for this test material</summary><div class="test-program-grid"><section><h4>Drying program</h4>${dryingProgramTable(drying)}</section><section><h4>Thermo Vacuum (TM)</h4>${thermoProgramTable(thermo)}</section></div></details>
+    </article>`;
+  }).join('') : '<div class="empty-state">No finished boards have been recorded as TEST samples.</div>';
+  document.querySelectorAll('.delete-test-record').forEach((button) => button.addEventListener('click', () => deleteTestRecord(button.dataset.id)));
+}
+
+function saveTestRecord(event) {
+  event.preventDefault();
+  const order = activeOrder();
+  const source = completed().find((record) => record.id === $('testSourceLoad').value);
+  const length = Number($('testLength').value);
+  const quantity = Math.floor(Number($('testQuantity').value));
+  const sourceAvailable = testAvailableForCompleted(source);
+  const aggregateAvailable = availableForYard();
+  const maximum = Math.min(Number(sourceAvailable[length] || 0), Number(aggregateAvailable[length] || 0));
+  const product = $('testProduct').value.trim();
+  const takenBy = $('testTakenBy').value.trim();
+  const date = $('testDate').value;
+  if (!source || !length || quantity < 1 || quantity > maximum || !product || !takenBy || !date) {
+    $('testBoardStatus').className = 'calculation-status pending';
+    $('testBoardStatus').textContent = !source
+      ? 'Select a completed production cycle.'
+      : quantity > maximum
+        ? `Only ${fmt(maximum)} unallocated ${fmt(length)} ft boards from this cycle are available.`
+        : 'Complete the source cycle, length, quantity, date, person and product fields.';
+    return;
+  }
+  const records = testBoardRecords();
+  const quantities = { [length]: quantity };
+  records.push({
+    id: `test-${Date.now()}`,
+    orderId: order?.id || source.orderId || 'legacy',
+    productionOrderNumber: order?.number || source.orderNumber || '',
+    sourceCompletedId: source.id,
+    sourceLoads: [{ id: source.id, loadNumber: source.loadNumber, completedDate: source.completedDate, quantities }],
+    sourceQuantities: quantities,
+    quantities,
+    loadNumber: Number(source.loadNumber),
+    completedDate: source.completedDate || '',
+    length,
+    quantity,
+    product,
+    material: source.species || source.marking || '',
+    takenBy,
+    date,
+    note: $('testNote').value.trim(),
+    dryingProgram: cloneForArchive(source.dryingProgram || order?.dryingPrograms?.[source.loadNumber] || null),
+    thermoProgram: cloneForArchive(source.thermoProgram || order?.thermoPrograms?.[source.loadNumber] || null),
+    createdAt: new Date().toISOString(),
+  });
+  write(TEST_BOARDS_KEY, records);
+  $('testQuantity').value = '1';
+  $('testNote').value = '';
+  $('testBoardStatus').className = 'calculation-status ready';
+  $('testBoardStatus').textContent = `${fmt(quantity)} finished ${fmt(length)} ft board${quantity === 1 ? '' : 's'} recorded as TEST and removed from TAG availability.`;
+  renderTestRegister();
+  renderWarehouseTags();
+}
+
+function deleteTestRecord(id) {
+  const record = currentTests().find((item) => item.id === id);
+  if (!record || !window.confirm(`Delete this TEST record and return ${fmt(record.quantity)} boards to untagged finished inventory?`)) return;
+  write(TEST_BOARDS_KEY, testBoardRecords().filter((item) => item.id !== id));
+  $('testBoardStatus').className = 'calculation-status ready';
+  $('testBoardStatus').textContent = 'TEST record deleted; its boards returned to untagged finished inventory.';
+  renderTestRegister();
+  renderWarehouseTags();
 }
 
 function createYardTag(event) {
@@ -503,7 +627,7 @@ function createYardTag(event) {
     inputLinearFt,
     outputLinearFt: inputLinearFt,
     wasteLinearFt: 0,
-    sourceLoads: [],
+    sourceLoads: allocateSourceLoads({ ...quantities }),
   });
   write(TAGS_KEY, tags);
   $('yardTagDialog').close();
@@ -539,17 +663,18 @@ function orderLedger() {
   const recovery = recoveryTotals();
   const finished = adjustedProcessedInventory();
   const tags = currentTags();
+  const tested = sumQuantities(currentTests());
   const allocated = sumQuantities(tags);
   const yard = sumQuantities(tags);
   const shippedIds = new Set(currentShipments().flatMap((shipment) => shipment.tagIds || []));
   const shipped = sumQuantities(tags.filter((tag) => shippedIds.has(tag.id)));
   const rows = LENGTHS.map((length) => ({
     length, incoming: incoming[length], processed: done[length],
-    unprocessed: incoming[length] - done[length], recoveryOut: recovery.source[length], recoveryIn: recovery.output[length], finished: finished[length], allocated: allocated[length], yard: yard[length],
-    awaitingTag: finished[length] - allocated[length], shipped: shipped[length],
+    unprocessed: incoming[length] - done[length], recoveryOut: recovery.source[length], recoveryIn: recovery.output[length], finished: finished[length], tested: tested[length], allocated: allocated[length], yard: yard[length],
+    awaitingTag: finished[length] - allocated[length] - tested[length], shipped: shipped[length],
     inYard: yard[length] - shipped[length],
   }));
-  return { order, rows, incoming: totalBoards(incoming), processed: totalBoards(done), finished: totalBoards(finished), allocated: totalBoards(allocated), yard: totalBoards(yard), shipped: totalBoards(shipped), allocatedInputFt: recovery.inputLinearFt, yardOutputFt: recovery.outputLinearFt, removedFt: recovery.wasteLinearFt };
+  return { order, rows, incoming: totalBoards(incoming), processed: totalBoards(done), finished: totalBoards(finished), tested: totalBoards(tested), allocated: totalBoards(allocated), yard: totalBoards(yard), shipped: totalBoards(shipped), allocatedInputFt: recovery.inputLinearFt, yardOutputFt: recovery.outputLinearFt, removedFt: recovery.wasteLinearFt };
 }
 
 function renderOrderLedger() {
@@ -576,9 +701,9 @@ function renderOrderLedger() {
   $('orderBalanceStatus').className = `calculation-status ${negatives || !footageBalanced ? 'pending' : 'ready'}`;
   $('orderBalanceStatus').textContent = negatives || !footageBalanced
     ? 'BALANCE ERROR: source-board allocation or recovery footage does not reconcile.'
-    : `Verified: ${ledger.incoming} received = ${ledger.processed} processed + ${ledger.incoming - ledger.processed} unprocessed. YARD recovery balance: ${fmt(ledger.allocatedInputFt)} input ft = ${fmt(ledger.yardOutputFt)} useful ft + ${fmt(ledger.removedFt)} removed ft. ${ledger.yard} finished pieces assigned to YARD; ${ledger.shipped} shipped. Completed cycles: ${finishedCycles}/${plannedCycles || '—'}.`;
-  const visible = ledger.rows.filter((row) => row.incoming || row.processed || row.recoveryOut || row.recoveryIn || row.yard || row.shipped);
-  $('orderLedger').innerHTML = `<thead><tr><th>Length</th><th>Received</th><th>Kiln processed</th><th>Unprocessed</th><th>Cut out</th><th>Recovered</th><th>Actual finished</th><th>Awaiting TAG</th><th>YARD</th><th>Shipped</th><th>In YARD</th><th>Check</th></tr></thead><tbody>${visible.map((row) => { const invalid = row.unprocessed < 0 || row.finished < 0 || row.awaitingTag < 0 || row.inYard < 0; return `<tr><td>${row.length} ft</td><td>${fmt(row.incoming)}</td><td>${fmt(row.processed)}</td><td>${fmt(row.unprocessed)}</td><td>${fmt(row.recoveryOut)}</td><td>${fmt(row.recoveryIn)}</td><td><b>${fmt(row.finished)}</b></td><td>${fmt(row.awaitingTag)}</td><td>${fmt(row.yard)}</td><td>${fmt(row.shipped)}</td><td>${fmt(row.inYard)}</td><td class="${invalid ? 'bad' : 'ok'}">${invalid ? 'ERROR' : '✓'}</td></tr>`; }).join('')}</tbody><tfoot><tr><th>TOTAL PIECES</th><th>${fmt(ledger.incoming)}</th><th>${fmt(ledger.processed)}</th><th>${fmt(ledger.incoming-ledger.processed)}</th><th>—</th><th>—</th><th>${fmt(ledger.finished)}</th><th>${fmt(ledger.finished-ledger.allocated)}</th><th>${fmt(ledger.yard)}</th><th>${fmt(ledger.shipped)}</th><th>${fmt(ledger.yard-ledger.shipped)}</th><th>${negatives || !footageBalanced ? 'ERROR' : 'BALANCED'}</th></tr></tfoot>`;
+    : `Verified: ${ledger.incoming} received = ${ledger.processed} processed + ${ledger.incoming - ledger.processed} unprocessed. YARD recovery balance: ${fmt(ledger.allocatedInputFt)} input ft = ${fmt(ledger.yardOutputFt)} useful ft + ${fmt(ledger.removedFt)} removed ft. ${ledger.tested} finished pieces recorded as TEST; ${ledger.yard} assigned to YARD; ${ledger.shipped} shipped. Completed cycles: ${finishedCycles}/${plannedCycles || '—'}.`;
+  const visible = ledger.rows.filter((row) => row.incoming || row.processed || row.recoveryOut || row.recoveryIn || row.tested || row.yard || row.shipped);
+  $('orderLedger').innerHTML = `<thead><tr><th>Length</th><th>Received</th><th>Kiln processed</th><th>Unprocessed</th><th>Cut out</th><th>Recovered</th><th>Actual finished</th><th>TEST</th><th>Awaiting TAG</th><th>YARD</th><th>Shipped</th><th>In YARD</th><th>Check</th></tr></thead><tbody>${visible.map((row) => { const invalid = row.unprocessed < 0 || row.finished < 0 || row.awaitingTag < 0 || row.inYard < 0; return `<tr><td>${row.length} ft</td><td>${fmt(row.incoming)}</td><td>${fmt(row.processed)}</td><td>${fmt(row.unprocessed)}</td><td>${fmt(row.recoveryOut)}</td><td>${fmt(row.recoveryIn)}</td><td><b>${fmt(row.finished)}</b></td><td>${fmt(row.tested)}</td><td>${fmt(row.awaitingTag)}</td><td>${fmt(row.yard)}</td><td>${fmt(row.shipped)}</td><td>${fmt(row.inYard)}</td><td class="${invalid ? 'bad' : 'ok'}">${invalid ? 'ERROR' : '✓'}</td></tr>`; }).join('')}</tbody><tfoot><tr><th>TOTAL PIECES</th><th>${fmt(ledger.incoming)}</th><th>${fmt(ledger.processed)}</th><th>${fmt(ledger.incoming-ledger.processed)}</th><th>—</th><th>—</th><th>${fmt(ledger.finished)}</th><th>${fmt(ledger.tested)}</th><th>${fmt(ledger.finished-ledger.allocated-ledger.tested)}</th><th>${fmt(ledger.yard)}</th><th>${fmt(ledger.shipped)}</th><th>${fmt(ledger.yard-ledger.shipped)}</th><th>${negatives || !footageBalanced ? 'ERROR' : 'BALANCED'}</th></tr></tfoot>`;
   renderOrderArchive();
 }
 
@@ -587,11 +712,13 @@ function renderOrderArchive() {
   $('orderArchive').innerHTML = records.length ? records.map((record) => {
     const rows = record.rows || [];
     const tags = record.tags || [];
+    const tests = record.tests || [];
     const shipmentRows = record.shipments || [];
     const quantities = rows.filter((row) => row.incoming || row.processed || row.shipped).map((row) => `<tr><td>${fmt(row.length)} ft</td><td>${fmt(row.incoming)}</td><td>${fmt(row.processed)}</td><td>${fmt(row.finished)}</td><td>${fmt(row.shipped)}</td><td>${fmt(row.unprocessed)}</td></tr>`).join('');
     const tagRows = tags.map((tag) => `<tr><td>${esc(tag.tag)}</td><td>${esc(tag.productMo)}</td><td>${esc(tag.date)}</td><td><b>${esc(tag.material || 'Unclassified material')}</b><small>${esc(qualityLabel(tag.quality))}</small></td><td>${Object.entries(tag.quantities || {}).filter(([, quantity]) => Number(quantity) > 0).map(([length, quantity]) => `${fmt(quantity)} × ${esc(length)} ft`).join(', ')}</td><td>${fmt(totalBoards(tag.quantities))}</td><td>${fmt(tagBf(tag), 1)}</td></tr>`).join('');
+    const testRows = tests.map((test) => `<tr><td>${esc(test.date)}</td><td>${esc(test.takenBy)}</td><td>${esc(test.product)}</td><td>Kiln Load ${fmt(test.loadNumber)} · ${esc(test.completedDate)}</td><td>${fmt(test.quantity)} × ${fmt(test.length)} ft</td><td>${esc(test.note || '—')}</td></tr>`).join('');
     const shipmentDetails = shipmentRows.map((shipment) => { const names = (shipment.tagIds || []).map((id) => tags.find((tag) => tag.id === id)?.tag || id); return `<tr><td>${esc(shipment.orderNumber)}</td><td>${esc(shipment.date)}</td><td>${names.map(esc).join(', ')}</td><td>${fmt(shipment.boards)}</td><td>${fmt(shipment.bf, 1)}</td></tr>`; }).join('');
-    return `<details class="archived-order"><summary><b>${esc(record.number)}</b><span>${esc(record.completedAt.slice(0,10))}</span><span>${fmt(record.received)} received · ${fmt(record.shipped)} shipped</span><span>${fmt(tags.length)} TAGs · ${fmt(shipmentRows.length)} shipments</span></summary><div class="archive-content"><p><b>Supplier:</b> ${esc(record.supplier || '—')} · <b>Final process date:</b> ${esc(record.finalProcessDate || '—')} · <b>Removed footage:</b> ${fmt(record.removedFt)} ft</p><table class="archive-table"><thead><tr><th>Length</th><th>Received</th><th>Kiln processed</th><th>Finished</th><th>Shipped</th><th>Unprocessed</th></tr></thead><tbody>${quantities}</tbody></table><h4>YARD TAGs</h4><table class="archive-table"><thead><tr><th>TAG</th><th>Product / MO</th><th>Date</th><th>Material / quality</th><th>Contents</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${tagRows || '<tr><td colspan="7">No TAG records</td></tr>'}</tbody></table><h4>Shipping orders</h4><table class="archive-table"><thead><tr><th>Shipping #</th><th>Date</th><th>TAGs</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${shipmentDetails || '<tr><td colspan="5">No Shipping records</td></tr>'}</tbody></table><p><b>Saved kiln programs:</b> ${fmt(Object.keys(record.dryingPrograms || {}).length)} Drying · ${fmt(Object.keys(record.thermoPrograms || {}).length)} Thermo Vacuum.</p></div></details>`;
+    return `<details class="archived-order"><summary><b>${esc(record.number)}</b><span>${esc(record.completedAt.slice(0,10))}</span><span>${fmt(record.received)} received · ${fmt(record.shipped)} shipped</span><span>${fmt(tags.length)} TAGs · ${fmt(tests.length)} TEST · ${fmt(shipmentRows.length)} shipments</span></summary><div class="archive-content"><p><b>Supplier:</b> ${esc(record.supplier || '—')} · <b>Final process date:</b> ${esc(record.finalProcessDate || '—')} · <b>Removed footage:</b> ${fmt(record.removedFt)} ft</p><table class="archive-table"><thead><tr><th>Length</th><th>Received</th><th>Kiln processed</th><th>Finished</th><th>Shipped</th><th>Unprocessed</th></tr></thead><tbody>${quantities}</tbody></table><h4>TEST samples</h4><table class="archive-table"><thead><tr><th>Date</th><th>Taken by</th><th>Product</th><th>Production period</th><th>Contents</th><th>Purpose</th></tr></thead><tbody>${testRows || '<tr><td colspan="6">No TEST records</td></tr>'}</tbody></table><h4>YARD TAGs</h4><table class="archive-table"><thead><tr><th>TAG</th><th>Product / MO</th><th>Date</th><th>Material / quality</th><th>Contents</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${tagRows || '<tr><td colspan="7">No TAG records</td></tr>'}</tbody></table><h4>Shipping orders</h4><table class="archive-table"><thead><tr><th>Shipping #</th><th>Date</th><th>TAGs</th><th>PCS</th><th>BFM</th></tr></thead><tbody>${shipmentDetails || '<tr><td colspan="5">No Shipping records</td></tr>'}</tbody></table><p><b>Saved kiln programs:</b> ${fmt(Object.keys(record.dryingPrograms || {}).length)} Drying · ${fmt(Object.keys(record.thermoPrograms || {}).length)} Thermo Vacuum.</p></div></details>`;
   }).join('') : '<div class="empty-state">No completed orders yet.</div>';
 }
 
@@ -659,7 +786,7 @@ function completeActiveOrder() {
   if (!ledger || $('completeOrder').disabled) return;
   if (!window.confirm(`Before closing ${ledger.order.number}, save both “Kiln settings PDF” and “Full order PDF”. Continue only after both files have been saved. Complete and archive this order now?`)) return;
   const archive = read(ORDER_ARCHIVE_KEY);
-  archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, unprocessed: ledger.incoming - ledger.processed, recoveryInputFt: ledger.allocatedInputFt, recoveryOutputFt: ledger.yardOutputFt, removedFt: ledger.removedFt, rows: cloneForArchive(ledger.rows), completedCycles: cloneForArchive(completed()), recoveries: cloneForArchive(currentRecoveries()), tags: cloneForArchive(currentTags()), shipments: cloneForArchive(currentShipments()), dryingPrograms: cloneForArchive(ledger.order.dryingPrograms || {}), thermoPrograms: cloneForArchive(ledger.order.thermoPrograms || {}), finalProcessDate: $('warehouseFinalDate').value, completedAt: new Date().toISOString() });
+  archive.push({ id: ledger.order.id, number: ledger.order.number, supplier: ledger.order.inputs?.supplier || '', received: ledger.incoming, processed: ledger.processed, shipped: ledger.shipped, tested: ledger.tested, unprocessed: ledger.incoming - ledger.processed, recoveryInputFt: ledger.allocatedInputFt, recoveryOutputFt: ledger.yardOutputFt, removedFt: ledger.removedFt, rows: cloneForArchive(ledger.rows), completedCycles: cloneForArchive(completed()), recoveries: cloneForArchive(currentRecoveries()), tests: cloneForArchive(currentTests()), tags: cloneForArchive(currentTags()), shipments: cloneForArchive(currentShipments()), dryingPrograms: cloneForArchive(ledger.order.dryingPrograms || {}), thermoPrograms: cloneForArchive(ledger.order.thermoPrograms || {}), finalProcessDate: $('warehouseFinalDate').value, completedAt: new Date().toISOString() });
   write(ORDER_ARCHIVE_KEY, archive);
   const completedAt = new Date().toISOString();
   saveOrderRemainder(ledger, completedAt);
@@ -676,6 +803,9 @@ function completeActiveOrder() {
 }
 
 $('addWarehouseTag').addEventListener('click', openYardBuilder);
+$('testBoardForm').addEventListener('submit', saveTestRecord);
+$('testSourceLoad').addEventListener('change', () => updateTestSourceFields({ resetProduct: true }));
+$('testLength').addEventListener('change', () => updateTestSourceFields());
 $('addRecoveryCut').addEventListener('click', () => addRecoveryCutRow({ sourceLength: 20 }));
 $('applyRecoveryCuts').addEventListener('click', applyRecoveryCuts);
 $('yardTagForm').addEventListener('submit', (event) => {
@@ -713,6 +843,7 @@ $('createShipment').addEventListener('click', () => {
 });
 $('completeOrder').addEventListener('click', completeActiveOrder);
 $('warehouseFinalDate').value = localStorage.getItem(FINAL_DATE_KEY) || completed().find((record) => record.finalProcessDate)?.finalProcessDate || '';
+$('testDate').value = new Date().toISOString().slice(0, 10);
 $('warehouseFinalDate').addEventListener('change', (event) => localStorage.setItem(FINAL_DATE_KEY, event.target.value));
 function printReport(mode) {
   document.body.classList.toggle('print-kiln-settings', mode === 'settings');
@@ -733,6 +864,7 @@ $('printWarehouse').addEventListener('click', () => printReport('full'));
 $('printKilnSettings').addEventListener('click', () => printReport('settings'));
 migrateLegacyTagRecoveries();
 renderCompleted();
+renderTestRegister();
 renderWarehouseTags();
 renderOrderLedger();
 renderKilnSettingsReport();

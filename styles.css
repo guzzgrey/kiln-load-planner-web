@@ -579,6 +579,20 @@ button.is-loading::after {
 .process-setting-table { width:100%; border-collapse:collapse; font-size:12px; }
 .process-setting-table th, .process-setting-table td { padding:6px; border-bottom:1px solid var(--line); text-align:right; }
 .process-setting-table th:first-child, .process-setting-table td:first-child, .process-setting-table th:last-child, .process-setting-table td:last-child { text-align:left; }
+.test-board-form { display:grid; grid-template-columns:1.35fr .7fr .55fr .8fr .8fr 1fr; gap:10px; align-items:end; padding:12px; border:1px solid #bfd8cc; border-radius:10px; background:#f3faf6; }
+.test-board-form label { display:grid; gap:5px; color:var(--muted); font-size:11px; font-weight:800; }
+.test-board-form input, .test-board-form select { min-width:0; width:100%; }
+.test-board-form .test-note-field { grid-column:1 / -2; }
+.test-board-form button { min-height:40px; }
+.test-board-history { display:grid; gap:10px; margin-top:12px; }
+.test-board-record { border:1px solid var(--line); border-left:5px solid #b66b00; border-radius:10px; background:#fffdf8; overflow:hidden; }
+.test-board-record > header { display:grid; grid-template-columns:1fr auto auto; gap:12px; align-items:center; padding:11px 13px; }
+.test-board-record > header span { display:grid; gap:2px; }
+.test-board-record > header small { color:var(--muted); }
+.test-board-record details { border-top:1px solid var(--line); padding:9px 13px 12px; }
+.test-board-record summary { color:var(--green); cursor:pointer; font-weight:850; }
+.test-program-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px; }
+.test-program-grid h4 { margin:0 0 6px; }
 .archived-order { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:#fbfcfb; }
 .archived-order summary { display:grid; grid-template-columns:1.1fr .7fr 1.4fr 1fr; gap:12px; align-items:center; cursor:pointer; }
 .archive-content { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
@@ -594,6 +608,8 @@ button.is-loading::after {
   .drying-comparison-grid { grid-template-columns:1fr; }
   .process-program-grid { grid-template-columns:1fr; }
   .archived-order summary { grid-template-columns:1fr 1fr; }
+  .test-board-form { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .test-board-form .test-note-field { grid-column:1 / -1; }
 }
 
 .warehouse-page { max-width: 1800px; }
@@ -651,7 +667,11 @@ button.is-loading::after {
 .recovery-history article { display:grid; grid-template-columns:minmax(180px,1fr) minmax(140px,.7fr) minmax(220px,1fr) auto; gap:14px; align-items:center; padding:12px 14px; border:1px solid var(--line); border-radius:9px; background:#f8faf8; }
 .recovery-history article span { display:grid; gap:2px; }
 .recovery-history small { color:var(--muted); }
-@media (max-width: 800px) { .recovery-history article { grid-template-columns:1fr; } }
+@media (max-width: 800px) {
+  .recovery-history article, .test-board-record > header { grid-template-columns:1fr; }
+  .test-board-form, .test-program-grid { grid-template-columns:1fr; }
+  .test-board-form .test-note-field { grid-column:auto; }
+}
 .shipping-table td:nth-child(5) { min-width: 150px; text-align: left; }
 
 .load-history article {
@@ -812,9 +832,9 @@ th {
 .stacking-details > summary span { display:grid; gap:2px; }
 .stacking-details > summary small { color:var(--muted); font-weight:500; }
 .stacking-details > summary strong { padding:4px 9px; border-radius:999px; background:var(--pale); color:var(--green); font-size:11px; white-space:nowrap; }
-.bulk-row-form { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(280px,1.5fr); align-items:end; gap:10px; padding:10px 12px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:#f5faf7; }
+.bulk-row-form { display:grid; grid-template-columns:minmax(130px,.55fr) minmax(230px,1fr) auto minmax(280px,1.4fr); align-items:end; gap:10px; padding:10px 12px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:#f5faf7; }
 .bulk-row-form label { display:grid; gap:4px; color:var(--green); font-size:11px; font-weight:900; }
-.bulk-row-form input { min-height:36px; padding:7px 10px; }
+.bulk-row-form input, .bulk-row-form select { min-height:36px; padding:7px 10px; }
 .bulk-row-form button { min-height:36px; padding:7px 12px; white-space:nowrap; }
 .bulk-row-form > small { align-self:center; color:var(--muted); font-size:10px; }
 .stacking-schedule { display:grid; gap:10px; padding:10px; border-top:1px solid var(--line); }

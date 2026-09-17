@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
-    <link rel="stylesheet" href="styles.css?v=material-quality-v10" />
+    <link rel="stylesheet" href="styles.css?v=test-board-ledger-v12" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -59,6 +59,25 @@
         <div id="recoveryMessage" class="calculation-status idle">Only untagged boards can be recut.</div>
         <div id="recoveryHistory" class="recovery-history"></div>
         <div class="scroll"><table id="recoveryInventoryTable" class="matrix-table"></table></div>
+      </section>
+
+      <section class="card warehouse-section test-inventory-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">RESEARCH CONTROL</p><h2>TEST · Finished boards taken for research</h2></div>
+        </div>
+        <p class="note">Record finished boards removed before YARD TAG allocation. Every TEST entry is tied to its production cycle, product period, and the saved Drying/Thermo Vacuum settings used for that cycle.</p>
+        <form id="testBoardForm" class="test-board-form">
+          <label>Source production cycle<select id="testSourceLoad" required></select></label>
+          <label>Board length<select id="testLength" required></select></label>
+          <label>Quantity<input id="testQuantity" type="number" min="1" step="1" value="1" required></label>
+          <label>Date taken<input id="testDate" type="date" required></label>
+          <label>Taken by<input id="testTakenBy" value="Chris" required></label>
+          <label>Product / research ID<input id="testProduct" required placeholder="Product or sample ID"></label>
+          <label class="test-note-field">Purpose / note<input id="testNote" placeholder="Reason, experiment, sample destination…"></label>
+          <button type="submit">Record TEST boards</button>
+        </form>
+        <div id="testBoardStatus" class="calculation-status idle">Select a completed kiln cycle and record only boards physically removed for testing.</div>
+        <div id="testBoardHistory" class="test-board-history"></div>
       </section>
 
       <section class="card warehouse-section">
@@ -122,6 +141,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=sync-loop-fix-v3" data-app="warehouse.js?v=material-quality-v2"></script>
+    <script src="cloud-sync.js?v=test-board-ledger-v4" data-app="warehouse.js?v=test-board-ledger-v3"></script>
   </body>
 </html>

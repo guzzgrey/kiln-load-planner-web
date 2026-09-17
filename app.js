@@ -3204,7 +3204,17 @@ function calculate(allowOptimization = false) {
     const options = compatible.map(([length, quantity]) => `<option value="${length}">${length} ft · ${quantity} remaining</option>`).join('');
     return `<section class="stacking-lift" data-lift="${liftIndex}"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state)} ft maximum</b></div><div class="stacking-lift-actions"><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span>${stackingEditable ? `<button class="inline-add-toggle secondary" type="button" data-lift="${liftIndex}" ${canAdd ? '' : 'disabled'}>+ Add boards</button>` : ''}</div></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div>${stackingEditable ? `<form class="inline-fill-panel" data-lift="${liftIndex}" hidden><label>Length<select class="inline-fill-length">${options}</select></label><label>Quantity<input class="inline-fill-quantity" type="number" min="1" max="${geometry.across}" step="1" value="1"></label><button type="submit" ${canAdd ? '' : 'disabled'}>Add to lift</button><small>Replans all unstarted cycles; completed and started cycles stay fixed.</small></form>` : ''}</section>`;
   }).join('');
-  const bulkRowForm = stackingEditable ? `<form class="bulk-row-form"><label>Bulk manual rows<input class="bulk-row-input" type="text" placeholder="5x8, 4x10" aria-label="Bulk rows: row count by board length"></label><button type="submit">Add row blocks</button><small>Format: <b>rows × length</b>. Example: 5x8, 4x10. Full-width rows are distributed between compatible lifts.</small></form>` : '';
+  const bulkLengthOptions = [...inlineStock.entries()]
+    .filter(([, quantity]) => Number(quantity) >= geometry.across)
+    .sort(([left], [right]) => Number(right) - Number(left))
+    .map(([length, quantity]) => `<option value="${length}">${length} ft · ${Math.floor(Number(quantity) / geometry.across)} full rows available</option>`)
+    .join('');
+  const bulkRowForm = stackingEditable ? `<form class="bulk-row-form">
+    <label>Number of rows<input class="bulk-row-count" type="number" min="1" max="200" step="1" value="1" aria-label="Number of full rows"></label>
+    <label>Board length<select class="bulk-row-length" aria-label="Board length">${bulkLengthOptions || '<option value="">No complete rows available</option>'}</select></label>
+    <button type="submit" ${bulkLengthOptions && activeStates.length ? '' : 'disabled'}>Add full rows</button>
+    <small>Example: enter <b>5 rows</b> and select <b>10 ft</b>. Each row uses ${geometry.across} boards and is placed into a compatible lift.</small>
+  </form>` : '';
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
       <span class="pill ${efficientCycle ? 'good' : 'warn'}">${efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — ADD MATERIAL'}</span>
@@ -3464,7 +3474,12 @@ function addBulkRowsToCycle(loadNumber, request) {
   if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
   if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
   const geometry = computeGeometry();
-  const entries = parseBulkRowRequest(request);
+  const entries = typeof request === 'string'
+    ? parseBulkRowRequest(request)
+    : [{ rows: Math.floor(Number(request?.rows)), length: Math.floor(Number(request?.length)) }];
+  if (entries.some((entry) => entry.rows < 1 || entry.rows > 200 || entry.length < MIN_BOARD_LENGTH || entry.length > MAX_BOARD_LENGTH)) {
+    throw new Error('Choose a board length and enter a row count from 1 to 200.');
+  }
   const available = editableStockForLoad(loadNumber);
   const required = new Map();
   entries.forEach(({ rows, length }) => required.set(length, Number(required.get(length) || 0) + rows * geometry.across));
@@ -3632,7 +3647,12 @@ function bindInlineStackingEditor() {
   let dragged = null;
   container.querySelector('.bulk-row-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
-    try { addBulkRowsToCycle(currentLoadNumber, event.currentTarget.querySelector('.bulk-row-input').value); }
+    try {
+      addBulkRowsToCycle(currentLoadNumber, {
+        rows: event.currentTarget.querySelector('.bulk-row-count').value,
+        length: event.currentTarget.querySelector('.bulk-row-length').value,
+      });
+    }
     catch (error) { showInlineEditorError(error); }
   });
   container.querySelectorAll('.stacking-row[draggable="true"]').forEach((row) => {
@@ -4140,6 +4160,12 @@ function saveCompletedCycle(event) {
     quantities: Object.fromEntries(snapshot.used),
     materials: { ...(snapshot.materials || {}) },
     qualityLots: (snapshot.qualityLots || []).map((lot) => ({ ...lot })),
+    dryingProgram: dryingPrograms.has(String(completingLoadNumber))
+      ? JSON.parse(JSON.stringify(dryingPrograms.get(String(completingLoadNumber))))
+      : null,
+    thermoProgram: thermoPrograms.has(String(completingLoadNumber))
+      ? JSON.parse(JSON.stringify(thermoPrograms.get(String(completingLoadNumber))))
+      : null,
     planFingerprint,
     planSnapshot: globalOrderPlans[completingLoadNumber - 1]
       ? JSON.parse(serializeCalculatedPlans([globalOrderPlans[completingLoadNumber - 1]]))[0]

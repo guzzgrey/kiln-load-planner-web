@@ -1981,6 +1981,15 @@ function orderSignature(stock, geometry, kilnLength, maxStack, selectedMetal) {
   return JSON.stringify({ stock: [...stock.entries()], rows: geometry.rows, across: geometry.across, kilnLength, maxStack, selectedMetal, planningMode: $('planningMode')?.value || 'automatic', materialSplits: activeOrder?.materialSplits || {}, liftStickers: [...manualLiftStickers], liftTargets: [...manualLiftTargets] });
 }
 
+function legacyPlanSignatureNeedsIdentityMigration(value) {
+  try {
+    const saved = JSON.parse(String(value || ''));
+    return saved && !Object.hasOwn(saved, 'planningMode') && !Object.hasOwn(saved, 'materialSplits');
+  } catch (_) {
+    return false;
+  }
+}
+
 function linearModelToLp(constraints, variables, ints) {
   const expression = (field) => Object.entries(variables)
     .map(([name, coefficients]) => [name, coefficients[field] || 0])
@@ -4653,9 +4662,27 @@ function init() {
       const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
       const signature = orderSignature(readInventory(), computeGeometry(), kilnLength, Math.floor(num('maxStack')), Math.floor(Number($('metalBox').value)));
       if (signature !== globalOrderSignature) {
-        const status = $('calculationStatus');
-        status.className = 'calculation-status pending';
-        status.textContent = 'The saved report is preserved, but its physical inputs no longer match. Click Calculate Load to explicitly rebuild only the unstarted cycles.';
+        const savedSignature = activeOrder.planSignature || activeOrder.viewCache?.signature || globalOrderSignature;
+        if (legacyPlanSignatureNeedsIdentityMigration(savedSignature)) {
+          try {
+            globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), computeGeometry(), kilnLength).map(restorePlanTypes);
+            globalOrderSignature = signature;
+            calculate(false);
+            persistActiveOrder(true);
+            const status = $('calculationStatus');
+            status.className = 'calculation-status ready';
+            status.textContent = 'Saved rows migrated to material-aware planning. Physical row order and locked cycles were preserved.';
+          } catch (error) {
+            console.warn('Saved material identities could not be migrated:', error);
+            const status = $('calculationStatus');
+            status.className = 'calculation-status pending';
+            status.textContent = 'The saved rows need material reconciliation. Click Calculate Load to rebuild only the unstarted cycles.';
+          }
+        } else {
+          const status = $('calculationStatus');
+          status.className = 'calculation-status pending';
+          status.textContent = 'The saved report is preserved, but its physical inputs no longer match. Click Calculate Load to explicitly rebuild only the unstarted cycles.';
+        }
       } else {
         try {
           calculate(false);

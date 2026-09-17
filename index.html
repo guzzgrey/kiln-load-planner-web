@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
-    <link rel="stylesheet" href="styles.css?v=test-board-ledger-v12" />
+    <link rel="stylesheet" href="styles.css?v=manual-material-planning-v13" />
   </head>
   <body>
     <main class="wrap">
@@ -74,6 +74,13 @@
             <div>
               <label>Primary material / product</label>
               <input id="species" value="Hemlock" />
+            </div>
+            <div>
+              <label>Planning mode</label>
+              <select id="planningMode">
+                <option value="automatic" selected>Automatic optimizer</option>
+                <option value="manual">Manual lift &amp; row builder</option>
+              </select>
             </div>
             <div>
               <label>Nominal board size</label>
@@ -492,6 +499,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=test-board-ledger-v4" data-app="app.js?v=manual-rows-fields-v25"></script>
+    <script src="cloud-sync.js?v=test-board-ledger-v4" data-app="app.js?v=manual-material-planning-v26"></script>
   </body>
 </html>

@@ -2542,7 +2542,7 @@ function materialChoices(plan, length, minimum = 1) {
   }).filter((choice) => choice.length === Number(length) && choice.quantity >= minimum);
 }
 
-function allocateRowMaterial(pools, length, quantity, preferredMaterial = '') {
+function allocateRowMaterial(pools, length, quantity, preferredMaterial = '', reservations = new Map()) {
   const lots = pools.get(Number(length)) || [];
   let remaining = Math.max(0, Math.floor(Number(quantity) || 0));
   const allocations = [];
@@ -2552,9 +2552,14 @@ function allocateRowMaterial(pools, length, quantity, preferredMaterial = '') {
   if (preferredMaterial && !ordered.some((lot) => lot.material === preferredMaterial && lot.quantity >= remaining)) {
     throw new Error(`Only ${ordered.find((lot) => lot.material === preferredMaterial)?.quantity || 0} boards of ${preferredMaterial} at ${length} ft remain.`);
   }
+  if (preferredMaterial) {
+    const key = materialKey(length, preferredMaterial);
+    reservations.set(key, Math.max(0, Number(reservations.get(key) || 0) - remaining));
+  }
   for (const lot of ordered) {
     if (!remaining || (preferredMaterial && lot.material !== preferredMaterial)) continue;
-    const take = Math.min(remaining, Number(lot.quantity || 0));
+    const reserved = preferredMaterial ? 0 : Number(reservations.get(materialKey(length, lot.material)) || 0);
+    const take = Math.min(remaining, Math.max(0, Number(lot.quantity || 0) - reserved));
     if (take > 0) allocations.push({ material: lot.material, quantity: take });
     lot.quantity -= take;
     remaining -= take;
@@ -2568,6 +2573,18 @@ function allocateRowMaterial(pools, length, quantity, preferredMaterial = '') {
 
 function assignMaterialIdentity(plans, sourceStock, geometry) {
   const pools = materialPoolsForStock(sourceStock);
+  const reservations = new Map();
+  const reserve = (length, material, quantity) => {
+    if (!material || !quantity) return;
+    const key = materialKey(length, material);
+    reservations.set(key, Number(reservations.get(key) || 0) + Number(quantity));
+  };
+  plans.forEach((plan) => (plan.activeStates || []).forEach((state) => {
+    (state.rowSequence || []).forEach((row) => row.pattern.forEach((length, segmentIndex) => {
+      reserve(length, row.pattern.length === 1 ? (row.materialLocked ? row.material : '') : row.segmentMaterials?.[segmentIndex], geometry.across);
+    }));
+    (state.manualRows || []).forEach((row) => reserve(row.length, row.material, row.quantity));
+  }));
   return plans.map((plan) => {
     const materialAvailableMap = materialPoolSnapshot(pools);
     const materialUsedMap = {};
@@ -2578,6 +2595,7 @@ function assignMaterialIdentity(plans, sourceStock, geometry) {
           length,
           geometry.across,
           row.pattern.length === 1 || Array.isArray(row.segmentMaterials) ? (row.pattern.length === 1 ? (row.materialLocked ? row.material : '') : row.segmentMaterials?.[segmentIndex]) || '' : '',
+          reservations,
         ));
         materialSegments.forEach((segment) => segment.allocations.forEach((allocation) => {
           const key = materialKey(segment.length, allocation.material);
@@ -2586,7 +2604,7 @@ function assignMaterialIdentity(plans, sourceStock, geometry) {
         return { ...row, pattern: [...row.pattern], material: row.materialLocked ? row.material : '', materialLocked: Boolean(row.materialLocked), materialSegments };
       });
       const manualRows = (state.manualRows || []).map((row) => {
-        const segment = allocateRowMaterial(pools, row.length, row.quantity, row.material || '');
+        const segment = allocateRowMaterial(pools, row.length, row.quantity, row.material || '', reservations);
         segment.allocations.forEach((allocation) => {
           const key = materialKey(segment.length, allocation.material);
           materialUsedMap[key] = Number(materialUsedMap[key] || 0) + allocation.quantity;
@@ -3800,7 +3818,36 @@ function parseRowPattern(value) {
   return pattern;
 }
 
-function replaceAutomaticRow(loadNumber, liftIndex, autoIndex, patternValue, repetitions, material = '') {
+function setAutomaticRowMaterials(loadNumber, liftIndex, autoIndex, materials) {
+  const plan = globalOrderPlans[loadNumber - 1];
+  if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
+  if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
+  const row = plan.activeStates?.[liftIndex]?.rowSequence?.[Math.floor(Number(autoIndex))];
+  if (!row) throw new Error('The selected calculated row could not be found.');
+  const selected = row.pattern.map((length, index) => {
+    const material = String(materials?.[index] || '').trim();
+    const split = materialSplitForLength(length);
+    const allowed = [split.primary, ...(split.secondaryQuantity ? [split.secondary] : [])];
+    if (!allowed.includes(material)) throw new Error(`Choose a saved material for the ${length} ft segment.`);
+    return material;
+  });
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  if (row.pattern.length === 1) {
+    row.material = selected[0];
+    row.materialLocked = true;
+    delete row.segmentMaterials;
+  } else {
+    row.segmentMaterials = selected;
+    row.material = '';
+    row.materialLocked = false;
+  }
+  plan.activeStates[liftIndex].operatorAdjusted = true;
+  rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture: false });
+  $('calculationStatus').className = 'calculation-status ready';
+  $('calculationStatus').textContent = `Material identity saved for Kiln Load ${loadNumber}, Lift ${liftIndex + 1}, row ${Number(autoIndex) + 1}. Lift geometry and row order were not changed.`;
+}
+
+function replaceAutomaticRow(loadNumber, liftIndex, autoIndex, patternValue, repetitions, material = '', segmentMaterials = []) {
   const plan = globalOrderPlans[loadNumber - 1];
   if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
   if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
@@ -3822,6 +3869,7 @@ function replaceAutomaticRow(loadNumber, liftIndex, autoIndex, patternValue, rep
     pattern: [...pattern],
     material: pattern.length === 1 ? String(material || '') : '',
     materialLocked: pattern.length === 1 && Boolean(material),
+    segmentMaterials: pattern.length > 1 && segmentMaterials.length === pattern.length ? [...segmentMaterials] : undefined,
   }));
   state.rowSequence.splice(index, 1, ...replacement);
   state.stackingOrder = previousOrder.flatMap((token) => {
@@ -3955,19 +4003,31 @@ function bindInlineStackingEditor() {
     const maximum = Number(state.rowCapacity || computeGeometry().rows) - effectiveLiftRows(state) + 1;
     const form = document.createElement('form');
     form.className = 'inline-row-editor';
-    const currentMaterial = row.material || (row.materialSegments?.[0]?.allocations?.length === 1 ? row.materialSegments[0].allocations[0].material : '');
-    const split = row.pattern.length === 1 ? materialSplitForLength(row.pattern[0]) : null;
-    const materialOptions = split ? [
-      { name: split.primary, quantity: split.primaryQuantity },
-      ...(split.secondaryQuantity ? [{ name: split.secondary, quantity: split.secondaryQuantity }] : []),
-    ].map((item) => `<option value="${encodeURIComponent(item.name)}" ${item.name === currentMaterial ? 'selected' : ''}>${escapeHtml(item.name)} · ${item.quantity} boards in order</option>`).join('') : '';
-    form.innerHTML = `<label>Row combination<input class="inline-pattern-input" type="text" value="${row.pattern.join(' + ')}" inputmode="numeric" aria-label="Board lengths separated by plus"></label>${materialOptions ? `<label>Material for this row<select class="inline-auto-material">${materialOptions}</select></label>` : ''}<label>Repeat rows<input class="inline-repeat-input" type="number" min="1" max="${maximum}" step="1" value="1"></label><button type="submit">Apply & replan</button><button class="inline-row-edit-cancel secondary" type="button">Cancel</button><small>For a solid row, material is fixed to this physical row. Example combination: 6 + 13.</small>`;
+    const materialSelectors = row.pattern.map((length, segmentIndex) => {
+      const split = materialSplitForLength(length);
+      const currentMaterial = row.pattern.length === 1
+        ? row.material || (row.materialSegments?.[0]?.allocations?.length === 1 ? row.materialSegments[0].allocations[0].material : '')
+        : row.segmentMaterials?.[segmentIndex] || (row.materialSegments?.[segmentIndex]?.allocations?.length === 1 ? row.materialSegments[segmentIndex].allocations[0].material : '');
+      const options = [
+        { name: split.primary, quantity: split.primaryQuantity },
+        ...(split.secondaryQuantity ? [{ name: split.secondary, quantity: split.secondaryQuantity }] : []),
+      ].map((item) => `<option value="${encodeURIComponent(item.name)}" ${item.name === currentMaterial ? 'selected' : ''}>${escapeHtml(item.name)} · ${item.quantity} in order</option>`).join('');
+      return `<label>Material · ${length} ft${row.pattern.length > 1 ? ` · segment ${segmentIndex + 1}` : ''}<select class="inline-auto-material" data-segment="${segmentIndex}">${options}</select></label>`;
+    }).join('');
+    form.innerHTML = `<label>Row combination<input class="inline-pattern-input" type="text" value="${row.pattern.join(' + ')}" inputmode="numeric" aria-label="Board lengths separated by plus"></label>${materialSelectors}<label>Repeat rows<input class="inline-repeat-input" type="number" min="1" max="${maximum}" step="1" value="1"></label><button type="submit">Save row</button><button class="inline-row-edit-cancel secondary" type="button">Cancel</button><small>Changing only material preserves every lift and row position. Changing lengths or repetitions replans only unstarted continuation.</small>`;
     button.closest('.stacking-lift')?.querySelector('.stacking-grid')?.insertAdjacentElement('afterend', form);
     form.querySelector('.inline-row-edit-cancel').addEventListener('click', () => form.remove());
     form.addEventListener('submit', (submitEvent) => {
       submitEvent.preventDefault();
       try {
-        replaceAutomaticRow(currentLoadNumber, liftIndex, autoIndex, form.querySelector('.inline-pattern-input').value, form.querySelector('.inline-repeat-input').value, decodeURIComponent(form.querySelector('.inline-auto-material')?.value || ''));
+        const nextPattern = parseRowPattern(form.querySelector('.inline-pattern-input').value);
+        const repeat = Math.floor(Number(form.querySelector('.inline-repeat-input').value));
+        const materials = [...form.querySelectorAll('.inline-auto-material')].sort((left, right) => Number(left.dataset.segment) - Number(right.dataset.segment)).map((select) => decodeURIComponent(select.value));
+        if (repeat === 1 && JSON.stringify(nextPattern) === JSON.stringify(row.pattern)) {
+          setAutomaticRowMaterials(currentLoadNumber, liftIndex, autoIndex, materials);
+        } else {
+          replaceAutomaticRow(currentLoadNumber, liftIndex, autoIndex, form.querySelector('.inline-pattern-input').value, repeat, materials[0] || '', materials);
+        }
       } catch (error) { showInlineEditorError(error); }
     });
     form.querySelector('.inline-pattern-input').focus();

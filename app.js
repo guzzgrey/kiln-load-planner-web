@@ -2528,6 +2528,20 @@ function rowMaterialLabel(row) {
   }).join(' + ');
 }
 
+function rowPatternDisplay(row) {
+  const pattern = row?.pattern || (row?.length ? [row.length] : []);
+  return pattern.length > 1 ? `${pattern.join(' ft + ')} ft` : `${pattern[0] || 0} ft`;
+}
+
+function rowMaterialDisplay(row) {
+  const segments = row?.materialSegments || [];
+  if (!segments.length) return escapeHtml(row?.material || 'Material not assigned');
+  return segments.map((segment) => {
+    const names = segment.allocations.map((allocation) => `${escapeHtml(allocation.material)}${segment.allocations.length > 1 ? ` ${allocation.quantity}` : ''}`).join(' / ');
+    return segments.length > 1 ? `${segment.length} ft: ${names}` : names;
+  }).join(' · ');
+}
+
 function remainingMaterialsForPlan(plan) {
   const remaining = new Map();
   Object.entries(plan?.materialAvailableMap || {}).forEach(([key, quantity]) => remaining.set(key, Number(quantity || 0)));
@@ -3382,8 +3396,8 @@ function calculate(allowOptimization = false) {
     const entries = orderedStackingEntries(state);
     const rows = entries.map((entry, rowIndex) => {
       const drag = stackingEditable ? `draggable="true" data-lift="${liftIndex}" data-token="${entry.token}"` : '';
-      if (entry.kind === 'manual') return `<span class="stacking-row manual" ${drag}><b>${rowIndex + 1}</b><span>${rowMaterialLabel(entry.row)}</span><small><input class="inline-row-quantity" type="number" min="1" max="${geometry.across}" step="1" value="${entry.row.quantity}" data-lift="${liftIndex}" data-row-id="${entry.row.id}"> / ${geometry.across} boards · MANUAL <button class="inline-row-remove" type="button" data-lift="${liftIndex}" data-row-id="${entry.row.id}" aria-label="Remove manual row">×</button></small><i class="drag-handle" aria-hidden="true">⋮⋮</i></span>`;
-      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag}><b>${rowIndex + 1}</b><span>${rowMaterialLabel(entry.row)}</span><small>${entry.row.type === 'joined' ? 'JOINED' : 'SOLID'}</small>${stackingEditable ? `<button class="inline-auto-edit" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Edit row ${rowIndex + 1}" title="Edit combination and repetitions">✎</button><button class="inline-auto-remove" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Remove row ${rowIndex + 1}" title="Remove this row">×</button><i class="drag-handle" aria-hidden="true">⋮⋮</i>` : ''}</span>`;
+      if (entry.kind === 'manual') return `<span class="stacking-row manual" ${drag} title="${rowMaterialDisplay(entry.row)}"><b>${rowIndex + 1}</b><span><strong>${rowPatternDisplay(entry.row)}</strong><em>${rowMaterialDisplay(entry.row)}</em></span><small><input class="inline-row-quantity" type="number" min="1" max="${geometry.across}" step="1" value="${entry.row.quantity}" data-lift="${liftIndex}" data-row-id="${entry.row.id}"> / ${geometry.across} · MANUAL <button class="inline-row-remove" type="button" data-lift="${liftIndex}" data-row-id="${entry.row.id}" aria-label="Remove manual row">×</button></small><i class="drag-handle" aria-hidden="true">⋮⋮</i></span>`;
+      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag} title="${rowMaterialDisplay(entry.row)}"><b>${rowIndex + 1}</b><span><strong>${rowPatternDisplay(entry.row)}</strong><em>${rowMaterialDisplay(entry.row)}</em></span><small>${entry.row.type === 'joined' ? 'JOINED ROW' : 'SOLID ROW'}</small>${stackingEditable ? `<button class="inline-auto-edit" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Edit row ${rowIndex + 1}">Edit</button><button class="inline-auto-remove" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Remove row ${rowIndex + 1}" title="Remove this row">×</button><i class="drag-handle" aria-hidden="true">⋮⋮</i>` : ''}</span>`;
     }).join('');
     const boards = [...usedMapForStates([state], geometry).values()].reduce((sum, quantity) => sum + quantity, 0);
     const compatible = [...inlineStock.entries()].filter(([length, quantity]) => Number(quantity) > 0 && Number(length) <= occupiedLiftLength(state)).sort(([left], [right]) => Number(right) - Number(left));
@@ -3397,8 +3411,8 @@ function calculate(allowOptimization = false) {
   const bulkRowForm = stackingEditable ? `<form class="bulk-row-form">
     <label>Number of rows<input class="bulk-row-count" type="number" min="1" max="200" step="1" value="1" aria-label="Number of full rows"></label>
     <label>Board length / material<select class="bulk-row-choice" aria-label="Board length and material">${bulkLengthOptions || '<option value="">No complete rows available</option>'}</select></label>
-    <button type="submit" ${bulkLengthOptions && activeStates.length ? '' : 'disabled'}>Add full rows</button>
-    <small>Example: enter <b>5 rows</b> and select <b>10 ft</b>. Each row uses ${geometry.across} boards and is placed into a compatible lift.</small>
+    <button type="submit" ${bulkLengthOptions && activeStates.length ? '' : 'disabled'}>Add selected rows</button>
+    <small>Each selected row uses ${geometry.across} boards of the chosen material.</small>
   </form>` : '';
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
@@ -4015,7 +4029,9 @@ function bindInlineStackingEditor() {
       return `<label>Material · ${length} ft${row.pattern.length > 1 ? ` · segment ${segmentIndex + 1}` : ''}<select class="inline-auto-material" data-segment="${segmentIndex}">${options}</select></label>`;
     }).join('');
     form.innerHTML = `<label>Row combination<input class="inline-pattern-input" type="text" value="${row.pattern.join(' + ')}" inputmode="numeric" aria-label="Board lengths separated by plus"></label>${materialSelectors}<label>Repeat rows<input class="inline-repeat-input" type="number" min="1" max="${maximum}" step="1" value="1"></label><button type="submit">Save row</button><button class="inline-row-edit-cancel secondary" type="button">Cancel</button><small>Changing only material preserves every lift and row position. Changing lengths or repetitions replans only unstarted continuation.</small>`;
-    button.closest('.stacking-lift')?.querySelector('.stacking-grid')?.insertAdjacentElement('afterend', form);
+    const grid = button.closest('.stacking-lift')?.querySelector('.stacking-grid');
+    grid?.insertAdjacentElement('beforebegin', form);
+    window.requestAnimationFrame(() => form.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     form.querySelector('.inline-row-edit-cancel').addEventListener('click', () => form.remove());
     form.addEventListener('submit', (submitEvent) => {
       submitEvent.preventDefault();

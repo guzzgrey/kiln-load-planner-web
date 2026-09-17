@@ -852,8 +852,8 @@ th {
 .inline-add-toggle { min-height:0; padding:5px 9px; font-size:10px; white-space:nowrap; }
 .stacking-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(175px,1fr)); gap:7px; padding:10px; }
 .stacking-row { position:relative; display:grid; grid-template-columns:28px minmax(0,1fr); grid-template-rows:auto auto; column-gap:8px; align-items:center; min-width:0; min-height:66px; padding:8px 64px 8px 8px; border:1px solid #d7dfda; border-left:4px solid var(--green); border-radius:8px; background:#f8faf8; }
-.stacking-row[draggable="true"] { cursor:grab; touch-action:pan-y; }
-.stacking-row[draggable="true"]:active { cursor:grabbing; }
+.drag-handle[draggable="true"] { cursor:grab; touch-action:none; }
+.drag-handle[draggable="true"]:active { cursor:grabbing; }
 .stacking-row.is-dragging { opacity:.35; }
 .stacking-row.is-drop-target { outline:2px solid #b98522; outline-offset:1px; }
 .drag-handle { position:absolute; top:50%; right:7px; transform:translateY(-50%); color:#8ca096; font-size:12px; font-style:normal; letter-spacing:-3px; }

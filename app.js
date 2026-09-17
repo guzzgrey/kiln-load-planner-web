@@ -3395,9 +3395,10 @@ function calculate(allowOptimization = false) {
   const rowSchedule = activeStates.map((state, liftIndex) => {
     const entries = orderedStackingEntries(state);
     const rows = entries.map((entry, rowIndex) => {
-      const drag = stackingEditable ? `draggable="true" data-lift="${liftIndex}" data-token="${entry.token}"` : '';
-      if (entry.kind === 'manual') return `<span class="stacking-row manual" ${drag} title="${rowMaterialDisplay(entry.row)}"><b>${rowIndex + 1}</b><span><strong>${rowPatternDisplay(entry.row)}</strong><em>${rowMaterialDisplay(entry.row)}</em></span><small><input class="inline-row-quantity" type="number" min="1" max="${geometry.across}" step="1" value="${entry.row.quantity}" data-lift="${liftIndex}" data-row-id="${entry.row.id}"> / ${geometry.across} · MANUAL <button class="inline-row-remove" type="button" data-lift="${liftIndex}" data-row-id="${entry.row.id}" aria-label="Remove manual row">×</button></small><i class="drag-handle" aria-hidden="true">⋮⋮</i></span>`;
-      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${drag} title="${rowMaterialDisplay(entry.row)}"><b>${rowIndex + 1}</b><span><strong>${rowPatternDisplay(entry.row)}</strong><em>${rowMaterialDisplay(entry.row)}</em></span><small>${entry.row.type === 'joined' ? 'JOINED ROW' : 'SOLID ROW'}</small>${stackingEditable ? `<button class="inline-auto-edit" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Edit row ${rowIndex + 1}">Edit</button><button class="inline-auto-remove" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Remove row ${rowIndex + 1}" title="Remove this row">×</button><i class="drag-handle" aria-hidden="true">⋮⋮</i>` : ''}</span>`;
+      const dragData = stackingEditable ? `data-lift="${liftIndex}" data-token="${entry.token}"` : '';
+      const dragHandle = stackingEditable ? `<i class="drag-handle" draggable="true" data-lift="${liftIndex}" data-token="${entry.token}" aria-label="Drag row to reorder" title="Drag to reorder">⋮⋮</i>` : '';
+      if (entry.kind === 'manual') return `<span class="stacking-row manual" ${dragData} title="${rowMaterialDisplay(entry.row)}"><b>${rowIndex + 1}</b><span><strong>${rowPatternDisplay(entry.row)}</strong><em>${rowMaterialDisplay(entry.row)}</em></span><small><input class="inline-row-quantity" type="number" min="1" max="${geometry.across}" step="1" value="${entry.row.quantity}" data-lift="${liftIndex}" data-row-id="${entry.row.id}"> / ${geometry.across} · MANUAL <button class="inline-row-remove" type="button" data-lift="${liftIndex}" data-row-id="${entry.row.id}" aria-label="Remove manual row">×</button></small>${dragHandle}</span>`;
+      return `<span class="stacking-row ${entry.row.type === 'joined' ? 'joined' : 'solid'}" ${dragData} title="${rowMaterialDisplay(entry.row)}"><b>${rowIndex + 1}</b><span><strong>${rowPatternDisplay(entry.row)}</strong><em>${rowMaterialDisplay(entry.row)}</em></span><small>${entry.row.type === 'joined' ? 'JOINED ROW' : 'SOLID ROW'}</small>${stackingEditable ? `<button class="inline-auto-edit" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Edit row ${rowIndex + 1}">Edit</button><button class="inline-auto-remove" type="button" data-lift="${liftIndex}" data-auto-index="${entry.autoIndex}" aria-label="Remove row ${rowIndex + 1}" title="Remove this row">×</button>${dragHandle}` : ''}</span>`;
     }).join('');
     const boards = [...usedMapForStates([state], geometry).values()].reduce((sum, quantity) => sum + quantity, 0);
     const compatible = [...inlineStock.entries()].filter(([length, quantity]) => Number(quantity) > 0 && Number(length) <= occupiedLiftLength(state)).sort(([left], [right]) => Number(right) - Number(left));
@@ -3935,13 +3936,20 @@ function bindInlineStackingEditor() {
     }
     catch (error) { showInlineEditorError(error); }
   });
-  container.querySelectorAll('.stacking-row[draggable="true"]').forEach((row) => {
-    row.addEventListener('dragstart', (event) => {
-      dragged = { liftIndex: Number(row.dataset.lift), token: row.dataset.token };
+  container.querySelectorAll('.drag-handle[draggable="true"]').forEach((handle) => {
+    const row = handle.closest('.stacking-row');
+    handle.addEventListener('dragstart', (event) => {
+      dragged = { liftIndex: Number(handle.dataset.lift), token: handle.dataset.token };
       row.classList.add('is-dragging');
       event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', row.dataset.token);
+      event.dataTransfer.setData('text/plain', handle.dataset.token);
     });
+    handle.addEventListener('dragend', () => {
+      container.querySelectorAll('.is-dragging,.is-drop-target').forEach((item) => item.classList.remove('is-dragging', 'is-drop-target'));
+      dragged = null;
+    });
+  });
+  container.querySelectorAll('.stacking-row[data-token]').forEach((row) => {
     row.addEventListener('dragover', (event) => {
       if (!dragged || dragged.liftIndex !== Number(row.dataset.lift)) return;
       event.preventDefault();
@@ -3955,10 +3963,9 @@ function bindInlineStackingEditor() {
       try { reorderStackingRows(currentLoadNumber, dragged.liftIndex, dragged.token, row.dataset.token); }
       catch (error) { showInlineEditorError(error); }
     });
-    row.addEventListener('dragend', () => {
-      container.querySelectorAll('.is-dragging,.is-drop-target').forEach((item) => item.classList.remove('is-dragging', 'is-drop-target'));
-      dragged = null;
-    });
+  });
+  container.querySelectorAll('.inline-auto-edit,.inline-auto-remove,.inline-row-remove,.inline-row-quantity').forEach((control) => {
+    ['pointerdown', 'mousedown', 'touchstart'].forEach((eventName) => control.addEventListener(eventName, (event) => event.stopPropagation(), { passive: true }));
   });
   container.querySelectorAll('.inline-add-toggle').forEach((button) => button.addEventListener('click', () => {
     const panel = container.querySelector(`.inline-fill-panel[data-lift="${button.dataset.lift}"]`);

@@ -2573,12 +2573,17 @@ function assignMaterialIdentity(plans, sourceStock, geometry) {
     const materialUsedMap = {};
     const activeStates = (plan.activeStates || []).map((state) => {
       const rowSequence = (state.rowSequence || []).map((row) => {
-        const materialSegments = row.pattern.map((length) => allocateRowMaterial(pools, length, geometry.across));
+        const materialSegments = row.pattern.map((length, segmentIndex) => allocateRowMaterial(
+          pools,
+          length,
+          geometry.across,
+          row.pattern.length === 1 || Array.isArray(row.segmentMaterials) ? (row.pattern.length === 1 ? (row.materialLocked ? row.material : '') : row.segmentMaterials?.[segmentIndex]) || '' : '',
+        ));
         materialSegments.forEach((segment) => segment.allocations.forEach((allocation) => {
           const key = materialKey(segment.length, allocation.material);
           materialUsedMap[key] = Number(materialUsedMap[key] || 0) + allocation.quantity;
         }));
-        return { ...row, pattern: [...row.pattern], materialSegments };
+        return { ...row, pattern: [...row.pattern], material: row.materialLocked ? row.material : '', materialLocked: Boolean(row.materialLocked), materialSegments };
       });
       const manualRows = (state.manualRows || []).map((row) => {
         const segment = allocateRowMaterial(pools, row.length, row.quantity, row.material || '');
@@ -3795,7 +3800,7 @@ function parseRowPattern(value) {
   return pattern;
 }
 
-function replaceAutomaticRow(loadNumber, liftIndex, autoIndex, patternValue, repetitions) {
+function replaceAutomaticRow(loadNumber, liftIndex, autoIndex, patternValue, repetitions, material = '') {
   const plan = globalOrderPlans[loadNumber - 1];
   if (!plan || isLoadCompleted(loadNumber)) throw new Error('This completed kiln load cannot be changed.');
   if (isLoadInProgress(loadNumber)) throw new Error('Cancel the cycle start before changing its rows.');
@@ -3815,6 +3820,8 @@ function replaceAutomaticRow(loadNumber, liftIndex, autoIndex, patternValue, rep
   const replacement = Array.from({ length: repeat }, () => ({
     type: pattern.length > 1 ? 'joined' : 'solid',
     pattern: [...pattern],
+    material: pattern.length === 1 ? String(material || '') : '',
+    materialLocked: pattern.length === 1 && Boolean(material),
   }));
   state.rowSequence.splice(index, 1, ...replacement);
   state.stackingOrder = previousOrder.flatMap((token) => {
@@ -3948,13 +3955,19 @@ function bindInlineStackingEditor() {
     const maximum = Number(state.rowCapacity || computeGeometry().rows) - effectiveLiftRows(state) + 1;
     const form = document.createElement('form');
     form.className = 'inline-row-editor';
-    form.innerHTML = `<label>Row combination<input class="inline-pattern-input" type="text" value="${row.pattern.join(' + ')}" inputmode="numeric" aria-label="Board lengths separated by plus"></label><label>Repeat rows<input class="inline-repeat-input" type="number" min="1" max="${maximum}" step="1" value="1"></label><button type="submit">Apply & replan</button><button class="inline-row-edit-cancel secondary" type="button">Cancel</button><small>Example: 6 + 13. The edited cycle is fixed; all other unstarted cycles are recalculated.</small>`;
+    const currentMaterial = row.material || (row.materialSegments?.[0]?.allocations?.length === 1 ? row.materialSegments[0].allocations[0].material : '');
+    const split = row.pattern.length === 1 ? materialSplitForLength(row.pattern[0]) : null;
+    const materialOptions = split ? [
+      { name: split.primary, quantity: split.primaryQuantity },
+      ...(split.secondaryQuantity ? [{ name: split.secondary, quantity: split.secondaryQuantity }] : []),
+    ].map((item) => `<option value="${encodeURIComponent(item.name)}" ${item.name === currentMaterial ? 'selected' : ''}>${escapeHtml(item.name)} · ${item.quantity} boards in order</option>`).join('') : '';
+    form.innerHTML = `<label>Row combination<input class="inline-pattern-input" type="text" value="${row.pattern.join(' + ')}" inputmode="numeric" aria-label="Board lengths separated by plus"></label>${materialOptions ? `<label>Material for this row<select class="inline-auto-material">${materialOptions}</select></label>` : ''}<label>Repeat rows<input class="inline-repeat-input" type="number" min="1" max="${maximum}" step="1" value="1"></label><button type="submit">Apply & replan</button><button class="inline-row-edit-cancel secondary" type="button">Cancel</button><small>For a solid row, material is fixed to this physical row. Example combination: 6 + 13.</small>`;
     button.closest('.stacking-lift')?.querySelector('.stacking-grid')?.insertAdjacentElement('afterend', form);
     form.querySelector('.inline-row-edit-cancel').addEventListener('click', () => form.remove());
     form.addEventListener('submit', (submitEvent) => {
       submitEvent.preventDefault();
       try {
-        replaceAutomaticRow(currentLoadNumber, liftIndex, autoIndex, form.querySelector('.inline-pattern-input').value, form.querySelector('.inline-repeat-input').value);
+        replaceAutomaticRow(currentLoadNumber, liftIndex, autoIndex, form.querySelector('.inline-pattern-input').value, form.querySelector('.inline-repeat-input').value, decodeURIComponent(form.querySelector('.inline-auto-material')?.value || ''));
       } catch (error) { showInlineEditorError(error); }
     });
     form.querySelector('.inline-pattern-input').focus();

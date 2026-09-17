@@ -876,9 +876,9 @@ th {
 .inline-fill-panel button { min-height:34px; padding:6px 10px; white-space:nowrap; }
 .inline-fill-cancel { color:#7a3d13; border-color:#d9a86c; background:#fff8ee; }
 .inline-fill-panel > small { align-self:center; color:var(--muted); font-size:10px; }
-.inline-row-editor { display:grid; grid-template-columns:minmax(180px,1fr) 110px auto auto minmax(250px,1.4fr); align-items:end; gap:8px; padding:9px 10px; border-top:1px solid #e7c98f; border-bottom:1px solid #e7c98f; background:#fff9ed; }
+.inline-row-editor { display:grid; grid-template-columns:minmax(160px,1fr) minmax(180px,1fr) 100px auto auto minmax(220px,1.2fr); align-items:end; gap:8px; padding:9px 10px; border-top:1px solid #e7c98f; border-bottom:1px solid #e7c98f; background:#fff9ed; }
 .inline-row-editor label { display:grid; gap:3px; color:#78520d; font-size:10px; font-weight:900; }
-.inline-row-editor input { min-height:34px; padding:6px 8px; }
+.inline-row-editor input, .inline-row-editor select { min-height:34px; padding:6px 8px; }
 .inline-row-editor button { min-height:34px; padding:6px 10px; white-space:nowrap; }
 .inline-row-editor small { align-self:center; color:var(--muted); font-size:10px; }
 .stacking-empty { color:var(--muted); }

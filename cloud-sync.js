@@ -12,6 +12,7 @@
     'kiln-planner-shipping-tags-v1',
     'kiln-planner-recovery-operations-v1',
     'kiln-planner-test-boards-v1',
+    'kiln-planner-preliminary-orders-v1',
     'kiln-planner-shipments-v1',
     'kiln-planner-final-process-date-v1',
     'kiln-planner-supplier-profiles-v1',

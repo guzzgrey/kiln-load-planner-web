@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
-    <link rel="stylesheet" href="styles.css?v=test-board-ledger-v12" />
+    <link rel="stylesheet" href="styles.css?v=preorder-planner-v1" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -28,6 +28,35 @@
         <div><b id="completionPercent">0%</b><span>thermal-cycle completion</span></div>
         <div><b id="availableBoards">0</b><span>untagged processed boards</span></div>
         <label>Final process date<input id="warehouseFinalDate" type="date" /><small>One final date for the complete production order.</small></label>
+      </section>
+
+      <section class="card warehouse-section preorder-planner" id="preorderPlanner">
+        <div class="section-heading">
+          <div><p class="eyebrow">PRELIMINARY CUSTOMER ORDER</p><h2>Plan finished material into future TAG stacks</h2></div>
+          <div class="preorder-heading-actions">
+            <button id="newPreorder" class="secondary" type="button">New draft</button>
+            <button id="deletePreorder" class="danger" type="button">Delete draft</button>
+            <button id="addPreorderStack" type="button">+ Add future TAG</button>
+          </div>
+        </div>
+        <p class="note">Ready material comes only from completed cycles and excludes TEST/YARD allocations. Expected material comes only from the cycle currently marked Start. This draft reserves material for planning, but does not move physical inventory.</p>
+        <div class="preorder-controls">
+          <label>Saved draft<select id="preorderSelect"></select></label>
+          <label>Customer / project<input id="preorderCustomer" placeholder="Customer name"></label>
+          <label>Preliminary order #<input id="preorderNumber" placeholder="PO / quote #"></label>
+          <label>Target, BF<input id="preorderTarget" type="number" min="0" step="1" value="4200"></label>
+        </div>
+        <div id="preorderMetrics" class="preorder-metrics"></div>
+        <div class="preorder-workspace">
+          <section class="preorder-source-panel">
+            <h3>Available production</h3>
+            <div id="preorderSources" class="preorder-sources"></div>
+          </section>
+          <section class="preorder-stack-panel">
+            <div id="preorderStacks" class="preorder-stacks"></div>
+          </section>
+        </div>
+        <div id="preorderStatus" class="calculation-status idle">Create a future TAG and allocate finished lengths toward the customer BF target.</div>
       </section>
 
       <section class="card warehouse-section order-ledger-section">
@@ -141,6 +170,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=test-board-ledger-v4" data-app="warehouse.js?v=test-board-ledger-v3"></script>
+    <script src="cloud-sync.js?v=preorder-planner-v1" data-app="warehouse.js?v=preorder-planner-v1"></script>
   </body>
 </html>

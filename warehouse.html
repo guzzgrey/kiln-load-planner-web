@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
-    <link rel="stylesheet" href="styles.css?v=preorder-layout-v2" />
+    <link rel="stylesheet" href="styles.css?v=preorder-material-bf-v3" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -47,6 +47,7 @@
           <label>Target, BF<input id="preorderTarget" type="number" min="0" step="1" value="4200"></label>
         </div>
         <div id="preorderMetrics" class="preorder-metrics"></div>
+        <div id="preorderMaterialTotals" class="preorder-material-totals"></div>
         <div class="preorder-workspace">
           <section class="preorder-source-panel">
             <h3>Available production</h3>
@@ -170,6 +171,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=preorder-planner-v1" data-app="warehouse.js?v=preorder-planner-v1"></script>
+    <script src="cloud-sync.js?v=preorder-planner-v1" data-app="warehouse.js?v=preorder-material-bf-v3"></script>
   </body>
 </html>

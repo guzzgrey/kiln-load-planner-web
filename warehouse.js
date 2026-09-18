@@ -257,19 +257,42 @@ function renderPreorderPlanner() {
     <div><b>${fmt(selectedBf, 1)}</b><span>selected BF</span></div>
     <div class="${delta < 0 ? 'over' : ''}"><b>${delta < 0 ? '+' : ''}${fmt(Math.abs(delta), 1)}</b><span>${delta < 0 ? 'BF over target' : 'BF still needed'}</span></div>
     <div><b>${fmt(readyBoards)} / ${fmt(expectedBoards)}</b><span>ready / expected boards</span></div>`;
+  const materialTotals = new Map();
+  lots.forEach((lot) => {
+    const values = materialTotals.get(lot.material) || { readyQty: 0, readyBf: 0, readyFreeQty: 0, readyFreeBf: 0, expectedQty: 0, expectedBf: 0, expectedFreeQty: 0, expectedFreeBf: 0 };
+    const free = Math.max(0, Number(lot.quantity || 0) - preorderReserved(lot.id));
+    const prefix = lot.status === 'ready' ? 'ready' : 'expected';
+    values[`${prefix}Qty`] += Number(lot.quantity || 0);
+    values[`${prefix}Bf`] += preorderBf(lot.length, lot.quantity);
+    values[`${prefix}FreeQty`] += free;
+    values[`${prefix}FreeBf`] += preorderBf(lot.length, free);
+    materialTotals.set(lot.material, values);
+  });
+  $('preorderMaterialTotals').innerHTML = materialTotals.size
+    ? [...materialTotals.entries()].map(([material, values]) => `<article><h3>${esc(material)}</h3><div class="material-stock-line ready"><span>READY in warehouse</span><b>${fmt(values.readyQty)} PCS · ${fmt(values.readyBf, 1)} BF</b><small>${fmt(values.readyFreeQty)} PCS · ${fmt(values.readyFreeBf, 1)} BF free for drafts</small></div><div class="material-stock-line expected"><span>EXPECTED from started cycle</span><b>${fmt(values.expectedQty)} PCS · ${fmt(values.expectedBf, 1)} BF</b><small>${fmt(values.expectedFreeQty)} PCS · ${fmt(values.expectedFreeBf, 1)} BF free for drafts</small></div></article>`).join('')
+    : '<div class="empty-state">No material is available from completed or started cycles.</div>';
   const stackOptions = (draft.stacks || []).map((stack) => `<option value="${esc(stack.id)}">${esc(stack.name)}</option>`).join('');
   $('preorderSources').innerHTML = lots.length ? lots.map((lot) => {
     const available = Math.max(0, lot.quantity - preorderReserved(lot.id));
-    return `<div class="preorder-source-row" data-lot-id="${esc(lot.id)}"><span><b>${fmt(lot.length)} ft · ${esc(lot.material)}</b><small class="source-${lot.status}">${lot.status === 'ready' ? 'READY' : 'EXPECTED'} · Kiln Load ${fmt(lot.loadNumber || 0)} · ${esc(qualityLabel(lot.quality))}</small></span><strong>${fmt(available)}</strong><input class="preorder-source-qty" type="number" min="1" max="${available}" value="${available ? 1 : 0}" ${available ? '' : 'disabled'} aria-label="Quantity"><select class="preorder-source-stack" ${stackOptions ? '' : 'disabled'}>${stackOptions || '<option>Add TAG first</option>'}</select><button class="preorder-add-source" type="button" ${available && stackOptions ? '' : 'disabled'}>Add</button></div>`;
+    return `<div class="preorder-source-row" data-lot-id="${esc(lot.id)}"><span><b>${fmt(lot.length)} ft · ${esc(lot.material)}</b><small class="source-${lot.status}">${lot.status === 'ready' ? 'READY' : 'EXPECTED'} · Kiln Load ${fmt(lot.loadNumber || 0)} · ${esc(qualityLabel(lot.quality))}</small></span><strong><b>${fmt(available)} PCS</b><small>${fmt(preorderBf(lot.length, available), 1)} BF</small></strong><input class="preorder-source-qty" type="number" min="1" max="${available}" value="${available ? 1 : 0}" ${available ? '' : 'disabled'} aria-label="Quantity"><select class="preorder-source-stack" ${stackOptions ? '' : 'disabled'}>${stackOptions || '<option>Add TAG first</option>'}</select><button class="preorder-add-source" type="button" ${available && stackOptions ? '' : 'disabled'}>Add</button></div>`;
   }).join('') : '<div class="empty-state">No material is available from a completed or currently started cycle.</div>';
   $('preorderStacks').innerHTML = (draft.stacks || []).length ? draft.stacks.map((stack) => {
     const stackBf = (stack.items || []).reduce((sum, item) => sum + preorderBf(item.length, item.quantity), 0);
+    const stackBoards = (stack.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const stackMaterials = new Map();
+    (stack.items || []).forEach((item) => {
+      const value = stackMaterials.get(item.material) || { quantity: 0, bf: 0 };
+      value.quantity += Number(item.quantity || 0);
+      value.bf += preorderBf(item.length, item.quantity);
+      stackMaterials.set(item.material, value);
+    });
+    const materialSummary = [...stackMaterials.entries()].map(([material, value]) => `<span><b>${esc(material)}</b>${fmt(value.quantity)} PCS · ${fmt(value.bf, 1)} BF</span>`).join('');
     const items = (stack.items || []).map((item) => {
       const liveLot = lots.find((lot) => lot.id === item.lotId);
       const status = liveLot?.status || item.sourceStatus || 'expected';
       return `<article class="preorder-allocation ${status}" draggable="true" data-item-id="${esc(item.id)}"><span><b>${fmt(item.length)} ft · ${esc(item.material)}</b><small>${status === 'ready' ? 'READY' : 'EXPECTED'} · Load ${fmt(item.loadNumber)} · ${fmt(preorderBf(item.length, item.quantity), 1)} BF</small></span><input class="preorder-item-qty" data-item-id="${esc(item.id)}" type="number" min="1" value="${fmt(item.quantity)}" aria-label="Board quantity"><button class="danger preorder-remove-item" data-item-id="${esc(item.id)}" type="button">×</button></article>`;
     }).join('');
-    return `<article class="preorder-stack" data-stack-id="${esc(stack.id)}"><header><input class="preorder-stack-name" data-stack-id="${esc(stack.id)}" value="${esc(stack.name)}" aria-label="Future TAG name"><span>${fmt(stackBf, 1)} BF</span><button class="danger preorder-remove-stack" data-stack-id="${esc(stack.id)}" type="button">×</button></header><div class="preorder-stack-items">${items || '<div class="preorder-empty">Drag planned material here</div>'}</div></article>`;
+    return `<article class="preorder-stack" data-stack-id="${esc(stack.id)}"><header><input class="preorder-stack-name" data-stack-id="${esc(stack.id)}" value="${esc(stack.name)}" aria-label="Future TAG name"><span><b>${fmt(stackBoards)} PCS</b> · ${fmt(stackBf, 1)} BF</span><button class="danger preorder-remove-stack" data-stack-id="${esc(stack.id)}" type="button">×</button></header>${materialSummary ? `<div class="preorder-stack-materials">${materialSummary}</div>` : ''}<div class="preorder-stack-items">${items || '<div class="preorder-empty">Drag planned material here</div>'}</div></article>`;
   }).join('') : '<div class="empty-state">Add a future TAG stack, then place lengths into it.</div>';
   $('preorderStatus').className = `calculation-status ${Math.abs(delta) < 0.05 && target > 0 ? 'ready' : 'idle'}`;
   $('preorderStatus').textContent = Math.abs(delta) < 0.05 && target > 0

@@ -627,11 +627,16 @@ button.is-loading::after {
 .preorder-metrics b { display:block; color:var(--green); font-size:22px; }
 .preorder-metrics span { color:var(--muted); }
 .preorder-metrics .over b { color:var(--red); }
-.preorder-workspace { display:grid; grid-template-columns:minmax(360px,.8fr) minmax(520px,1.4fr); gap:14px; align-items:start; }
+.preorder-workspace { display:grid; grid-template-columns:minmax(430px,.85fr) minmax(480px,1.4fr); gap:18px; align-items:start; }
 .preorder-source-panel, .preorder-stack-panel { min-width:0; }
 .preorder-source-panel h3 { margin:0 0 9px; }
 .preorder-sources { display:grid; gap:7px; max-height:540px; overflow:auto; }
-.preorder-source-row { display:grid; grid-template-columns:minmax(145px,1fr) 62px 72px minmax(120px,.7fr) auto; gap:7px; align-items:center; padding:9px; border:1px solid var(--line); border-radius:9px; background:#fafbf9; }
+.preorder-source-row { display:grid; grid-template-columns:minmax(82px,.55fr) minmax(138px,1fr) auto; grid-template-areas:"info info available" "quantity stack action"; gap:8px; align-items:center; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:#fafbf9; }
+.preorder-source-row > span { grid-area:info; min-width:0; }
+.preorder-source-row > strong { grid-area:available; justify-self:end; padding-left:8px; color:var(--green); font-size:17px; }
+.preorder-source-row .preorder-source-qty { grid-area:quantity; width:100%; }
+.preorder-source-row .preorder-source-stack { grid-area:stack; width:100%; min-width:0; }
+.preorder-source-row .preorder-add-source { grid-area:action; min-width:64px; white-space:nowrap; }
 .preorder-source-row b, .preorder-source-row small { display:block; }
 .preorder-source-row small { color:var(--muted); }
 .preorder-source-row input { min-width:0; padding:7px; }
@@ -705,8 +710,7 @@ button.is-loading::after {
   .test-board-form, .test-program-grid { grid-template-columns:1fr; }
   .test-board-form .test-note-field { grid-column:auto; }
   .preorder-controls, .preorder-metrics, .preorder-workspace { grid-template-columns:1fr; }
-  .preorder-source-row { grid-template-columns:1fr 70px auto; }
-  .preorder-source-row > span { grid-column:1 / -1; }
+  .preorder-source-row { grid-template-columns:minmax(72px,.5fr) minmax(120px,1fr) auto; }
 }
 .shipping-table td:nth-child(5) { min-width: 150px; text-align: left; }
 

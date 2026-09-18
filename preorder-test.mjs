@@ -55,10 +55,11 @@ const result = await evaluate(`(() => {
     selectedBf: after.stacks[0].items.reduce((sum,item)=>sum+preorderBf(item.length,item.quantity),0),
     physicalAvailable: availableForYard()[8],
     readyLeft: productionLots().find((lot)=>lot.id===ready.id).quantity-preorderReserved(ready.id),
+    sourceOverflow: [...document.querySelectorAll('.preorder-source-row')].some((row) => row.scrollWidth > row.clientWidth + 1 || [...row.children].some((child) => child.getBoundingClientRect().right > row.getBoundingClientRect().right + 1)),
     pageText: document.getElementById('preorderPlanner').textContent,
   };
 })()`);
-if (result.items !== 2 || result.selected !== 64 || result.selectedBf !== 256 || result.physicalAvailable !== 56 || result.readyLeft !== 16
+if (result.items !== 2 || result.selected !== 64 || result.selectedBf !== 256 || result.physicalAvailable !== 56 || result.readyLeft !== 16 || result.sourceOverflow
   || !result.pageText.includes('SPF') || !result.pageText.includes('Hemlock') || !result.pageText.includes('READY') || !result.pageText.includes('EXPECTED')) {
   throw new Error('Preliminary order planner failed: '+JSON.stringify(result));
 }

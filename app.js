@@ -113,8 +113,7 @@ function scheduleDraftSave() {
   $('orderSaveState').textContent = 'Unsaved changes…';
   draftSaveTimer = window.setTimeout(() => {
     if (calculationDirty) {
-      activeOrder.calculated = false;
-      delete activeOrder.viewCache;
+      activeOrder.planStale = true;
     }
     persistActiveOrder(false);
     $('orderSaveState').textContent = 'Draft saved and synchronized';
@@ -281,7 +280,7 @@ function restoreRenderedCalculation() {
   $('loadNumber').textContent = currentLoadNumber;
   $('nextLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
   renderLoadNavigation();
-  calculationDirty = false;
+  calculationDirty = Boolean(activeOrder?.planStale);
   $('calculationStatus').className = 'calculation-status ready';
   $('calculationStatus').textContent = 'Saved calculation restored. Change an input and click Calculate Load to optimize again.';
   $('calc').textContent = 'Recalculate Load';
@@ -309,6 +308,10 @@ function persistActiveOrder(calculated = false) {
     activeOrder.calculatedAt = new Date().toISOString();
     activeOrder.optimizerVersion = 'frozen-cycles-global-rows-v5';
     activeOrder.viewCache = cacheRenderedCalculation();
+    activeOrder.calculatedInputs = inputSnapshot();
+    activeOrder.calculatedInventory = inventorySnapshot();
+    activeOrder.calculatedMaterialSplits = JSON.parse(JSON.stringify(activeOrder.materialSplits || {}));
+    activeOrder.planStale = false;
   }
   storeOrder(activeOrder);
   writeActiveOrderPointer(activeOrder);
@@ -605,7 +608,13 @@ function loadOptimizer() {
 
 function markCalculationPending() {
   if (calculationDirty) return;
+  if (activeOrder?.calculated && !activeOrder.calculatedInputs) {
+    activeOrder.calculatedInputs = { ...(activeOrder.inputs || inputSnapshot()) };
+    activeOrder.calculatedInventory = { ...(activeOrder.inventory || inventorySnapshot()) };
+    activeOrder.calculatedMaterialSplits = JSON.parse(JSON.stringify(activeOrder.materialSplits || {}));
+  }
   calculationDirty = true;
+  if (activeOrder?.calculated) activeOrder.planStale = true;
   const status = $('calculationStatus');
   if (!status) return;
   status.className = 'calculation-status pending';
@@ -4516,12 +4525,6 @@ function selectSavedLoad(loadNumber, { scrollToDetails = false } = {}) {
     if (scrollToDetails) document.querySelector('.load-plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return true;
   }
-  if (calculationDirty) {
-    const status = $('calculationStatus');
-    status.className = 'calculation-status pending';
-    status.textContent = 'Inputs changed — click Calculate Load before opening another saved kiln load.';
-    return false;
-  }
   if (!globalOrderPlans.length || !globalOrderSignature) {
     const status = $('calculationStatus');
     status.className = 'calculation-status pending';
@@ -4530,7 +4533,23 @@ function selectSavedLoad(loadNumber, { scrollToDetails = false } = {}) {
   }
   const scrollPosition = window.scrollY;
   currentLoadNumber = loadNumber;
+  const draftInputs = calculationDirty ? inputSnapshot() : null;
+  const draftRows = calculationDirty ? [...document.querySelectorAll('#inventory tr')].map((row) => ({
+    length: row.querySelector('.len').value,
+    quantity: row.querySelector('.qty').value,
+  })) : null;
+  const draftMaterialSplits = calculationDirty ? JSON.parse(JSON.stringify(activeOrder?.materialSplits || {})) : null;
   try {
+    if (calculationDirty) {
+      const savedInputs = activeOrder?.calculatedInputs || activeOrder?.inputs || {};
+      Object.entries(savedInputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
+      const savedInventory = activeOrder?.calculatedInventory || activeOrder?.inventory || {};
+      document.querySelectorAll('#inventory tr').forEach((row) => {
+        const length = Number(row.querySelector('.len').value);
+        row.querySelector('.qty').value = Number(savedInventory[length] || 0);
+      });
+      activeOrder.materialSplits = JSON.parse(JSON.stringify(activeOrder.calculatedMaterialSplits || activeOrder.materialSplits || {}));
+    }
     calculate(false);
   } catch (error) {
     console.error('Saved kiln load could not be rendered:', error);
@@ -4539,6 +4558,22 @@ function selectSavedLoad(loadNumber, { scrollToDetails = false } = {}) {
     status.className = 'calculation-status pending';
     status.textContent = 'The saved plan does not match the current inputs. Click Recalculate Load explicitly to replace it.';
     return false;
+  } finally {
+    if (calculationDirty && draftInputs) {
+      Object.entries(draftInputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
+      [...document.querySelectorAll('#inventory tr')].forEach((row, index) => {
+        if (!draftRows[index]) return;
+        row.querySelector('.len').value = draftRows[index].length;
+        row.querySelector('.qty').value = draftRows[index].quantity;
+      });
+      activeOrder.materialSplits = draftMaterialSplits;
+      refreshMaterialSplitCells();
+    }
+  }
+  if (calculationDirty) {
+    const status = $('calculationStatus');
+    status.className = 'calculation-status pending';
+    status.textContent = `Viewing saved Kiln Load ${loadNumber}. Changed inputs are preserved and will apply only after Calculate Load.`;
   }
   requestAnimationFrame(() => {
     if (scrollToDetails) document.querySelector('.load-plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

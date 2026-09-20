@@ -176,6 +176,10 @@ function preorderPurpose(draft) {
 }
 function migratePreorderPurposes() {
   const records = preorderRecords();
+  const order = activeOrder();
+  const orderNumber = String(order?.number || '').trim().toUpperCase();
+  const isWestminster334605 = orderNumber === 'ORD-334605' || orderNumber === '334605';
+  const isGorman508271240 = orderNumber === 'ORD-508271240';
   let changed = false;
   const migrated = records.map((draft) => {
     const purpose = preorderPurpose(draft);
@@ -185,6 +189,16 @@ function migratePreorderPurposes() {
     if (purpose === 'stock' && !hasAllocations && !String(draft.customer || '').trim() && !String(draft.number || '').trim()
       && Number(draft.targetBf || 0) === 4200 && draft.purpose === undefined) {
       next.targetBf = 0;
+      changed = true;
+    }
+    if (draft.orderId === order?.id && isWestminster334605 && draft.orderPurposeVersion !== 'order-specific-v2') {
+      next.purpose = 'customer';
+      if (!Number(next.targetBf || 0)) next.targetBf = 4200;
+      next.orderPurposeVersion = 'order-specific-v2';
+      changed = true;
+    } else if (draft.orderId === order?.id && isGorman508271240 && draft.orderPurposeVersion !== 'order-specific-v2') {
+      next.purpose = 'stock';
+      next.orderPurposeVersion = 'order-specific-v2';
       changed = true;
     }
     return next;
@@ -302,7 +316,7 @@ function updatePreorderPurposeUi(draft) {
   $('preorderNumber').disabled = !customerOrder;
   $('preorderCustomer').required = customerOrder;
   $('preorderEyebrow').textContent = customerOrder ? 'PRELIMINARY CUSTOMER ORDER' : 'UNASSIGNED FINISHED MATERIAL';
-  $('preorderHeading').textContent = customerOrder ? 'Plan finished material into future customer TAG stacks' : 'Stage finished material for New Westminster stock';
+  $('preorderHeading').textContent = customerOrder ? 'Plan finished material into future customer TAG stacks' : 'Stage finished material without a customer assignment';
   $('preorderTargetHint').textContent = customerOrder ? 'Customer quantity goal' : 'Optional until a customer agreement exists';
 }
 function addPreorderStack() {
@@ -340,7 +354,7 @@ function renderPreorderPlanner() {
   }
   const drafts = currentPreorders();
   $('preorderSelect').innerHTML = drafts.map((item) => {
-    const label = preorderPurpose(item) === 'customer' ? (item.number || item.customer || 'Customer draft') : 'New Westminster stock plan';
+    const label = preorderPurpose(item) === 'customer' ? (item.number || item.customer || 'Customer draft') : 'Unassigned stock plan';
     return `<option value="${esc(item.id)}" ${item.id === draft.id ? 'selected' : ''}>${esc(label)} · ${fmt(item.targetBf || 0)} BF</option>`;
   }).join('');
   updatePreorderPurposeUi(draft);
@@ -402,7 +416,7 @@ function renderPreorderPlanner() {
   $('preorderStatus').textContent = customerMissing
     ? 'Enter the customer or project before treating this draft as a customer order.'
     : !customerOrder
-      ? `Unassigned New Westminster stock plan — ${fmt(selectedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0))} boards / ${fmt(selectedBf, 1)} BF grouped without a customer commitment.`
+      ? `Unassigned stock plan — ${fmt(selectedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0))} boards / ${fmt(selectedBf, 1)} BF grouped without a customer commitment.`
       : Math.abs(delta) < 0.05 && target > 0
         ? `Customer target matched: ${fmt(selectedBf, 1)} BF in ${fmt((draft.stacks || []).length)} future TAG stack(s).`
         : `Customer draft only — no physical inventory was moved. ${fmt(Math.abs(delta), 1)} BF ${delta < 0 ? 'over' : 'remaining to target'}.`;

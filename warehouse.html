@@ -39,10 +39,10 @@
             <button id="addPreorderStack" type="button">+ Add future TAG</button>
           </div>
         </div>
-        <p class="note">Use an unassigned New Westminster stock plan until a customer agreement exists. Switch to Customer order only when the customer or project is known. Drafts reserve material for planning but do not move physical inventory.</p>
+        <p class="note">Use an unassigned stock plan until a customer agreement exists. Switch to Customer order only when the customer or project is known. Drafts reserve material for planning but do not move physical inventory.</p>
         <div class="preorder-controls">
           <label>Saved draft<select id="preorderSelect"></select></label>
-          <label>Plan purpose<select id="preorderPurpose"><option value="stock">No customer · New Westminster stock</option><option value="customer">Customer order / contract</option></select></label>
+          <label>Plan purpose<select id="preorderPurpose"><option value="stock">No customer · unassigned stock</option><option value="customer">Customer order / contract</option></select></label>
           <label class="preorder-customer-field">Customer / project<input id="preorderCustomer" placeholder="Customer name"></label>
           <label class="preorder-customer-field">Preliminary order #<input id="preorderNumber" placeholder="PO / quote #"></label>
           <label>Target, BF <small id="preorderTargetHint">Optional for an unassigned stock plan</small><input id="preorderTarget" type="number" min="0" step="1" value="0"></label>
@@ -172,6 +172,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=preorder-planner-v1" data-app="warehouse.js?v=gorman-balance-v5"></script>
+    <script src="cloud-sync.js?v=preorder-planner-v1" data-app="warehouse.js?v=order-specific-purpose-v6"></script>
   </body>
 </html>

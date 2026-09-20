@@ -30,6 +30,70 @@ function activeOrder() {
 function allCompleted() { return read(COMPLETED_KEY); }
 function belongsToOrder(item, order) { return !order || item.orderId === order.id || item.orderId === order.planSignature || item.productionOrderNumber === order.number || item.orderNumber === order.number; }
 function completed() { const order = activeOrder(); return allCompleted().filter((item) => belongsToOrder(item, order)).sort((a, b) => String(a.completedDate).localeCompare(String(b.completedDate)) || a.loadNumber - b.loadNumber); }
+function reconcileGormanCompletedInventory() {
+  const order = activeOrder();
+  if (!order || order.gormanWarehouseBalanceVersion === 'actual-231-v1') return false;
+  if (String(order.number || '').trim().toUpperCase() !== 'ORD-508271240') return false;
+  if (Number(order.inventory?.[8] || 0) !== 206 || Number(order.inventory?.[10] || 0) !== 28) return false;
+
+  const all = allCompleted();
+  const existing = all.filter((record) => belongsToOrder(record, order));
+  const unrelated = all.filter((record) => !belongsToOrder(record, order));
+  const cached = order.viewCache?.records || [];
+  const dimensions = orderedBoardDimensions(order);
+  const makeRecord = (loadNumber, quantities, materials, fallbackLots) => {
+    const prior = existing.find((record) => Number(record.loadNumber) === loadNumber);
+    const snapshot = cached.find((record) => Number(record.number) === loadNumber);
+    const boards = totalBoards(quantities);
+    const boardFeet = Object.entries(quantities).reduce((sum, [length, quantity]) => sum + dimensions.thickness * dimensions.width * Number(length) * Number(quantity) / 12, 0);
+    return {
+      ...(prior || {}),
+      id: prior?.id || `${order.id}::gorman-actual-load-${loadNumber}`,
+      orderId: order.id,
+      orderNumber: order.number,
+      productionOrderNumber: order.number,
+      loadNumber,
+      supplier: prior?.supplier || order.inputs?.supplier || 'Gordon Elit',
+      marking: prior?.marking || 'Actual production reconciliation',
+      completedDate: prior?.completedDate || '',
+      species: prior?.species || order.inputs?.species || 'SPF / Hemlock',
+      size: prior?.size || String(order.inputs?.size || '').replace(',', '×') || '1×6',
+      quantities,
+      materials: snapshot?.materials || materials,
+      qualityLots: Array.isArray(snapshot?.qualityLots) && snapshot.qualityLots.length ? snapshot.qualityLots : fallbackLots,
+      boards,
+      bf: boardFeet,
+      reconciledAt: new Date().toISOString(),
+      createdAt: prior?.createdAt || order.calculatedAt || order.updatedAt || new Date().toISOString(),
+    };
+  };
+  const reconciled = [
+    makeRecord(1, { 8: 112 }, { SPF: 88, Hemlock: 24 }, [
+      { length: 8, material: 'SPF', quality: 'unclassified', qualityLabel: 'Unclassified', quantity: 88 },
+      { length: 8, material: 'Hemlock', quality: 'unclassified', qualityLabel: 'Unclassified', quantity: 24 },
+    ]),
+    makeRecord(2, { 8: 91, 10: 28 }, { SPF: 91, Hemlock: 28 }, [
+      { length: 8, material: 'SPF', quality: 'unclassified', qualityLabel: 'Unclassified', quantity: 91 },
+      { length: 10, material: 'Hemlock', quality: 'unclassified', qualityLabel: 'Unclassified', quantity: 28 },
+    ]),
+  ];
+  write(COMPLETED_KEY, [...unrelated, ...reconciled]);
+  order.gormanWarehouseBalanceVersion = 'actual-231-v1';
+  order.plannedCycles = 2;
+  order.plannedBoards = 231;
+  order.plannedBf = reconciled.reduce((sum, record) => sum + Number(record.bf || 0), 0);
+  delete order.activeCycleNumber;
+  delete order.activeCycleStartedAt;
+  order.updatedAt = new Date().toISOString();
+  localStorage.setItem(`${ORDER_PREFIX}${order.id}`, JSON.stringify(order));
+  try {
+    const pointer = JSON.parse(localStorage.getItem(ACTIVE_ORDER_KEY) || 'null');
+    if (pointer && !pointer.orderRef) localStorage.setItem(ACTIVE_ORDER_KEY, JSON.stringify(order));
+  } catch (_) {
+    // The referenced order record above remains the authoritative copy.
+  }
+  return true;
+}
 function warehouseTags() {
   const tags = read(TAGS_KEY);
   let changed = false;
@@ -1164,6 +1228,7 @@ $('printWarehouse').addEventListener('click', () => printReport('full'));
 $('printKilnSettings').addEventListener('click', () => printReport('settings'));
 migrateLegacyTagRecoveries();
 migratePreorderPurposes();
+reconcileGormanCompletedInventory();
 renderCompleted();
 renderTestRegister();
 renderWarehouseTags();

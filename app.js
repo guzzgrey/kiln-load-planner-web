@@ -98,6 +98,156 @@ function recoverWestminster334605(order) {
   writeActiveOrderPointer(order);
   return order;
 }
+
+function manualRowsFromMaterialLots(length, lots, across, prefix) {
+  const rows = [];
+  let row = null;
+  lots.forEach((lot) => {
+    let remaining = Math.max(0, Math.floor(Number(lot.quantity) || 0));
+    while (remaining > 0) {
+      if (!row || row.quantity >= across) {
+        row = {
+          id: `${prefix}-${rows.length + 1}`,
+          length: Number(length),
+          quantity: 0,
+          material: '',
+          materialAllocations: [],
+          addedAt: new Date().toISOString(),
+          bulk: true,
+        };
+        rows.push(row);
+      }
+      const take = Math.min(remaining, across - row.quantity);
+      row.quantity += take;
+      row.materialAllocations.push({ material: lot.material, quantity: take });
+      remaining -= take;
+    }
+  });
+  rows.forEach((item) => {
+    if (item.materialAllocations.length === 1) item.material = item.materialAllocations[0].material;
+  });
+  return rows;
+}
+
+function manualStateForActualLots(length, lots, geometry, prefix) {
+  const manualRows = manualRowsFromMaterialLots(length, lots, geometry.across, prefix);
+  return {
+    length: Number(length), index: 0, rowCapacity: geometry.rows, stickerThickness: geometry.sticker,
+    usedHeight: geometry.usedHeight, rowsLeft: Math.max(0, geometry.rows - manualRows.length), linesLeft: 0,
+    groups: new Map(), rowSequence: [], manualRows,
+    stackingOrder: manualRows.map((row) => `manual:${row.id}`), operatorAdjusted: true, manualLift: true,
+  };
+}
+
+function repairGormanActualLoads() {
+  if (activeOrder?.gormanActualLayoutVersion === 'actual-two-loads-v1') return false;
+  if (String(activeOrder?.number || '').trim().toUpperCase() !== 'ORD-508271240') return false;
+  const inventory = readInventory();
+  if (Number(inventory.get(8) || 0) !== 206 || Number(inventory.get(10) || 0) !== 28) return false;
+
+  const split8 = materialSplitForLength(8, 206);
+  const names8 = [
+    { material: split8.primary, quantity: split8.primaryQuantity },
+    { material: split8.secondary, quantity: split8.secondaryQuantity },
+  ].filter((item) => item.material && item.quantity > 0);
+  let spf8 = names8.find((item) => /spf|gorman|gordon/i.test(item.material));
+  let hem8 = names8.find((item) => /hem/i.test(item.material));
+  if (!spf8 || spf8.quantity < 179 || !hem8 || hem8.quantity < 26) {
+    const existing = activeOrder.materialSplits?.['8'] || {};
+    activeOrder.materialSplits = {
+      ...(activeOrder.materialSplits || {}),
+      8: {
+        ...existing,
+        primary: spf8?.material || 'SPF',
+        secondary: hem8?.material || 'Hemlock',
+        secondaryQuantity: 26,
+        quality: existing.quality || { primary: normalizedDefects(), secondary: normalizedDefects() },
+      },
+    };
+    spf8 = { material: activeOrder.materialSplits['8'].primary, quantity: 180 };
+    hem8 = { material: activeOrder.materialSplits['8'].secondary, quantity: 26 };
+  }
+  const split10 = materialSplitForLength(10, 28);
+  let tenFootLots = [
+    { material: split10.primary, quantity: split10.primaryQuantity },
+    { material: split10.secondary, quantity: split10.secondaryQuantity },
+  ].filter((item) => item.material && item.quantity > 0);
+  if (!tenFootLots.length || tenFootLots.some((item) => !/hem/i.test(item.material))) {
+    const existing = activeOrder.materialSplits?.['10'] || {};
+    activeOrder.materialSplits = {
+      ...(activeOrder.materialSplits || {}),
+      10: {
+        ...existing,
+        primary: 'Hemlock', secondary: '', secondaryQuantity: 0,
+        quality: existing.quality || { primary: normalizedDefects(), secondary: normalizedDefects() },
+      },
+    };
+    tenFootLots = [{ material: 'Hemlock', quantity: 28 }];
+  }
+
+  const geometry = computeGeometry();
+  const physical = Math.floor(num('kiln'));
+  const clearance = Math.min(Math.max(0, physical - 1), Math.floor(num('supplierClearance')));
+  const kilnLength = Math.max(1, physical - clearance);
+  const selectedMetal = Math.floor(Number($('metalBox').value));
+  const makePlan = (states) => {
+    const plan = blankManualPlan(inventory, geometry, kilnLength, selectedMetal);
+    plan.activeStates = states.map((state, index) => ({ ...state, index }));
+    plan.states = plan.activeStates;
+    plan.userCreated = true;
+    return plan;
+  };
+  globalOrderPlans = [
+    makePlan([manualStateForActualLots(8, [
+      { material: spf8.material, quantity: 88 },
+      { material: hem8.material, quantity: 24 },
+    ], geometry, 'gorman-load1-8')]),
+    makePlan([
+      manualStateForActualLots(8, [{ material: spf8.material, quantity: 91 }], geometry, 'gorman-load2-8'),
+      manualStateForActualLots(10, tenFootLots, geometry, 'gorman-load2-10'),
+    ]),
+  ];
+  globalOrderPlans = rebuildPlanBalances(globalOrderPlans, inventory, geometry, kilnLength).map(restorePlanTypes);
+  globalOrderSignature = orderSignature(inventory, geometry, kilnLength, Math.floor(num('maxStack')), selectedMetal);
+  currentLoadNumber = 1;
+
+  const records = readCompletedCycles();
+  records.forEach((record) => {
+    const belongs = record.orderId === activeOrder.id || record.orderId === activeOrder.planSignature
+      || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number;
+    if (!belongs) return;
+    if (Number(record.loadNumber) === 1) {
+      record.quantities = { 8: 112 };
+      record.boards = 112;
+    } else if (Number(record.loadNumber) === 2) {
+      record.quantities = { 8: 91, 10: 28 };
+      record.boards = 119;
+    }
+  });
+  writeCompletedCycles(records);
+  calculate(false);
+  const refreshedRecords = readCompletedCycles();
+  refreshedRecords.forEach((record) => {
+    const belongs = record.orderId === activeOrder.id || record.orderId === activeOrder.planSignature
+      || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number;
+    const number = Number(record.loadNumber);
+    if (!belongs || ![1, 2].includes(number)) return;
+    const snapshot = loadRecords.get(number);
+    if (!snapshot) return;
+    record.quantities = Object.fromEntries(snapshot.used);
+    record.boards = snapshot.usedBoards;
+    record.bf = snapshot.usedBf;
+    record.materials = { ...(snapshot.materials || {}) };
+    record.qualityLots = (snapshot.qualityLots || []).map((lot) => ({ ...lot }));
+    record.planFingerprint = loadPlanFingerprint(number);
+    record.planSnapshot = JSON.parse(serializeCalculatedPlans([globalOrderPlans[number - 1]]))[0];
+  });
+  writeCompletedCycles(refreshedRecords);
+  activeOrder.gormanActualLayoutVersion = 'actual-two-loads-v1';
+  activeOrder.updatedAt = new Date().toISOString();
+  persistActiveOrder(true);
+  return true;
+}
 function renderOrderSelector() {
   const selector = $('orderSelector');
   if (!selector || !activeOrder) return;
@@ -162,6 +312,7 @@ function serializeCalculatedPlans() {
     stock: plan.stock,
     availableStock: plan.availableStock,
     usedMap: plan.usedMap,
+    completedUsedMap: plan.completedUsedMap,
     usedFt: plan.usedFt,
     complete: plan.complete,
     activeLength: plan.activeLength,
@@ -177,6 +328,8 @@ function serializeCalculatedPlans() {
     valid: plan.valid,
     heightSpread: plan.heightSpread,
     stability: plan.stability,
+    manualPlan: Boolean(plan.manualPlan),
+    userCreated: Boolean(plan.userCreated),
     activeStates: (plan.activeStates || []).map((state) => ({
       length: state.length,
       index: state.index,
@@ -2617,7 +2770,11 @@ function assignMaterialIdentity(plans, sourceStock, geometry) {
     (state.rowSequence || []).forEach((row) => row.pattern.forEach((length, segmentIndex) => {
       reserve(length, row.pattern.length === 1 ? (row.materialLocked ? row.material : '') : row.segmentMaterials?.[segmentIndex], geometry.across);
     }));
-    (state.manualRows || []).forEach((row) => reserve(row.length, row.material, row.quantity));
+    (state.manualRows || []).forEach((row) => {
+      if (Array.isArray(row.materialAllocations) && row.materialAllocations.length) {
+        row.materialAllocations.forEach((allocation) => reserve(row.length, allocation.material, allocation.quantity));
+      } else reserve(row.length, row.material, row.quantity);
+    });
   }));
   return plans.map((plan) => {
     const materialAvailableMap = materialPoolSnapshot(pools);
@@ -2638,12 +2795,18 @@ function assignMaterialIdentity(plans, sourceStock, geometry) {
         return { ...row, pattern: [...row.pattern], material: row.materialLocked ? row.material : '', materialLocked: Boolean(row.materialLocked), materialSegments };
       });
       const manualRows = (state.manualRows || []).map((row) => {
-        const segment = allocateRowMaterial(pools, row.length, row.quantity, row.material || '', reservations);
+        const explicit = Array.isArray(row.materialAllocations) ? row.materialAllocations.filter((item) => Number(item.quantity) > 0) : [];
+        const segment = explicit.length
+          ? {
+            length: Number(row.length),
+            allocations: explicit.flatMap((item) => allocateRowMaterial(pools, row.length, item.quantity, item.material, reservations).allocations),
+          }
+          : allocateRowMaterial(pools, row.length, row.quantity, row.material || '', reservations);
         segment.allocations.forEach((allocation) => {
           const key = materialKey(segment.length, allocation.material);
           materialUsedMap[key] = Number(materialUsedMap[key] || 0) + allocation.quantity;
         });
-        return { ...row, material: row.material || (segment.allocations.length === 1 ? segment.allocations[0].material : ''), materialSegments: [segment] };
+        return { ...row, material: row.material || (segment.allocations.length === 1 ? segment.allocations[0].material : ''), materialAllocations: explicit.length ? explicit.map((item) => ({ ...item })) : row.materialAllocations, materialSegments: [segment] };
       });
       return { ...state, rowSequence, manualRows };
     });
@@ -3433,7 +3596,7 @@ function calculate(allowOptimization = false) {
     const options = compatible.flatMap(([length]) => materialChoices(bestPlan, length, 1).map((choice) => `<option value="${choice.length}|${encodeURIComponent(choice.material)}">${choice.length} ft · ${escapeHtml(choice.material)} · ${choice.quantity} remaining</option>`)).join('');
     const moveTargets = globalOrderPlans.map((_, index) => index + 1).filter((number) => number !== currentLoadNumber && !isLoadCompleted(number) && !isLoadInProgress(number));
     const moveControl = stackingEditable && moveTargets.length ? `<span class="inline-lift-move"><select aria-label="Move lift destination">${moveTargets.map((number) => `<option value="${number}">Load ${number}</option>`).join('')}</select><button class="inline-lift-move-button secondary" type="button" data-lift="${liftIndex}">Move lift</button></span>` : '';
-    return `<section class="stacking-lift" data-lift="${liftIndex}"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state) || state.length} ft maximum</b></div><div class="stacking-lift-actions"><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span>${moveControl}${stackingEditable ? `<button class="inline-add-toggle secondary" type="button" data-lift="${liftIndex}" ${canAdd ? '' : 'disabled'}>+ Add boards</button><button class="inline-lift-remove secondary" type="button" data-lift="${liftIndex}">Remove lift</button>` : ''}</div></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div>${stackingEditable ? `<form class="inline-fill-panel" data-lift="${liftIndex}" hidden><label>Length / material<select class="inline-fill-choice">${options}</select></label><label>Quantity<input class="inline-fill-quantity" type="number" min="1" max="${geometry.across}" step="1" value="1"></label><button type="submit" ${canAdd ? '' : 'disabled'}>Add to lift</button><small>The selected material identity stays attached to this physical row.</small></form>` : ''}</section>`;
+    return `<section class="stacking-lift" data-lift="${liftIndex}"><header><div><small>LIFT ${liftIndex + 1}</small><b>${occupiedLiftLength(state) || state.length} ft lift</b></div><div class="stacking-lift-actions"><span>${effectiveLiftRows(state)} row layers · ${fmt(boards)} boards</span>${moveControl}${stackingEditable ? `<button class="inline-add-toggle secondary" type="button" data-lift="${liftIndex}" ${canAdd ? '' : 'disabled'}>+ Add boards</button><button class="inline-lift-remove secondary" type="button" data-lift="${liftIndex}">Remove lift</button>` : ''}</div></header><div class="stacking-grid">${rows || '<span class="stacking-empty">Empty</span>'}</div>${stackingEditable ? `<form class="inline-fill-panel" data-lift="${liftIndex}" hidden><label>Length / material<select class="inline-fill-choice">${options}</select></label><label>Quantity<input class="inline-fill-quantity" type="number" min="1" max="${geometry.across}" step="1" value="1"></label><button type="submit" ${canAdd ? '' : 'disabled'}>Add to lift</button><small>The selected material identity stays attached to this physical row.</small></form>` : ''}</section>`;
   }).join('');
   const bulkLengthOptions = [...inlineStock.entries()].sort(([left], [right]) => Number(right) - Number(left))
     .flatMap(([length]) => materialChoices(bestPlan, length, geometry.across).map((choice) => `<option value="${choice.length}|${encodeURIComponent(choice.material)}">${choice.length} ft · ${escapeHtml(choice.material)} · ${Math.floor(choice.quantity / geometry.across)} full rows</option>`)).join('');
@@ -3443,6 +3606,11 @@ function calculate(allowOptimization = false) {
     <button type="submit" ${bulkLengthOptions && activeStates.length ? '' : 'disabled'}>Add selected rows</button>
     <small>Each selected row uses ${geometry.across} boards of the chosen material.</small>
   </form>` : '';
+  const liftLengthOptions = [...inlineStock.entries()]
+    .filter(([length, quantity]) => Number(quantity) > 0 && Number(length) <= maxStack)
+    .sort(([left], [right]) => Number(right) - Number(left))
+    .map(([length, quantity]) => `<option value="${length}">${length} ft · ${fmt(quantity)} boards available</option>`)
+    .join('');
   $('productionNeed').innerHTML = `
     <div class="plan-status-row">
       <span class="pill ${isLoadCompleted(currentLoadNumber) || efficientCycle ? 'good' : 'warn'}">${isLoadCompleted(currentLoadNumber) ? 'COMPLETED — VIEW ONLY' : efficientCycle ? 'READY / EFFICIENT LOAD' : 'DO NOT RUN — ADD MATERIAL'}</span>
@@ -3451,7 +3619,7 @@ function calculate(allowOptimization = false) {
       <span><b>${fmt(plannedBoards)}</b> boards scheduled</span>
     </div>
     ${requiredFillLabel === 'none' ? '' : `<div class="fill-warning"><b>Material required to complete selected lifts:</b> ${requiredFillLabel}</div>`}
-    <details class="technical-details stacking-details"><summary><span><b>Exact row-by-row stacking sequence</b><small>Each tile records length, material, quantity and physical order</small></span><strong>${activeStates.length} lift${activeStates.length === 1 ? '' : 's'}</strong></summary>${stackingEditable ? `<form class="manual-lift-form"><label>New lift maximum length, ft<input class="manual-lift-length" type="number" min="${MIN_BOARD_LENGTH}" max="${maxStack}" step="1" value="${Math.min(maxStack, 20)}"></label><button type="submit">+ Add lift</button><button class="manual-cycle-add secondary" type="button">+ Add cycle</button><button class="save-manual-layout" type="button">Save complete layout</button><small>The automatic result can be rebuilt manually. Move or remove lifts, then save the complete layout.</small></form>` : ''}${bulkRowForm}<div class="stacking-schedule">${rowSchedule}</div></details>
+    <details class="technical-details stacking-details"><summary><span><b>Exact row-by-row stacking sequence</b><small>Each tile records length, material, quantity and physical order</small></span><strong>${activeStates.length} lift${activeStates.length === 1 ? '' : 's'}</strong></summary>${stackingEditable ? `<form class="manual-lift-form"><label>Board length for the new lift<select class="manual-lift-length">${liftLengthOptions || '<option value="">No available board lengths</option>'}</select></label><button type="submit" ${liftLengthOptions ? '' : 'disabled'}>+ Add lift</button><button class="save-manual-layout" type="button">Save complete layout</button><small>Create or delete kiln cycles in the cycle bar above. Here you build only the selected cycle: lifts, rows, materials and row order.</small></form>` : ''}${bulkRowForm}<div class="stacking-schedule">${rowSchedule}</div></details>
   `;
   bindInlineStackingEditor();
   const refreshedStackingDetails = $('productionNeed').querySelector('.stacking-details');
@@ -3793,10 +3961,15 @@ function addManualCycle() {
   const clearance = Math.min(Math.max(0, physical - 1), Math.floor(num('supplierClearance')));
   const kilnLength = Math.max(1, physical - clearance);
   const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
-  globalOrderPlans.push(blankManualPlan(readInventory(), geometry, kilnLength, Math.floor(Number($('metalBox').value))));
-  globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), geometry, kilnLength).map(restorePlanTypes);
+  const emptyPlan = blankManualPlan(readInventory(), geometry, kilnLength, Math.floor(Number($('metalBox').value)));
+  emptyPlan.userCreated = true;
+  globalOrderPlans.push(emptyPlan);
   currentLoadNumber = globalOrderPlans.length;
-  try { calculate(false); persistActiveOrder(true); } catch (error) { globalOrderPlans = previousPlans; throw error; }
+  try {
+    rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture: false });
+    $('calculationStatus').className = 'calculation-status ready';
+    $('calculationStatus').textContent = `Empty Kiln Load ${currentLoadNumber} created. Open the row editor and add the required lifts and rows.`;
+  } catch (error) { globalOrderPlans = previousPlans; throw error; }
 }
 
 function shiftLoadProgramMap(programMap, removedLoadNumber) {
@@ -3848,12 +4021,33 @@ function compactEmptyAutomaticPlans() {
   let removed = 0;
   for (let index = globalOrderPlans.length - 1; index >= 0; index -= 1) {
     if (globalOrderPlans.length <= 1) break;
-    if (planBoardTotal(globalOrderPlans[index]) > 0) continue;
+    if (planBoardTotal(globalOrderPlans[index]) > 0 || globalOrderPlans[index]?.userCreated) continue;
     globalOrderPlans.splice(index, 1);
     shiftLoadConfigurationAfterRemoval(index + 1);
     removed += 1;
   }
   return removed;
+}
+
+function deleteOrClearCurrentLoad() {
+  const number = Number(currentLoadNumber);
+  if (isLoadCompleted(number) || isLoadInProgress(number)) throw new Error('A completed or running kiln cycle cannot be deleted.');
+  if (globalOrderPlans.length > 1) {
+    deletePlannedLoad(number);
+    return;
+  }
+  const previousPlans = deserializeCalculatedPlans(serializeCalculatedPlans());
+  const geometry = computeGeometry();
+  const physical = Math.floor(num('kiln'));
+  const clearance = Math.min(Math.max(0, physical - 1), Math.floor(num('supplierClearance')));
+  const kilnLength = Math.max(1, physical - clearance);
+  const emptyPlan = blankManualPlan(readInventory(), geometry, kilnLength, Math.floor(Number($('metalBox').value)));
+  emptyPlan.userCreated = true;
+  globalOrderPlans = [emptyPlan];
+  currentLoadNumber = 1;
+  rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture: false });
+  $('calculationStatus').className = 'calculation-status ready';
+  $('calculationStatus').textContent = 'The only planned cycle was cleared. Add lifts and rows to rebuild it manually.';
 }
 
 function deletePlannedLoad(loadNumber) {
@@ -4130,10 +4324,6 @@ function bindInlineStackingEditor() {
     try { addManualLift(currentLoadNumber, event.currentTarget.querySelector('.manual-lift-length').value); }
     catch (error) { showInlineEditorError(error); }
   });
-  container.querySelector('.manual-cycle-add')?.addEventListener('click', () => {
-    try { addManualCycle(); }
-    catch (error) { showInlineEditorError(error); }
-  });
   container.querySelector('.save-manual-layout')?.addEventListener('click', () => {
     try {
       persistActiveOrder(true);
@@ -4389,6 +4579,10 @@ function renderLoadNavigation() {
   });
   $('previousLoad').disabled = !loadRecords.has(currentLoadNumber - 1);
   $('nextSavedLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
+  const selectedLocked = isLoadCompleted(currentLoadNumber) || isLoadInProgress(currentLoadNumber);
+  $('addManualCycle').disabled = !globalOrderPlans.length;
+  $('deleteCurrentCycle').disabled = !globalOrderPlans.length || selectedLocked;
+  $('deleteCurrentCycle').textContent = globalOrderPlans.length > 1 ? 'Delete selected cycle' : 'Clear selected cycle';
 }
 
 const MASPEL_DRYING_DEFAULTS = [
@@ -4796,6 +4990,16 @@ function bindEvents() {
   $('nextLoad').addEventListener('click', loadRemainingInventory);
   $('previousLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber - 1));
   $('nextSavedLoad').addEventListener('click', () => selectSavedLoad(currentLoadNumber + 1));
+  $('addManualCycle').addEventListener('click', () => {
+    try { addManualCycle(); }
+    catch (error) { showInlineEditorError(error); }
+  });
+  $('deleteCurrentCycle').addEventListener('click', () => {
+    const action = globalOrderPlans.length > 1 ? 'delete' : 'clear';
+    if (!window.confirm(`${action === 'delete' ? 'Delete' : 'Clear'} Kiln Load ${currentLoadNumber}? Its boards will return to the unplanned remainder.`)) return;
+    try { deleteOrClearCurrentLoad(); }
+    catch (error) { showInlineEditorError(error); }
+  });
   $('completeCycleForm').addEventListener('submit', saveCompletedCycle);
   $('cancelCompleteCycle').addEventListener('click', () => $('completeCycleDialog').close());
   $('materialSplitForm').addEventListener('submit', saveMaterialSplit);
@@ -4964,6 +5168,12 @@ function init() {
       status.className = 'calculation-status pending';
       status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
     } else {
+      if (repairGormanActualLoads()) {
+        const status = $('calculationStatus');
+        status.className = 'calculation-status ready';
+        status.textContent = 'Gorman actual production restored: Load 1 = 88 SPF + 24 Hemlock at 8 ft; Load 2 = 91 SPF at 8 ft + 28 Hemlock at 10 ft. Three 8 ft boards remain.';
+        return;
+      }
       // Re-render from the saved plan so restored manual controls receive live
       // event handlers and always drive the calculation and visualization.
       const physicalKilnLength = Math.floor(num('kiln'));

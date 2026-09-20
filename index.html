@@ -257,9 +257,13 @@
           <div class="load-progress">
             <div class="load-progress-heading">
               <strong>Current calculation: Kiln Load <span id="loadNumber">1</span></strong>
-              <div class="load-switcher">
-                <button id="previousLoad" class="secondary" type="button">← Previous</button>
-                <button id="nextSavedLoad" class="secondary" type="button">Next saved →</button>
+              <div class="cycle-management">
+                <button id="addManualCycle" type="button">+ Add empty cycle</button>
+                <button id="deleteCurrentCycle" class="danger" type="button">Delete selected cycle</button>
+                <span class="load-switcher">
+                  <button id="previousLoad" class="secondary" type="button">← Previous</button>
+                  <button id="nextSavedLoad" class="secondary" type="button">Next saved →</button>
+                </span>
               </div>
             </div>
             <p class="load-lifecycle-note"><b>Production status:</b> saving Drying/TM settings does not mark boards processed. Use <b>Start → Complete</b>, or <b>Complete past</b> for a cycle already run physically.</p>
@@ -501,6 +505,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=test-board-ledger-v4" data-app="app.js?v=completion-linking-v35"></script>
+    <script src="cloud-sync.js?v=test-board-ledger-v4" data-app="app.js?v=cycle-workspace-v36"></script>
   </body>
 </html>

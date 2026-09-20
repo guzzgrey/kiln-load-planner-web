@@ -484,6 +484,9 @@ button.is-loading::after {
   gap: 7px;
 }
 
+.cycle-management { display:flex; align-items:center; justify-content:flex-end; gap:7px; flex-wrap:wrap; }
+.cycle-management > button, .cycle-management .load-switcher button { padding:7px 10px; font-size:12px; }
+
 .load-switcher button {
   padding: 7px 10px;
   font-size: 12px;
@@ -896,7 +899,7 @@ th {
 .bulk-row-form input, .bulk-row-form select { min-height:36px; padding:7px 10px; }
 .bulk-row-form button { min-height:36px; padding:7px 12px; white-space:nowrap; }
 .bulk-row-form > small { align-self:center; color:var(--muted); font-size:10px; }
-.manual-lift-form { display:grid; grid-template-columns:minmax(190px,.7fr) auto auto auto minmax(260px,1.2fr); align-items:end; gap:10px; padding:12px; border-bottom:1px solid var(--line); background:#edf7f1; }
+.manual-lift-form { display:grid; grid-template-columns:minmax(240px,.9fr) auto auto minmax(260px,1.2fr); align-items:end; gap:10px; padding:12px; border-bottom:1px solid var(--line); background:#edf7f1; }
 .manual-lift-form label { display:grid; gap:4px; color:var(--green); font-size:11px; font-weight:900; }
 .manual-lift-form input, .manual-lift-form button { min-height:36px; padding:7px 10px; }
 .manual-lift-form > small { align-self:center; color:var(--muted); font-size:10px; }
@@ -1312,6 +1315,8 @@ th {
   .header-actions { justify-content: flex-start; }
   .dialog-fields, .warehouse-summary, .shipping-order-fields { grid-template-columns: 1fr; }
   .load-history article { grid-template-columns: 1fr; }
+  .load-progress-heading { align-items:flex-start; flex-direction:column; }
+  .cycle-management { justify-content:flex-start; }
   .load-actions { flex-wrap:wrap; }
   .load-state { justify-self:start; }
   .inline-row-editor { grid-template-columns:1fr 1fr; }

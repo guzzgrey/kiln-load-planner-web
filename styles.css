@@ -5,6 +5,10 @@
   --muted: #657068;
   --line: #d9ded9;
   --green: #195f43;
+  --forest-deep: #103d2d;
+  --forest-soft: #dcebe3;
+  --sage: #9fbdac;
+  --cream: #f8f5ee;
   --pale: #e7f2ec;
   --amber: #9b5b08;
   --red: #a43232;
@@ -27,6 +31,9 @@ html, body {
 
 body {
   min-height: 100vh;
+  background:
+    radial-gradient(circle at 8% -8%, rgba(159, 189, 172, .32), transparent 28rem),
+    linear-gradient(180deg, #edf4ef 0, var(--bg) 300px);
 }
 
 .wrap {
@@ -36,14 +43,76 @@ body {
 }
 
 .page-header {
+  position: relative;
+  overflow: hidden;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
+  margin-bottom: 18px;
+  padding: 20px 22px;
+  border: 1px solid #c9d9cf;
+  border-radius: 20px;
+  background: linear-gradient(118deg, rgba(255,255,255,.97), rgba(240,247,243,.96)), var(--card);
+  box-shadow: 0 12px 32px rgba(16, 61, 45, .09);
+}
+
+.page-header::after {
+  content: "";
+  position: absolute;
+  right: -50px;
+  bottom: -95px;
+  width: 260px;
+  height: 180px;
+  border: 30px solid rgba(159, 189, 172, .13);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.brand-heading {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 18px;
+}
+
+.brand-mark {
+  display: grid;
+  flex: 0 0 82px;
+  width: 82px;
+  height: 82px;
+  place-items: center;
+  border: 1px solid #c8d9cf;
+  border-radius: 20px;
+  background: rgba(255,255,255,.86);
+  box-shadow: 0 8px 20px rgba(16, 61, 45, .1);
+}
+
+.brand-mark img {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.page-title-copy { min-width: 0; }
+
+.page-header h1 {
+  color: var(--forest-deep);
+  font-size: clamp(25px, 2.4vw, 36px);
+  letter-spacing: -.025em;
+  line-height: 1.08;
+}
+
+.page-header .lead {
+  max-width: 850px;
+  margin: 7px 0 0;
 }
 
 .report-meta {
-  margin: -12px 0 18px;
+  margin: 7px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
@@ -52,7 +121,7 @@ body {
   flex: 0 0 auto;
 }
 
-.header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.header-actions { position:relative; z-index:1; display:flex; max-width:680px; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
 .order-workspace { display:grid; grid-template-columns:minmax(300px,1fr) auto auto auto; align-items:end; gap:10px; margin:0 0 14px; padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:0 2px 8px rgba(24,34,29,.05); }
 .order-workspace label { color:var(--green); font-weight:800; }
 .order-workspace select { margin-top:5px; }
@@ -62,8 +131,9 @@ body {
   .order-workspace > div, .order-workspace > span { grid-column:1 / -1; }
   .order-workspace > span { white-space:normal; }
 }
-.button-link { display: inline-flex; align-items: center; min-height: 39px; padding: 10px 13px; border-radius: 8px; background: var(--green); color: #fff; font-weight: 700; text-decoration: none; }
-.secondary-link { background: #e9eeea; color: var(--ink); }
+.button-link { display:inline-flex; align-items:center; min-height:39px; padding:10px 13px; border-radius:10px; background:var(--green); color:#fff; font-weight:700; text-decoration:none; transition:transform .15s ease, box-shadow .15s ease, background .15s ease; }
+.button-link:hover { transform:translateY(-1px); box-shadow:0 5px 14px rgba(16,61,45,.14); }
+.secondary-link { background:#e5eee9; color:var(--forest-deep); }
 .eyebrow { margin: 0 0 5px; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
 
 .batch-note {
@@ -113,7 +183,7 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 18px;
-  box-shadow: 0 2px 8px rgba(24, 34, 29, 0.06);
+  box-shadow: 0 5px 16px rgba(24, 34, 29, 0.055);
 }
 
 .section-heading {
@@ -163,13 +233,16 @@ select {
 
 button {
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 13px;
   background: var(--green);
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
 }
+
+button:not(:disabled):hover { transform:translateY(-1px); box-shadow:0 5px 14px rgba(16,61,45,.14); }
 
 input:disabled {
   background: #eef0ed;
@@ -186,6 +259,19 @@ input:disabled {
     background: #fff;
     font-size: 10px;
   }
+
+  .page-header {
+    overflow: visible;
+    padding: 0 0 3mm;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+
+  .page-header::after { display: none; }
+  .brand-mark { flex-basis: 14mm; width: 14mm; height: 14mm; border: 0; border-radius: 0; box-shadow: none; }
+  .brand-mark img { width: 13mm; height: 13mm; }
 
   .wrap {
     max-width: none;
@@ -393,6 +479,7 @@ button:disabled {
 .cloud-locked > main { visibility: hidden; }
 .cloud-login { position:fixed; inset:0; z-index:9999; display:grid; place-items:center; padding:20px; background:#f4f2ea; }
 .cloud-login form { width:min(430px,100%); padding:32px; border:1px solid var(--line); border-radius:14px; background:#fff; box-shadow:0 20px 60px #18251f22; }
+.cloud-login form::before { content:""; display:block; width:78px; height:78px; margin:0 0 16px; border:1px solid #c8d9cf; border-radius:18px; background:#f7faf8 url("assets/conifer-forest-mark-v1.png") center/70px 70px no-repeat; box-shadow:0 8px 20px rgba(16,61,45,.1); }
 .cloud-login small { color:var(--green); font-weight:800; letter-spacing:.12em; }
 .cloud-login h1 { margin:8px 0; font-size:32px; }
 .cloud-login p { color:var(--muted); }
@@ -1313,8 +1400,12 @@ th {
     grid-template-columns: 1fr;
     gap: 5px;
   }
-  .page-header { flex-direction: column; }
-  .header-actions { justify-content: flex-start; }
+  .page-header { align-items:stretch; flex-direction:column; padding:17px; border-radius:16px; }
+  .brand-heading { align-items:flex-start; gap:13px; }
+  .brand-mark { flex-basis:62px; width:62px; height:62px; border-radius:15px; }
+  .brand-mark img { width:54px; height:54px; }
+  .page-header h1 { font-size:clamp(23px, 7vw, 30px); }
+  .header-actions { max-width:none; justify-content:flex-start; }
   .dialog-fields, .warehouse-summary, .shipping-order-fields { grid-template-columns: 1fr; }
   .load-history article { grid-template-columns: 1fr; }
   .load-progress-heading { align-items:flex-start; flex-direction:column; }

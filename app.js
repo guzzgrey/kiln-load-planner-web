@@ -412,6 +412,16 @@ function completedLoadAssignments() {
       assignedRecords.add(recordIndex);
     }
   });
+  // A completed physical cycle must stay attached to its recorded kiln-load
+  // number even when the remaining automatic plan is recalculated or edited.
+  // Fingerprint/quantity matching above remains preferred for migrated plans.
+  records.forEach((record, recordIndex) => {
+    if (assignedRecords.has(recordIndex)) return;
+    const originalNumber = Number(record.loadNumber || record.originalLoadNumber);
+    if (!loadNumbers.includes(originalNumber) || assignedLoads.has(originalNumber)) return;
+    assignedLoads.set(originalNumber, record);
+    assignedRecords.add(recordIndex);
+  });
   return assignedLoads;
 }
 
@@ -479,6 +489,7 @@ function completionRecordsForActiveOrder() {
     record.orderId === activeOrder?.id
     || record.orderId === activeOrder?.planSignature
     || record.orderNumber === activeOrder?.number
+    || record.productionOrderNumber === activeOrder?.number
   );
 }
 

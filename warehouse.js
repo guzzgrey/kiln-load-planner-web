@@ -106,6 +106,27 @@ let activePreorderId = '';
 let draggedPreorderItemId = '';
 
 function preorderRecords() { return read(PREORDERS_KEY); }
+function preorderPurpose(draft) {
+  if (draft?.purpose === 'customer' || draft?.purpose === 'stock') return draft.purpose;
+  return String(draft?.customer || '').trim() || String(draft?.number || '').trim() ? 'customer' : 'stock';
+}
+function migratePreorderPurposes() {
+  const records = preorderRecords();
+  let changed = false;
+  const migrated = records.map((draft) => {
+    const purpose = preorderPurpose(draft);
+    const next = { ...draft, purpose };
+    if (draft.purpose !== purpose) changed = true;
+    const hasAllocations = (draft.stacks || []).some((stack) => (stack.items || []).length > 0);
+    if (purpose === 'stock' && !hasAllocations && !String(draft.customer || '').trim() && !String(draft.number || '').trim()
+      && Number(draft.targetBf || 0) === 4200 && draft.purpose === undefined) {
+      next.targetBf = 0;
+      changed = true;
+    }
+    return next;
+  });
+  if (changed) write(PREORDERS_KEY, migrated);
+}
 function currentPreorders() {
   const order = activeOrder();
   return preorderRecords().filter((draft) => draft.orderId === order?.id);
@@ -124,7 +145,7 @@ function makePreorder() {
   const order = activeOrder();
   return {
     id: `preorder-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    orderId: order?.id || '', customer: '', number: '', targetBf: 4200,
+    orderId: order?.id || '', purpose: 'stock', customer: '', number: '', targetBf: 0,
     stacks: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   };
 }
@@ -202,10 +223,23 @@ function findPreorderItem(draft, id) {
   return null;
 }
 function updatePreorderHeader(draft) {
+  draft.purpose = $('preorderPurpose').value === 'customer' ? 'customer' : 'stock';
   draft.customer = $('preorderCustomer').value.trim();
   draft.number = $('preorderNumber').value.trim();
   draft.targetBf = Math.max(0, Number($('preorderTarget').value || 0));
   return savePreorder(draft);
+}
+function updatePreorderPurposeUi(draft) {
+  const purpose = preorderPurpose(draft);
+  const customerOrder = purpose === 'customer';
+  $('preorderPurpose').value = purpose;
+  document.querySelectorAll('.preorder-customer-field').forEach((field) => field.classList.toggle('is-disabled', !customerOrder));
+  $('preorderCustomer').disabled = !customerOrder;
+  $('preorderNumber').disabled = !customerOrder;
+  $('preorderCustomer').required = customerOrder;
+  $('preorderEyebrow').textContent = customerOrder ? 'PRELIMINARY CUSTOMER ORDER' : 'UNASSIGNED FINISHED MATERIAL';
+  $('preorderHeading').textContent = customerOrder ? 'Plan finished material into future customer TAG stacks' : 'Stage finished material for New Westminster stock';
+  $('preorderTargetHint').textContent = customerOrder ? 'Customer quantity goal' : 'Optional until a customer agreement exists';
 }
 function addPreorderStack() {
   const draft = activePreorder();
@@ -241,7 +275,11 @@ function renderPreorderPlanner() {
     return;
   }
   const drafts = currentPreorders();
-  $('preorderSelect').innerHTML = drafts.map((item) => `<option value="${esc(item.id)}" ${item.id === draft.id ? 'selected' : ''}>${esc(item.number || item.customer || 'Untitled draft')} · ${fmt(item.targetBf || 0)} BF</option>`).join('');
+  $('preorderSelect').innerHTML = drafts.map((item) => {
+    const label = preorderPurpose(item) === 'customer' ? (item.number || item.customer || 'Customer draft') : 'New Westminster stock plan';
+    return `<option value="${esc(item.id)}" ${item.id === draft.id ? 'selected' : ''}>${esc(label)} · ${fmt(item.targetBf || 0)} BF</option>`;
+  }).join('');
+  updatePreorderPurposeUi(draft);
   $('preorderCustomer').value = draft.customer || '';
   $('preorderNumber').value = draft.number || '';
   $('preorderTarget').value = Number(draft.targetBf || 0);
@@ -250,12 +288,13 @@ function renderPreorderPlanner() {
   const selectedBf = selectedItems.reduce((sum, item) => sum + preorderBf(item.length, item.quantity), 0);
   const target = Number(draft.targetBf || 0);
   const delta = target - selectedBf;
+  const customerOrder = preorderPurpose(draft) === 'customer';
   const readyBoards = selectedItems.filter((item) => (lots.find((lot) => lot.id === item.lotId)?.status || item.sourceStatus) === 'ready').reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const expectedBoards = selectedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0) - readyBoards;
   $('preorderMetrics').innerHTML = `
-    <div><b>${fmt(target, 1)}</b><span>target BF</span></div>
+    <div><b>${target > 0 ? fmt(target, 1) : '—'}</b><span>${customerOrder ? 'customer target BF' : 'optional target BF'}</span></div>
     <div><b>${fmt(selectedBf, 1)}</b><span>selected BF</span></div>
-    <div class="${delta < 0 ? 'over' : ''}"><b>${delta < 0 ? '+' : ''}${fmt(Math.abs(delta), 1)}</b><span>${delta < 0 ? 'BF over target' : 'BF still needed'}</span></div>
+    <div class="${target > 0 && delta < 0 ? 'over' : ''}"><b>${target > 0 ? `${delta < 0 ? '+' : ''}${fmt(Math.abs(delta), 1)}` : '—'}</b><span>${target > 0 ? (delta < 0 ? 'BF over target' : 'BF still needed') : 'no target set yet'}</span></div>
     <div><b>${fmt(readyBoards)} / ${fmt(expectedBoards)}</b><span>ready / expected boards</span></div>`;
   const materialTotals = new Map();
   lots.forEach((lot) => {
@@ -294,10 +333,15 @@ function renderPreorderPlanner() {
     }).join('');
     return `<article class="preorder-stack" data-stack-id="${esc(stack.id)}"><header><input class="preorder-stack-name" data-stack-id="${esc(stack.id)}" value="${esc(stack.name)}" aria-label="Future TAG name"><span><b>${fmt(stackBoards)} PCS</b> · ${fmt(stackBf, 1)} BF</span><button class="danger preorder-remove-stack" data-stack-id="${esc(stack.id)}" type="button">×</button></header>${materialSummary ? `<div class="preorder-stack-materials">${materialSummary}</div>` : ''}<div class="preorder-stack-items">${items || '<div class="preorder-empty">Drag planned material here</div>'}</div></article>`;
   }).join('') : '<div class="empty-state">Add a future TAG stack, then place lengths into it.</div>';
-  $('preorderStatus').className = `calculation-status ${Math.abs(delta) < 0.05 && target > 0 ? 'ready' : 'idle'}`;
-  $('preorderStatus').textContent = Math.abs(delta) < 0.05 && target > 0
-    ? `Target matched: ${fmt(selectedBf, 1)} BF in ${fmt((draft.stacks || []).length)} future TAG stack(s).`
-    : `Draft only — no physical inventory was moved. ${fmt(Math.abs(delta), 1)} BF ${delta < 0 ? 'over' : 'remaining to target'}.`;
+  const customerMissing = customerOrder && !String(draft.customer || '').trim();
+  $('preorderStatus').className = `calculation-status ${customerMissing ? 'pending' : Math.abs(delta) < 0.05 && target > 0 ? 'ready' : 'idle'}`;
+  $('preorderStatus').textContent = customerMissing
+    ? 'Enter the customer or project before treating this draft as a customer order.'
+    : !customerOrder
+      ? `Unassigned New Westminster stock plan — ${fmt(selectedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0))} boards / ${fmt(selectedBf, 1)} BF grouped without a customer commitment.`
+      : Math.abs(delta) < 0.05 && target > 0
+        ? `Customer target matched: ${fmt(selectedBf, 1)} BF in ${fmt((draft.stacks || []).length)} future TAG stack(s).`
+        : `Customer draft only — no physical inventory was moved. ${fmt(Math.abs(delta), 1)} BF ${delta < 0 ? 'over' : 'remaining to target'}.`;
   bindPreorderDynamicEvents();
 }
 
@@ -1055,7 +1099,7 @@ $('deletePreorder').addEventListener('click', () => {
   renderPreorderPlanner();
 });
 $('preorderSelect').addEventListener('change', (event) => { activePreorderId = event.target.value; renderPreorderPlanner(); });
-['preorderCustomer', 'preorderNumber', 'preorderTarget'].forEach((id) => $(id).addEventListener('change', () => {
+['preorderPurpose', 'preorderCustomer', 'preorderNumber', 'preorderTarget'].forEach((id) => $(id).addEventListener('change', () => {
   const draft = activePreorder();
   if (draft) { updatePreorderHeader(draft); renderPreorderPlanner(); }
 }));
@@ -1119,6 +1163,7 @@ function printReport(mode) {
 $('printWarehouse').addEventListener('click', () => printReport('full'));
 $('printKilnSettings').addEventListener('click', () => printReport('settings'));
 migrateLegacyTagRecoveries();
+migratePreorderPurposes();
 renderCompleted();
 renderTestRegister();
 renderWarehouseTags();

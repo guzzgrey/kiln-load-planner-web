@@ -625,9 +625,11 @@ button.is-loading::after {
 .warehouse-summary span { color: var(--muted); }
 .warehouse-summary small { display:block; margin-top:4px; color:var(--muted); line-height:1.25; }
 .preorder-heading-actions { display:flex; gap:8px; flex-wrap:wrap; }
-.preorder-controls { display:grid; grid-template-columns:repeat(4,minmax(160px,1fr)); gap:10px; margin:14px 0; }
+.preorder-controls { display:grid; grid-template-columns:repeat(5,minmax(150px,1fr)); gap:10px; margin:14px 0; }
 .preorder-controls label { color:var(--green); font-weight:800; }
+.preorder-controls label > small { display:block; min-height:1.2em; color:var(--muted); font-size:10px; font-weight:500; }
 .preorder-controls input, .preorder-controls select { margin-top:4px; }
+.preorder-customer-field.is-disabled { opacity:.48; }
 .preorder-metrics { display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:10px; margin:12px 0 16px; }
 .preorder-metrics > div { padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--pale); }
 .preorder-metrics b { display:block; color:var(--green); font-size:22px; }

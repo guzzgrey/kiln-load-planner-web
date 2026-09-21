@@ -646,6 +646,80 @@ function completionRecordsForActiveOrder() {
   );
 }
 
+let managementClockTimer = null;
+
+function formatManagementDate(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '—';
+  return date.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatProductionDuration(value) {
+  const totalMinutes = Math.max(0, Math.floor(Number(value || 0) / 60000));
+  if (!totalMinutes) return '< 1 min';
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days) return `${days}d ${hours}h`;
+  if (hours) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function renderManagementDashboard() {
+  if (!$('managementReadyPercent')) return;
+  const records = completionRecordsForActiveOrder();
+  const inventory = activeOrder?.inventory || inventorySnapshot();
+  const totalBoards = Object.values(inventory || {}).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+  const readyBoards = records.reduce((sum, record) => sum + Number(record.boards || Object.values(record.quantities || {}).reduce((qty, value) => qty + Number(value || 0), 0)), 0);
+  const readyBf = records.reduce((sum, record) => sum + Number(record.bf || 0), 0);
+  const readyPercent = totalBoards > 0 ? Math.min(100, readyBoards / totalBoards * 100) : 0;
+  const plannedCycles = Math.max(loadRecords.size, Number(activeOrder?.plannedCycles || 0));
+  const completedCycles = records.length;
+  const activeNumber = Number(activeOrder?.activeCycleNumber || 0);
+  const activeStartedAt = Date.parse(activeOrder?.activeCycleStartedAt || '');
+  const recordedStarts = records.map((record) => Date.parse(record.startedAt || '')).filter(Number.isFinite);
+  if (Number.isFinite(activeStartedAt)) recordedStarts.push(activeStartedAt);
+  const firstStart = recordedStarts.length ? Math.min(...recordedStarts) : null;
+  const completedTimes = records.map((record) => Date.parse(record.completedAt || record.createdAt || '')).filter(Number.isFinite);
+  const latestCompleted = completedTimes.length ? Math.max(...completedTimes) : null;
+  const productionEnd = activeNumber && Number.isFinite(activeStartedAt) ? Date.now() : latestCompleted;
+  const elapsed = firstStart && productionEnd && productionEnd >= firstStart ? productionEnd - firstStart : null;
+  const durations = records.map((record) => {
+    const stored = Number(record.durationMs);
+    if (stored > 0) return stored;
+    const started = Date.parse(record.startedAt || '');
+    const completed = Date.parse(record.completedAt || record.createdAt || '');
+    return Number.isFinite(started) && Number.isFinite(completed) && completed >= started ? completed - started : null;
+  }).filter((duration) => Number.isFinite(duration) && duration >= 0);
+  const average = durations.length ? durations.reduce((sum, duration) => sum + duration, 0) / durations.length : null;
+
+  $('managementReadyPercent').textContent = `${fmt(readyPercent, 1)}%`;
+  $('managementReadyBoards').textContent = fmt(readyBoards);
+  $('managementTotalBoards').textContent = fmt(totalBoards);
+  $('managementReadyBf').textContent = fmt(readyBf, 1);
+  $('managementProgressRing').style.setProperty('--progress', `${readyPercent}%`);
+  $('managementCycles').textContent = `${fmt(completedCycles)} / ${fmt(plannedCycles)}`;
+  $('managementCycleNote').textContent = completedCycles ? `${fmt(Math.max(0, plannedCycles - completedCycles))} remaining` : 'No completed cycles';
+  $('managementFirstStart').textContent = firstStart ? formatManagementDate(firstStart) : 'Not recorded';
+  $('managementElapsed').textContent = elapsed !== null ? formatProductionDuration(elapsed) : 'Not recorded';
+  $('managementAverage').textContent = average !== null ? `Average cycle ${formatProductionDuration(average)}` : 'Average cycle not recorded';
+
+  const currentCard = $('managementCurrentCycle').closest('.current-cycle-card');
+  currentCard.classList.toggle('active', Boolean(activeNumber));
+  if (activeNumber) {
+    $('managementCurrentCycle').textContent = `Kiln Load ${activeNumber} · In progress`;
+    $('managementCurrentDuration').textContent = Number.isFinite(activeStartedAt) ? `Running ${formatProductionDuration(Date.now() - activeStartedAt)}` : 'Start time not recorded';
+  } else if (plannedCycles > 0 && completedCycles >= plannedCycles) {
+    $('managementCurrentCycle').textContent = 'Production complete';
+    $('managementCurrentDuration').textContent = `${fmt(readyBoards)} boards ready`;
+  } else {
+    $('managementCurrentCycle').textContent = 'No active cycle';
+    $('managementCurrentDuration').textContent = plannedCycles ? 'Select a planned load to start' : 'Ready for planning';
+  }
+
+  if (!managementClockTimer) managementClockTimer = window.setInterval(renderManagementDashboard, 60000);
+}
+
 function reconcileProductionState() {
   const activeLoadNumber = Number(activeOrder?.activeCycleNumber || 0);
   if (!activeLoadNumber) return false;
@@ -4583,6 +4657,7 @@ function renderLoadNavigation() {
   $('addManualCycle').disabled = !globalOrderPlans.length;
   $('deleteCurrentCycle').disabled = !globalOrderPlans.length || selectedLocked;
   $('deleteCurrentCycle').textContent = globalOrderPlans.length > 1 ? 'Delete selected cycle' : 'Clear selected cycle';
+  renderManagementDashboard();
 }
 
 const MASPEL_DRYING_DEFAULTS = [
@@ -4795,7 +4870,7 @@ function completePreviouslyRunCycle(loadNumber) {
     if (!replace) return;
   }
   activeOrder.activeCycleNumber = Number(loadNumber);
-  activeOrder.activeCycleStartedAt ||= new Date().toISOString();
+  delete activeOrder.activeCycleStartedAt;
   persistActiveOrder(false);
   if (Number(loadNumber) !== currentLoadNumber && !selectSavedLoad(Number(loadNumber))) return;
   openCycleCompletion(Number(loadNumber));
@@ -4834,6 +4909,9 @@ function saveCompletedCycle(event) {
   const records = readCompletedCycles();
   const planFingerprint = loadPlanFingerprint(completingLoadNumber);
   const id = completionRecordId(completingLoadNumber, planFingerprint);
+  const completedAt = new Date().toISOString();
+  const startedAt = activeOrder?.activeCycleStartedAt || null;
+  const durationMs = startedAt ? Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)) : null;
   const record = {
     id,
     orderId: activeOrder?.id || globalOrderSignature || 'current-order',
@@ -4860,7 +4938,10 @@ function saveCompletedCycle(event) {
       : null,
     boards: snapshot.usedBoards,
     bf: snapshot.usedBf,
-    createdAt: new Date().toISOString(),
+    startedAt,
+    completedAt,
+    durationMs: Number.isFinite(durationMs) ? durationMs : null,
+    createdAt: completedAt,
   };
   const existingIndex = records.findIndex((item) => item.id === id);
   if (existingIndex >= 0) records[existingIndex] = record;

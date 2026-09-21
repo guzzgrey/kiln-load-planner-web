@@ -26,7 +26,8 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 14px/1.45 Inter, system-ui, sans-serif;
+  font: 14px/1.45 "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 body {
@@ -50,7 +51,7 @@ body {
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 18px;
-  padding: 20px 22px;
+  padding: 15px 18px;
   border: 1px solid #c9d9cf;
   border-radius: 20px;
   background: linear-gradient(118deg, rgba(255,255,255,.97), rgba(240,247,243,.96)), var(--card);
@@ -80,9 +81,9 @@ body {
 
 .brand-mark {
   display: grid;
-  flex: 0 0 82px;
-  width: 82px;
-  height: 82px;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
   place-items: center;
   border: 1px solid #c8d9cf;
   border-radius: 20px;
@@ -92,8 +93,8 @@ body {
 
 .brand-mark img {
   display: block;
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
 }
 
@@ -1591,4 +1592,64 @@ th {
   .material-split-open { display:none !important; }
   .material-composition { min-width: 0; }
   .material-breakdown { break-inside: avoid; page-break-inside: avoid; }
+}
+
+/* Management-first planner shell */
+.management-dashboard { display:grid; grid-template-columns:1.35fr repeat(3,minmax(180px,1fr)); gap:12px; margin:0 0 16px; }
+.management-dashboard article { min-width:0; padding:17px 18px; border:1px solid #d1ddd5; border-radius:16px; background:rgba(255,255,255,.9); box-shadow:0 5px 16px rgba(24,34,29,.05); }
+.management-dashboard small { display:block; margin-bottom:6px; color:var(--green); font-size:10px; font-weight:800; letter-spacing:.12em; }
+.management-dashboard b, .management-dashboard strong { color:var(--forest-deep); }
+.management-dashboard article > b { display:block; font-size:25px; line-height:1.15; }
+.management-dashboard article > span, .management-progress div > span { display:block; margin-top:5px; color:var(--muted); font-size:12px; }
+.management-progress { display:flex; align-items:center; gap:15px; background:linear-gradient(135deg,#f7fbf8,#e9f3ed) !important; }
+.management-progress strong { display:block; font-size:19px; }
+.progress-ring { --progress:0%; position:relative; display:grid; flex:0 0 74px; width:74px; height:74px; place-items:center; border-radius:50%; background:conic-gradient(var(--green) var(--progress),#d8e5dd 0); }
+.progress-ring::after { content:""; position:absolute; inset:8px; border-radius:50%; background:#fff; }
+.progress-ring b { position:relative; z-index:1; font-size:18px; }
+.current-cycle-card { grid-column:1 / -1; display:grid; grid-template-columns:12px minmax(220px,1fr) auto; align-items:center; gap:13px; padding-block:13px !important; background:#f7faf8 !important; }
+.current-cycle-card.active { border-color:#8bbba4; background:linear-gradient(90deg,#e2f1e8,#f8fbf9) !important; }
+.current-cycle-card small { margin:0; }
+.current-cycle-card div b { display:block; font-size:16px; }
+.current-cycle-card > strong { font-size:13px; }
+.current-cycle-dot { width:10px; height:10px; border-radius:50%; background:#aab5ae; box-shadow:0 0 0 5px #edf1ee; }
+.current-cycle-card.active .current-cycle-dot { background:#1e9b62; box-shadow:0 0 0 5px #d8eee2; }
+.save-indicator::before { content:"●"; margin-right:6px; color:#32a66b; }
+.order-state-pill { padding:7px 10px; border-radius:999px; background:var(--pale); color:var(--green); font-size:11px; font-weight:800; letter-spacing:.05em; }
+.order-control { display:block; margin:12px 0; padding:0; border:0; background:transparent; }
+.order-control > label { max-width:720px; }
+.core-fields { grid-template-columns:repeat(5,minmax(150px,1fr)); }
+.advanced-settings, .calculation-diagnostics { margin-top:16px; border:1px solid var(--line); border-radius:12px; background:#f8faf8; }
+.advanced-settings > summary, .calculation-diagnostics > summary { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:13px 15px; color:var(--forest-deep); cursor:pointer; list-style:none; }
+.advanced-settings > summary::-webkit-details-marker, .calculation-diagnostics > summary::-webkit-details-marker { display:none; }
+.advanced-settings > summary span { display:flex; flex-direction:column; }
+.advanced-settings > summary small { color:var(--muted); font-weight:500; }
+.advanced-settings > summary strong { font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+.advanced-settings[open] > summary strong { font-size:0; }
+.advanced-settings[open] > summary strong::after { content:"Hide settings"; font-size:11px; }
+.advanced-fields { padding:2px 15px 15px; }
+.advanced-settings .report-meta, .technical-note { margin:0 15px 12px; color:var(--muted); font-size:12px; }
+.compact-conditions { margin:0 15px 12px; }
+.compact-conditions .condition { min-height:0; padding:10px; background:#fff; }
+.technical-metrics { margin:0 15px 15px; }
+.calculation-diagnostics > .optimization-audit { margin:0; padding:0 14px 14px; }
+
+@media (max-width:1100px) {
+  .management-dashboard { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .management-progress { grid-row:span 2; }
+  .current-cycle-card { grid-column:1 / -1; }
+  .core-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width:700px) {
+  .management-dashboard { grid-template-columns:1fr; }
+  .management-progress { grid-row:auto; }
+  .current-cycle-card { grid-column:auto; grid-template-columns:12px 1fr; }
+  .current-cycle-card > strong { grid-column:2; }
+  .core-fields { grid-template-columns:1fr; }
+  .advanced-settings > summary { align-items:flex-start; }
+}
+@media print {
+  .management-dashboard { grid-template-columns:repeat(4,1fr); gap:2mm; }
+  .management-dashboard article { padding:2mm; border-radius:0; box-shadow:none; }
+  .current-cycle-card { grid-column:1 / -1; }
+  .advanced-settings { display:none; }
 }

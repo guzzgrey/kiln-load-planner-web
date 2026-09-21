@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
     <link rel="icon" type="image/png" href="assets/conifer-forest-mark-v1.png" />
-    <link rel="stylesheet" href="styles.css?v=forest-brand-v17" />
+    <link rel="stylesheet" href="styles.css?v=management-dashboard-v18" />
   </head>
   <body>
     <main class="wrap">
@@ -15,65 +15,69 @@
           <div class="page-title-copy">
             <p class="eyebrow">FOREST PRODUCTION SYSTEM</p>
             <h1>Kiln Load Planner</h1>
-            <p class="lead">One board size, a fully occupied kiln, stable lifts, and material-specific inventory tracking.</p>
-            <p id="reportMeta" class="report-meta"></p>
-            <small class="build-version">Planner build UX-32 · completed-cycle viewer</small>
           </div>
         </div>
         <div class="header-actions">
-          <a class="button-link secondary-link" href="warehouse.html">Planning &amp; Processed Inventory / Shipping</a>
-          <a class="button-link secondary-link" href="remainders.html">Remainder Inventory</a>
-          <button id="downloadPdf" class="pdf-button" type="button">Download PDF Report</button>
+          <a class="button-link secondary-link" href="warehouse.html">Production &amp; Shipping</a>
+          <a class="button-link secondary-link" href="remainders.html">Remainders</a>
+          <button id="downloadPdf" class="pdf-button" type="button">PDF report</button>
         </div>
       </header>
 
       <section class="order-workspace" aria-label="Production orders">
         <div>
-          <label for="orderSelector">Open production order</label>
+          <label for="orderSelector">Production order</label>
           <select id="orderSelector"></select>
         </div>
-        <button id="saveOrder" class="secondary" type="button">Save current order</button>
+        <button id="saveOrder" class="secondary" type="button">Save</button>
         <button id="newOrder" type="button">+ New order</button>
-        <span id="orderSaveState">Saved locally and synchronized</span>
+        <span id="orderSaveState" class="save-indicator">Saved</span>
       </section>
 
-      <section class="conditions">
-        <div class="condition">
-          <b id="condLength">Kiln length</b>
-          <span>Wood + metal must equal exactly 34 ft</span>
-        </div>
-        <div class="condition">
-          <b id="condHeight">Lift height</b>
-          <span>Fully filled lifts have priority</span>
-        </div>
-        <div class="condition">
-          <b id="condMetal">Metal box</b>
-          <span>Used only to fill the remaining kiln length</span>
-        </div>
-        <div class="condition">
-          <b id="condBF">Load utilization</b>
-          <span>Unprocessed remainder is recorded in conditional inventory</span>
-        </div>
+      <section class="management-dashboard" aria-label="Production overview">
+        <article class="management-progress">
+          <div id="managementProgressRing" class="progress-ring" style="--progress:0%"><b id="managementReadyPercent">0%</b></div>
+          <div>
+            <small>READY MATERIAL</small>
+            <strong><span id="managementReadyBoards">0</span> / <span id="managementTotalBoards">0</span> PCS</strong>
+            <span><b id="managementReadyBf">0.0</b> BF completed</span>
+          </div>
+        </article>
+        <article class="management-kpi">
+          <small>PRODUCTION CYCLES</small>
+          <b id="managementCycles">0 / 0</b>
+          <span id="managementCycleNote">No completed cycles</span>
+        </article>
+        <article class="management-kpi">
+          <small>FIRST CYCLE START</small>
+          <b id="managementFirstStart">—</b>
+          <span>Recorded production start</span>
+        </article>
+        <article class="management-kpi">
+          <small>PRODUCTION TIME</small>
+          <b id="managementElapsed">—</b>
+          <span id="managementAverage">Average cycle —</span>
+        </article>
+        <article class="current-cycle-card">
+          <span class="current-cycle-dot"></span>
+          <div><small>CURRENT CYCLE</small><b id="managementCurrentCycle">No active cycle</b></div>
+          <strong id="managementCurrentDuration">Ready for planning</strong>
+        </article>
       </section>
 
       <div class="grid">
         <section class="card s12">
-          <h2>1. Kiln and Material</h2>
+          <div class="section-title-row">
+            <div><p class="eyebrow">ORDER SETUP</p><h2>Kiln &amp; material</h2></div>
+            <span id="orderState" class="order-state-pill">ACTIVE DRAFT</span>
+          </div>
           <div class="order-control">
             <label>Order / batch number<input id="orderNumber" placeholder="Assigned automatically or enter your number" /></label>
-            <div><b id="orderState">ACTIVE DRAFT</b><span>This number follows the boards through Kiln → YARD → Shipping.</span></div>
           </div>
-          <div class="fields">
+          <div class="fields core-fields">
             <div>
               <label>Supplier / company</label>
               <input id="supplier" value="" placeholder="Company supplying this batch" />
-            </div>
-            <div>
-              <label>Supplier cutting tolerance</label>
-              <select id="supplierClearance">
-                <option value="0" selected>Precise lengths · use full kiln</option>
-                <option value="1">Irregular +6–8″ · reserve 1 ft</option>
-              </select>
             </div>
             <div>
               <label>Primary material / product</label>
@@ -96,6 +100,22 @@
                 <option value="custom">Custom batch size</option>
               </select>
             </div>
+            <div>
+              <label>Boards across each row</label>
+              <input id="across" type="number" min="1" step="1" value="8" readonly />
+            </div>
+          </div>
+
+          <details class="advanced-settings">
+            <summary><span><b>Advanced kiln configuration</b><small>Physical dimensions, tolerances and capacity</small></span><strong>Show settings</strong></summary>
+            <div class="fields advanced-fields">
+              <div>
+                <label>Supplier cutting tolerance</label>
+                <select id="supplierClearance">
+                  <option value="0" selected>Precise lengths · use full kiln</option>
+                  <option value="1">Irregular +6–8″ · reserve 1 ft</option>
+                </select>
+              </div>
             <div class="custom-size-field">
               <label>Custom ordered thickness, ″</label>
               <input id="customT" type="number" min="0.1" step="0.0625" value="1.5" disabled />
@@ -158,51 +178,35 @@
               </select>
             </div>
             <div>
-              <label>Boards across each row</label>
-              <input id="across" type="number" min="1" step="1" value="8" readonly />
-            </div>
-            <div>
               <label>Sticker above the top row</label>
               <select id="topSticker">
                 <option value="1" selected>Yes</option>
                 <option value="0">No</option>
               </select>
             </div>
-          </div>
-          <p class="note batch-note">
-            Actual dimensions are batch-specific and must be confirmed with the supplying company. Ordered dimensions define material volume internally; physical dimensions determine rows and boards across.
-          </p>
-          <p id="geometryPreview" class="note batch-note"></p>
-
-          <div class="metrics">
-            <div class="metric">
-              <b id="rows">—</b>
-              <span>rows high</span>
             </div>
-            <div class="metric">
-              <b id="lines">—</b>
-              <span>board lines per lift</span>
+            <p id="reportMeta" class="report-meta"></p>
+            <p id="geometryPreview" class="technical-note"></p>
+            <div class="conditions compact-conditions">
+              <div class="condition"><b id="condLength">Kiln length</b></div>
+              <div class="condition"><b id="condHeight">Lift height</b></div>
+              <div class="condition"><b id="condMetal">Metal box</b></div>
+              <div class="condition"><b id="condBF">Load utilization</b></div>
             </div>
-            <div class="metric">
-              <b id="needPieces">—</b>
-              <span>lifts in the layout</span>
+            <div class="metrics technical-metrics">
+              <div class="metric"><b id="rows">—</b><span>rows high</span></div>
+              <div class="metric"><b id="lines">—</b><span>board lines per lift</span></div>
+              <div class="metric"><b id="needPieces">—</b><span>lifts in layout</span></div>
+              <div class="metric"><b id="capacity">—</b><span id="capacityLabel">board positions</span></div>
             </div>
-            <div class="metric">
-              <b id="capacity">—</b>
-              <span id="capacityLabel">board positions in current layout</span>
-            </div>
-          </div>
+          </details>
         </section>
 
         <section class="card s12 inventory-workspace">
           <div class="section-heading">
-            <h2>2. Selected Material Inventory</h2>
+            <div><p class="eyebrow">MATERIAL CONTROL</p><h2>Material inventory</h2></div>
             <div class="inventory-heading-actions"><button id="addFromRemainder" class="secondary" type="button">+ Add from remainder</button><button id="clearTop" class="secondary clear-inventory" type="button">Clear Inventory</button></div>
           </div>
-          <p class="note">
-            Physical quantities are entered once. Use Material composition to identify multiple materials of the same length without duplicating boards.
-          </p>
-
           <div class="scroll">
             <table class="inv">
               <thead>
@@ -256,7 +260,10 @@
           <div id="calculationStatus" class="calculation-status idle">
             Enter the order, then click Calculate Load.
           </div>
-          <div id="optimizationAudit" class="optimization-audit"></div>
+          <details class="calculation-diagnostics">
+            <summary>Calculation audit</summary>
+            <div id="optimizationAudit" class="optimization-audit"></div>
+          </details>
           <div class="load-progress">
             <div class="load-progress-heading">
               <strong>Current calculation: Kiln Load <span id="loadNumber">1</span></strong>
@@ -269,7 +276,6 @@
                 </span>
               </div>
             </div>
-            <p class="load-lifecycle-note"><b>Production status:</b> saving Drying/TM settings does not mark boards processed. Use <b>Start → Complete</b>, or <b>Complete past</b> for a cycle already run physically.</p>
             <div id="loadHistory" class="load-history"></div>
           </div>
           <details class="constraint-check">
@@ -280,7 +286,7 @@
 
         <section class="card s12 load-plan-card">
           <div class="section-title-row">
-            <div><p class="eyebrow">PRODUCTION PLAN</p><h2>3. Kiln Load Plan</h2></div>
+            <div><p class="eyebrow">PRODUCTION PLAN</p><h2>Load plan</h2></div>
             <span class="plan-view-hint">Selected cycle</span>
           </div>
           <div id="resultIntro"></div>
@@ -343,7 +349,7 @@
         </section>
 
         <section class="card s12">
-          <h2 id="visualTitle">4. Kiln Load 1 — Kiln and Lift Visualization</h2>
+          <h2 id="visualTitle">Kiln Load 1 — Kiln &amp; lift visualization</h2>
           <div class="visual-meta" id="visualMeta"></div>
           <div class="kiln-shell" id="kilnVisual"></div>
           <div id="finalInventoryVisual" class="final-inventory"></div>

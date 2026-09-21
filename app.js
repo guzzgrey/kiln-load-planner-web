@@ -647,32 +647,49 @@ function completionRecordsForActiveOrder() {
 }
 
 let managementClockTimer = null;
-const WESTMINSTER_FIRST_START_CORRECTION = 'westminster-first-start-2026-09-11-v1';
+const WESTMINSTER_TIMELINE_CORRECTION = 'westminster-cycle-timeline-2026-08-18-v2';
 
-function repairWestminsterFirstCycleStart() {
+function repairWestminsterProductionTimeline() {
   if (activeOrder?.number !== 'ORD-334605') return false;
   const records = readCompletedCycles();
-  const index = records.findIndex((record) => (
+  const firstIndex = records.findIndex((record) => (
     Number(record.loadNumber) === 1
     && (record.orderId === activeOrder.id || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number)
   ));
-  if (index < 0 || records[index].historyCorrection === WESTMINSTER_FIRST_START_CORRECTION) return false;
-  const startedAt = '2026-09-11T12:00:00-07:00';
-  const completedAt = records[index].completedAt || records[index].createdAt || (records[index].completedDate ? `${records[index].completedDate}T12:00:00-07:00` : null);
-  const completedTime = Date.parse(completedAt || '');
-  const startedTime = Date.parse(startedAt);
-  records[index] = {
-    ...records[index],
-    previousStartedAt: records[index].startedAt || null,
-    startedAt,
-    startedAtEstimated: true,
-    completedAt: completedAt || records[index].completedAt || null,
-    durationMs: Number.isFinite(completedTime) && completedTime >= startedTime ? completedTime - startedTime : null,
-    historyCorrection: WESTMINSTER_FIRST_START_CORRECTION,
-    historyCorrectedAt: new Date().toISOString(),
-  };
-  writeCompletedCycles(records);
-  return true;
+  let changed = false;
+  if (firstIndex >= 0 && records[firstIndex].historyCorrection !== WESTMINSTER_TIMELINE_CORRECTION) {
+    const firstStartedAt = '2026-08-18T12:00:00-07:00';
+    const firstCompletedAt = '2026-08-24T12:00:00-07:00';
+    records[firstIndex] = {
+      ...records[firstIndex],
+      previousStartedAt: records[firstIndex].previousStartedAt || records[firstIndex].startedAt || null,
+      previousCompletedAt: records[firstIndex].previousCompletedAt || records[firstIndex].completedAt || records[firstIndex].createdAt || null,
+      previousCompletedDate: records[firstIndex].previousCompletedDate || records[firstIndex].completedDate || null,
+      startedAt: firstStartedAt,
+      startedAtEstimated: false,
+      completedDate: '2026-08-24',
+      completedAt: firstCompletedAt,
+      durationMs: Date.parse(firstCompletedAt) - Date.parse(firstStartedAt),
+      historyCorrection: WESTMINSTER_TIMELINE_CORRECTION,
+      historyCorrectedAt: new Date().toISOString(),
+    };
+    writeCompletedCycles(records);
+    changed = true;
+  }
+
+  const secondCompleted = records.some((record) => Number(record.loadNumber) === 2 && (
+    record.orderId === activeOrder.id || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number
+  ));
+  if (!secondCompleted && activeOrder.productionTimelineCorrection !== WESTMINSTER_TIMELINE_CORRECTION) {
+    activeOrder.activeCycleNumber = 2;
+    activeOrder.activeCycleStartedAt = '2026-09-09T12:00:00-07:00';
+    activeOrder.productionTimelineCorrection = WESTMINSTER_TIMELINE_CORRECTION;
+    activeOrder.updatedAt = new Date().toISOString();
+    storeOrder(activeOrder);
+    writeActiveOrderPointer(activeOrder);
+    changed = true;
+  }
+  return changed;
 }
 
 function formatManagementDate(value) {
@@ -694,7 +711,7 @@ function formatProductionDuration(value) {
 
 function renderManagementDashboard() {
   if (!$('managementReadyPercent')) return;
-  repairWestminsterFirstCycleStart();
+  repairWestminsterProductionTimeline();
   const records = completionRecordsForActiveOrder();
   const inventory = activeOrder?.inventory || inventorySnapshot();
   const totalBoards = Object.values(inventory || {}).reduce((sum, quantity) => sum + Number(quantity || 0), 0);

@@ -302,8 +302,6 @@ function inputSnapshot() {
   return Object.fromEntries(ids.map((id) => [id, $(id).value]));
 }
 function inventorySnapshot() { return Object.fromEntries([...readInventory()]); }
-const CACHED_HTML_IDS = ['status','resultIntro','liftEditor','productionNeed','orderLoads','orderRemaining','plan','shortage','cycleYield','materialBreakdown','visualMeta','kilnVisual','finalInventoryVisual','residualsTableBody','optimizationAudit','manualFillSummary'];
-const CACHED_TEXT_IDS = ['rows','lines','needPieces','capacity','capacityLabel','loadBF','fillPct','missingBF','unusedBF','visualTitle','qtyTotal','beforeTotal','usedTotal','remainTotal'];
 function serializeLoadRecords() {
   return [...loadRecords.values()].map((record) => ({ ...record, available: Object.fromEntries(record.available), used: Object.fromEntries(record.used), remaining: Object.fromEntries(record.remaining) }));
 }
@@ -412,7 +410,11 @@ function restoreLoadRecordsFromPlans(plans) {
   return true;
 }
 function cacheRenderedCalculation() {
-  return { currentLoadNumber, signature: globalOrderSignature, plans: serializeCalculatedPlans(), html: Object.fromEntries(CACHED_HTML_IDS.map((id) => [id, $(id)?.innerHTML || ''])), text: Object.fromEntries(CACHED_TEXT_IDS.map((id) => [id, $(id)?.textContent || ''])), inventoryCells: [...document.querySelectorAll('#inventory tr')].map((row) => ({ before: row.querySelector('.before')?.textContent || '0', used: row.querySelector('.used')?.textContent || '0', remain: row.querySelector('.remain')?.textContent || '0' })), records: serializeLoadRecords() };
+  // Persist only domain data. Cached HTML duplicated the complete plan markup,
+  // made every cloud write much larger, and could restore stale controls.
+  // Legacy HTML caches remain readable below, while all new saves render from
+  // the structured plans and load records.
+  return { version: 2, currentLoadNumber, signature: globalOrderSignature, plans: serializeCalculatedPlans(), records: serializeLoadRecords() };
 }
 function restoreRenderedCalculation() {
   const cache = activeOrder?.viewCache;

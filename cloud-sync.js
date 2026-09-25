@@ -29,6 +29,7 @@
   let appLoaded = false;
   let cloudReady = false;
   let reloadScheduled = false;
+  let outboxRetryTimer = 0;
   const seenRevisions = new Map();
   const pushTimers = new Map();
   const pendingValues = new Map();
@@ -150,6 +151,7 @@
     const { error } = await client.from(config.table).upsert({ key, value, updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if (error) {
       addStatus('Production changes are not yet saved — stay on this screen', 'offline');
+      scheduleOutboxRetry();
       throw error;
     }
     clearOutboxOperation(key, operation);
@@ -176,6 +178,7 @@
       const { error } = await client.from(config.table).delete().eq('key', key);
       if (error) {
         addStatus('Production changes are not yet saved — stay on this screen', 'offline');
+        scheduleOutboxRetry();
         throw error;
       }
       clearOutboxOperation(key, { type: 'delete' });
@@ -195,6 +198,21 @@
       }
       clearOutboxOperation(key, operation);
     }
+  }
+
+  function scheduleOutboxRetry() {
+    if (outboxRetryTimer || !hasOutboxOperations()) return;
+    outboxRetryTimer = window.setTimeout(async () => {
+      outboxRetryTimer = 0;
+      try {
+        await replayOutbox();
+        addStatus(`Shared as ${email}`, 'online');
+      } catch (error) {
+        console.error('Protected production changes are still waiting for cloud sync:', error);
+        addStatus('Connected — production changes are protected locally and waiting to sync', 'offline');
+        scheduleOutboxRetry();
+      }
+    }, 5000);
   }
 
   async function flushPendingState() {
@@ -270,10 +288,15 @@
       }
       return;
     }
-    localSyncKeys().forEach(removeLocal);
+    // Never replace a locally protected mutation with an older cloud row.
+    // Other keys can still refresh normally, so one pending write does not
+    // disconnect the entire planner.
+    const protectedKeys = new Set(Object.keys(readOutbox()));
+    localSyncKeys().forEach((key) => { if (!protectedKeys.has(key)) removeLocal(key); });
     data.forEach((row) => {
       if (!isSyncKey(row.key)) return;
       seenRevisions.set(row.key, row.updated_at || '');
+      if (protectedKeys.has(row.key)) return;
       setLocal(row.key, typeof row.value === 'string' ? row.value : json(row.value));
     });
   }
@@ -299,17 +322,23 @@
   async function startSharedApplication() {
     addStatus('Connecting shared production data…', 'offline');
     try {
-      if (hasOutboxOperations()) {
-        addStatus('Recovering unsaved production changes…', 'offline');
-        await replayOutbox();
-      }
       await pullSharedState();
       cloudReady = true;
       patchStorage();
       protectInternalNavigation();
       subscribe();
       window.kilnCloudFlush = flushPendingState;
-      addStatus(`Shared as ${email}`, 'online');
+      if (hasOutboxOperations()) {
+        addStatus('Connected — recovering protected production changes…', 'offline');
+        try {
+          await replayOutbox();
+          addStatus(`Shared as ${email}`, 'online');
+        } catch (error) {
+          console.error('Protected production changes are waiting for cloud sync:', error);
+          addStatus('Connected — production changes are protected locally and waiting to sync', 'offline');
+          scheduleOutboxRetry();
+        }
+      } else addStatus(`Shared as ${email}`, 'online');
     } catch (error) {
       console.error('Supabase synchronization failed:', error);
       // Continue recording every production mutation in the durable outbox.

@@ -3,7 +3,11 @@
   <script>
     window.KILN_CLOUD_CONFIG = { url: 'test', publishableKey: 'test', table: 'state' };
     window.__remoteState = new Map([['kiln-planner-completed-cycles-v1', []]]);
-    window.__failNextCloudWrite = false;
+    const protectedKey = 'kiln-planner-completed-cycles-v1';
+    const protectedValue = [{ id: 'cycle-2', loadNumber: 2, boards: 640 }];
+    localStorage.setItem(protectedKey, JSON.stringify(protectedValue));
+    localStorage.setItem('kiln-planner-cloud-outbox-v1', JSON.stringify({ [protectedKey]: { type: 'set', value: protectedValue } }));
+    window.__failNextCloudWrite = true;
     const result = (value) => Promise.resolve(value);
     window.supabase = { createClient: () => ({
       auth: { getSession: () => result({ data: { session: { user: { id: 'test-user' } } } }), signOut: () => result({}) },

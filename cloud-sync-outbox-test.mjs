@@ -26,25 +26,19 @@ await send('Page.navigate', { url: 'http://kiln.test:8782/cloud-sync-outbox-test
 await new Promise((resolve) => setTimeout(resolve, 700));
 const result = await evaluate(`(async () => {
   const key='kiln-planner-completed-cycles-v1';
-  const value=[{id:'cycle-2',loadNumber:2,boards:640}];
-  localStorage.setItem(key,JSON.stringify(value));
-  const staged=JSON.parse(localStorage.getItem('kiln-planner-cloud-outbox-v1')||'{}');
-  window.__failNextCloudWrite=true;
-  let firstFailed=false;
-  try { await window.kilnCloudFlush(); } catch (_) { firstFailed=true; }
+  const localAfterStartup=JSON.parse(localStorage.getItem(key)||'[]');
   const protectedAfterFailure=JSON.parse(localStorage.getItem('kiln-planner-cloud-outbox-v1')||'{}');
   await window.kilnCloudFlush();
   return {
     appLoaded:Boolean(window.__outboxTestAppLoaded),
-    staged:Boolean(staged[key]),
-    firstFailed,
+    localSurvived:localAfterStartup[0]?.loadNumber===2,
     protectedAfterFailure:Boolean(protectedAfterFailure[key]),
     outboxCleared:!localStorage.getItem('kiln-planner-cloud-outbox-v1'),
     remote:window.__remoteState.get(key),
   };
 })()`);
 console.log(JSON.stringify(result, null, 2));
-if (!result.appLoaded || !result.staged || !result.firstFailed || !result.protectedAfterFailure || !result.outboxCleared || result.remote?.[0]?.loadNumber !== 2) {
+if (!result.appLoaded || !result.localSurvived || !result.protectedAfterFailure || !result.outboxCleared || result.remote?.[0]?.loadNumber !== 2) {
   throw new Error(`Durable cloud outbox test failed: ${JSON.stringify(result)}`);
 }
 ws.close();

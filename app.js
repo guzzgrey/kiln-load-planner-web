@@ -669,6 +669,7 @@ function completionRecordsForActiveOrder() {
 
 let managementClockTimer = null;
 const WESTMINSTER_TIMELINE_CORRECTION = 'westminster-cycle-timeline-2026-08-18-v2';
+const WESTMINSTER_CYCLE_2_RECOVERY = 'westminster-cycle-2-completed-2026-09-25-v1';
 
 function repairWestminsterProductionTimeline() {
   if (activeOrder?.number !== 'ORD-334605') return false;
@@ -701,9 +702,57 @@ function repairWestminsterProductionTimeline() {
   const secondCompleted = records.some((record) => Number(record.loadNumber) === 2 && (
     record.orderId === activeOrder.id || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number
   ));
+  if (!secondCompleted && activeOrder.cycle2RecoveryVersion !== WESTMINSTER_CYCLE_2_RECOVERY) {
+    const snapshot = loadRecords.get(2);
+    if (snapshot && Number(snapshot.usedBoards || 0) > 0) {
+      const startedAt = activeOrder.activeCycleStartedAt || '2026-09-09T12:00:00-07:00';
+      const completedAt = '2026-09-25T12:00:00-07:00';
+      const planFingerprint = loadPlanFingerprint(2);
+      const record = {
+        id: completionRecordId(2, planFingerprint),
+        orderId: activeOrder.id,
+        orderNumber: activeOrder.number,
+        productionOrderNumber: activeOrder.number,
+        loadNumber: 2,
+        supplier: activeOrder.inputs?.supplier || 'Westminster',
+        marking: 'Confirmed physical completion',
+        completedDate: '2026-09-25',
+        finalProcessDate: '',
+        species: activeOrder.inputs?.species || 'Hemlock',
+        size: String(activeOrder.inputs?.size || '').replace(',', '×') || '1×6',
+        quantities: Object.fromEntries(snapshot.used || []),
+        materials: { ...(snapshot.materials || {}) },
+        qualityLots: (snapshot.qualityLots || []).map((lot) => ({ ...lot })),
+        dryingProgram: dryingPrograms.has('2') ? JSON.parse(JSON.stringify(dryingPrograms.get('2'))) : null,
+        thermoProgram: thermoPrograms.has('2') ? JSON.parse(JSON.stringify(thermoPrograms.get('2'))) : null,
+        planFingerprint,
+        boards: Number(snapshot.usedBoards || 0),
+        bf: Number(snapshot.usedBf || 0),
+        startedAt,
+        completedAt,
+        durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)),
+        createdAt: completedAt,
+        recoveredFromConfirmedProduction: true,
+      };
+      records.push(record);
+      writeCompletedCycles(records);
+      const embedded = Array.isArray(activeOrder.completedCycles) ? activeOrder.completedCycles.filter((item) => item.id !== record.id) : [];
+      embedded.push(orderCompletionLink(record));
+      activeOrder.completedCycles = embedded;
+      delete activeOrder.activeCycleNumber;
+      delete activeOrder.activeCycleStartedAt;
+      activeOrder.cycle2RecoveryVersion = WESTMINSTER_CYCLE_2_RECOVERY;
+      activeOrder.updatedAt = new Date().toISOString();
+      storeOrder(activeOrder);
+      writeActiveOrderPointer(activeOrder);
+      changed = true;
+    }
+  }
   if (!secondCompleted && activeOrder.productionTimelineCorrection !== WESTMINSTER_TIMELINE_CORRECTION) {
-    activeOrder.activeCycleNumber = 2;
-    activeOrder.activeCycleStartedAt = '2026-09-09T12:00:00-07:00';
+    if (activeOrder.cycle2RecoveryVersion !== WESTMINSTER_CYCLE_2_RECOVERY) {
+      activeOrder.activeCycleNumber = 2;
+      activeOrder.activeCycleStartedAt = '2026-09-09T12:00:00-07:00';
+    }
     activeOrder.productionTimelineCorrection = WESTMINSTER_TIMELINE_CORRECTION;
     activeOrder.updatedAt = new Date().toISOString();
     storeOrder(activeOrder);

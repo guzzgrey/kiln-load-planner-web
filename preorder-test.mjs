@@ -57,10 +57,11 @@ const result = await evaluate(`(() => {
     physicalAvailable: availableForYard()[8],
     readyLeft: productionLots().find((lot)=>lot.id===ready.id).quantity-preorderReserved(ready.id),
     sourceOverflow: [...document.querySelectorAll('.preorder-source-row')].some((row) => row.scrollWidth > row.clientWidth + 1 || [...row.children].some((child) => child.getBoundingClientRect().right > row.getBoundingClientRect().right + 1)),
+    completedLocked: !document.querySelector('.delete-completed') && document.getElementById('completedTable').textContent.includes('Locked'),
     pageText: document.getElementById('preorderPlanner').textContent,
   };
 })()`);
-if (result.items !== 2 || result.selected !== 64 || result.selectedBf !== 256 || result.physicalAvailable !== 56 || result.readyLeft !== 16 || result.sourceOverflow
+if (result.items !== 2 || result.selected !== 64 || result.selectedBf !== 256 || result.physicalAvailable !== 56 || result.readyLeft !== 16 || result.sourceOverflow || !result.completedLocked
   || !result.pageText.includes('SPF') || !result.pageText.includes('Hemlock') || !result.pageText.includes('READY') || !result.pageText.includes('EXPECTED')
   || !result.pageText.includes('READY in warehouse56 PCS · 224.0 BF') || !result.pageText.includes('64 PCS · 256.0 BF')
   || !result.pageText.includes('SPF40 PCS · 160.0 BF') || !result.pageText.includes('Hemlock24 PCS · 96.0 BF')) {

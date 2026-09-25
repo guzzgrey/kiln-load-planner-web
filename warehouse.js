@@ -594,7 +594,7 @@ function renderCompleted() {
   const records = completed();
   $('emptyCompleted').hidden = records.length > 0;
   const totals = sumQuantities(records);
-  const rows = records.map((record) => `<tr><td><b>${esc(record.completedDate)}</b><small>Kiln Load ${record.loadNumber}</small></td><td>${esc(record.supplier)}</td><td>${esc(record.marking)}</td><td class="quality-lot-summary">${recordQualitySummary(record)}</td>${LENGTHS.map((l) => `<td>${record.quantities?.[l] ? fmt(record.quantities[l]) : ''}</td>`).join('')}<td><b>${fmt(record.boards)}</b></td><td>${fmt(record.bf, 1)}</td><td><button class="danger small-action delete-completed" type="button" data-id="${esc(record.id)}">Delete</button></td></tr>`).join('');
+  const rows = records.map((record) => `<tr><td><b>${esc(record.completedDate)}</b><small>Kiln Load ${record.loadNumber}</small></td><td>${esc(record.supplier)}</td><td>${esc(record.marking)}</td><td class="quality-lot-summary">${recordQualitySummary(record)}</td>${LENGTHS.map((l) => `<td>${record.quantities?.[l] ? fmt(record.quantities[l]) : ''}</td>`).join('')}<td><b>${fmt(record.boards)}</b></td><td>${fmt(record.bf, 1)}</td><td><b>Locked</b></td></tr>`).join('');
   const footer = `<tfoot><tr><th colspan="4">TOTAL PROCESSED</th>${LENGTHS.map((l) => `<th>${totals[l] ? fmt(totals[l]) : ''}</th>`).join('')}<th>${fmt(totalBoards(totals))}</th><th>${fmt(records.reduce((sum, record) => sum + Number(record.bf || 0), 0), 1)}</th><th></th></tr></tfoot>`;
   $('completedTable').innerHTML = `${completedHeader()}<tbody>${rows}</tbody>${footer}`;
   const order = activeOrder();
@@ -608,7 +608,6 @@ function renderCompleted() {
   $('processedBoards').textContent = `${fmt(processed)} / ${fmt(plannedBoards)}`;
   $('processedFormula').textContent = `${fmt(received)} received − ${fmt(unprocessed)} unprocessed outside thermal cycles`;
   $('completionPercent').textContent = `${fmt(completion, 1)}%`;
-  document.querySelectorAll('.delete-completed').forEach((button) => button.addEventListener('click', () => deleteCompletedRecord(button.dataset.id)));
   return totals;
 }
 

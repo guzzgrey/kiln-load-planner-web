@@ -4765,14 +4765,18 @@ function formatSigned(value) {
 
 function openDryingProgram(loadNumber) {
   editingDryingLoadNumber = Number(loadNumber);
+  const locked = isLoadCompleted(loadNumber);
   $('dryingProgramTitle').textContent = `Kiln Load ${loadNumber} · drying program`;
   const saved = dryingPrograms.get(String(loadNumber));
   dryingBaselineRows = (saved?.rows?.length ? saved.rows : defaultDryingRows()).map((row) => ({ ...row }));
   dryingCalculatedScenarioRows = null;
   renderDryingCurrentRows(dryingBaselineRows);
   renderDryingScenarioRows(dryingBaselineRows.map((row) => ({ ...row })), dryingBaselineRows);
+  $('calculateDryingProgram').disabled = locked;
   $('dryingProgramStatus').className = `calculation-status ${saved?.calculatedAt ? 'ready' : 'pending'}`;
-  $('dryingProgramStatus').textContent = saved?.calculatedAt
+  $('dryingProgramStatus').textContent = locked
+    ? 'Completed production record — view and comparison only. The saved program is locked.'
+    : saved?.calculatedAt
     ? `Saved ${new Date(saved.calculatedAt).toLocaleString()}. Edit only the comparison table; the saved program stays unchanged until Save scenario as current is pressed.`
     : 'MASPEL defaults loaded. Press Calculate comparison to preview EMC, gradient and differences without saving.';
   $('dryingProgramDialog').showModal();
@@ -4861,6 +4865,7 @@ function calculateDryingValues(rows) {
 function calculateAndSaveDryingProgram(event) {
   event.preventDefault();
   try {
+    if (isLoadCompleted(editingDryingLoadNumber)) throw new Error('Completed production records are locked and cannot be changed.');
     if (!dryingCalculatedScenarioRows) throw new Error('Calculate the comparison first. Editing values never starts a calculation automatically.');
     const rows = dryingCalculatedScenarioRows.map((row) => ({ ...row }));
     const calculatedAt = new Date().toISOString();
@@ -4893,16 +4898,27 @@ function renderThermoProgramRows(rows) {
 
 function openThermoProgram(loadNumber) {
   editingThermoLoadNumber = Number(loadNumber);
+  const locked = isLoadCompleted(loadNumber);
   $('thermoProgramTitle').textContent = `Kiln Load ${loadNumber} · Thermo Vacuum program`;
   const saved = thermoPrograms.get(String(loadNumber));
   renderThermoProgramRows(saved?.rows?.length ? saved.rows : THERMO_VACUUM_DEFAULTS);
+  $('thermoProgramRows').querySelectorAll('input').forEach((input) => { input.disabled = locked; });
+  $('resetThermoProgram').disabled = locked;
+  $('saveThermoProgram').disabled = locked;
   $('thermoProgramStatus').className = `calculation-status ${saved?.savedAt ? 'ready' : 'pending'}`;
-  $('thermoProgramStatus').textContent = saved?.savedAt ? `Saved ${new Date(saved.savedAt).toLocaleString()}.` : 'Photo defaults loaded. Review and save this TM program.';
+  $('thermoProgramStatus').textContent = locked
+    ? 'Completed production record — view only. The TM program is locked.'
+    : saved?.savedAt ? `Saved ${new Date(saved.savedAt).toLocaleString()}.` : 'Photo defaults loaded. Review and save this TM program.';
   $('thermoProgramDialog').showModal();
 }
 
 function saveThermoProgram(event) {
   event.preventDefault();
+  if (isLoadCompleted(editingThermoLoadNumber)) {
+    $('thermoProgramStatus').className = 'calculation-status pending';
+    $('thermoProgramStatus').textContent = 'Completed production records are locked and cannot be changed.';
+    return;
+  }
   const rows = [...$('thermoProgramRows').querySelectorAll('tr')].map((row) => ({ stage: row.querySelector('.thermo-stage').value.trim(), setpoint: Number(row.querySelector('.thermo-setpoint').value), temp: Number(row.querySelector('.thermo-temp').value), duration: Number(row.querySelector('.thermo-duration').value), note: row.querySelector('.thermo-note').value.trim() }));
   if (rows.some((row) => !row.stage || !Number.isFinite(row.setpoint) || !Number.isFinite(row.temp) || !Number.isFinite(row.duration) || row.duration < 0)) {
     $('thermoProgramStatus').className = 'calculation-status error';

@@ -2,11 +2,14 @@
 <html><body class="cloud-locked">
   <script>
     window.KILN_CLOUD_CONFIG = { url: 'test', publishableKey: 'test', table: 'state' };
-    window.__remoteState = new Map([['kiln-planner-completed-cycles-v1', []]]);
+    window.__remoteState = new Map([['kiln-planner-completed-cycles-v1', []], ['kiln-planner-tag-sequence-v1', 10001]]);
     const protectedKey = 'kiln-planner-completed-cycles-v1';
     const protectedValue = [{ id: 'cycle-2', loadNumber: 2, boards: 640 }];
     localStorage.setItem(protectedKey, JSON.stringify(protectedValue));
     localStorage.setItem('kiln-planner-cloud-outbox-v1', JSON.stringify({ [protectedKey]: { type: 'set', value: protectedValue } }));
+    localStorage.setItem('kiln-planner-active-order-v1', JSON.stringify({ orderRef: 'local-order' }));
+    localStorage.setItem('kiln-planner-order-v1:local-order', JSON.stringify({ id: 'local-order', number: 'ORD-LOCAL' }));
+    localStorage.setItem('kiln-planner-tag-sequence-v1', '10009');
     window.__failNextCloudWrite = true;
     const result = (value) => Promise.resolve(value);
     window.supabase = { createClient: () => ({

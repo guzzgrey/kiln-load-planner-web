@@ -96,6 +96,17 @@
 
   function hasOutboxOperations() { return Object.keys(readOutbox()).length > 0; }
 
+  function hasLocalWorkspace() {
+    try {
+      const pointer = JSON.parse(localStorage.getItem('kiln-planner-active-order-v1') || 'null');
+      if (!pointer) return false;
+      if (pointer.orderRef) return Boolean(localStorage.getItem(`kiln-planner-order-v1:${pointer.orderRef}`));
+      return Boolean(pointer.id || pointer.number);
+    } catch (_) {
+      return false;
+    }
+  }
+
   function addStatus(text, state = 'online') {
     let bar = document.getElementById('cloudStatusBar');
     if (!bar) {
@@ -241,11 +252,13 @@
       addStatus('Saving production changes before opening the next screen…', 'offline');
       try {
         await flushPendingState();
-        window.location.assign(destination.href);
       } catch (error) {
-        console.error('Navigation paused until production changes are saved:', error);
-        addStatus('Could not save production changes. This page was kept open; try again.', 'offline');
+        console.error('Cloud backup pending; continuing with the protected local workspace:', error);
+        addStatus('Working locally — cloud backup will retry automatically', 'offline');
       }
+      // Every V2 screen shares the same localStorage and durable outbox. Cloud
+      // backup must never prevent production work or cross-page navigation.
+      window.location.assign(destination.href);
     });
   }
 
@@ -322,23 +335,26 @@
   async function startSharedApplication() {
     addStatus('Connecting shared production data…', 'offline');
     try {
-      await pullSharedState();
+      const localWorkspace = hasLocalWorkspace();
+      // Temporary V2 policy: an existing browser workspace is authoritative.
+      // Pull only when opening the application on a browser with no order.
+      if (!localWorkspace) await pullSharedState();
       cloudReady = true;
       patchStorage();
       protectInternalNavigation();
-      subscribe();
       window.kilnCloudFlush = flushPendingState;
+      loadApplication();
       if (hasOutboxOperations()) {
-        addStatus('Connected — recovering protected production changes…', 'offline');
+        addStatus('Working locally — cloud backup is syncing…', 'offline');
         try {
           await replayOutbox();
-          addStatus(`Shared as ${email}`, 'online');
+          addStatus(`Local workspace backed up as ${email}`, 'online');
         } catch (error) {
           console.error('Protected production changes are waiting for cloud sync:', error);
-          addStatus('Connected — production changes are protected locally and waiting to sync', 'offline');
+          addStatus('Working locally — cloud backup will retry automatically', 'offline');
           scheduleOutboxRetry();
         }
-      } else addStatus(`Shared as ${email}`, 'online');
+      } else addStatus(`Local workspace backed up as ${email}`, 'online');
     } catch (error) {
       console.error('Supabase synchronization failed:', error);
       // Continue recording every production mutation in the durable outbox.
@@ -347,7 +363,7 @@
       patchStorage();
       protectInternalNavigation();
       window.kilnCloudFlush = flushPendingState;
-      addStatus('Cloud unavailable — changes are protected locally', 'offline');
+      addStatus('Working locally — cloud backup will retry automatically', 'offline');
     }
     loadApplication();
   }

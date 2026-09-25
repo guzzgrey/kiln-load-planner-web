@@ -4,6 +4,7 @@
   const config = window.KILN_CLOUD_CONFIG;
   const appScript = document.currentScript?.dataset.app;
   const email = 'ivan@firesmartroofing.com';
+  const OUTBOX_KEY = 'kiln-planner-cloud-outbox-v1';
   const syncKeys = new Set([
     'kiln-planner-active-order-v1',
     'kiln-planner-order-archive-v1',
@@ -34,6 +35,7 @@
   const activePushes = new Set();
   const pushChains = new Map();
   let navigationProtected = false;
+  let storagePatched = false;
   function isSyncKey(key) { return syncKeys.has(key) || syncPrefixes.some((prefix) => String(key).startsWith(prefix)); }
   function localSyncKeys() {
     return Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).filter((key) => key && isSyncKey(key));
@@ -63,6 +65,35 @@
       return false;
     }
   }
+
+  function readOutbox() {
+    try {
+      const value = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '{}');
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeOutbox(value) {
+    if (Object.keys(value).length) nativeSet.call(localStorage, OUTBOX_KEY, JSON.stringify(value));
+    else nativeRemove.call(localStorage, OUTBOX_KEY);
+  }
+
+  function stageOutbox(key, operation) {
+    const outbox = readOutbox();
+    outbox[key] = operation;
+    writeOutbox(outbox);
+  }
+
+  function clearOutboxOperation(key, operation) {
+    const outbox = readOutbox();
+    if (!outbox[key] || json(normalizeJson(outbox[key])) !== json(normalizeJson(operation))) return;
+    delete outbox[key];
+    writeOutbox(outbox);
+  }
+
+  function hasOutboxOperations() { return Object.keys(readOutbox()).length > 0; }
 
   function addStatus(text, state = 'online') {
     let bar = document.getElementById('cloudStatusBar');
@@ -115,9 +146,14 @@
 
   async function pushState(key, value) {
     if (!cloudReady || !isSyncKey(key)) return;
+    const operation = { type: 'set', value };
     const { error } = await client.from(config.table).upsert({ key, value, updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-    if (error) addStatus('Offline changes pending', 'offline');
-    else addStatus(`Shared as ${email}`, 'online');
+    if (error) {
+      addStatus('Production changes are not yet saved — stay on this screen', 'offline');
+      throw error;
+    }
+    clearOutboxOperation(key, operation);
+    addStatus(`Shared as ${email}`, 'online');
   }
 
   function queueCloudOperation(key, operation) {
@@ -125,10 +161,11 @@
     const task = previous.catch(() => {}).then(operation);
     pushChains.set(key, task);
     activePushes.add(task);
-    task.finally(() => {
+    const cleanup = () => {
       activePushes.delete(task);
       if (pushChains.get(key) === task) pushChains.delete(key);
-    });
+    };
+    task.then(cleanup, cleanup);
     return task;
   }
 
@@ -137,8 +174,27 @@
   function trackDelete(key) {
     return queueCloudOperation(key, async () => {
       const { error } = await client.from(config.table).delete().eq('key', key);
-      if (error) addStatus('Offline deletion pending', 'offline');
+      if (error) {
+        addStatus('Production changes are not yet saved — stay on this screen', 'offline');
+        throw error;
+      }
+      clearOutboxOperation(key, { type: 'delete' });
     });
+  }
+
+  async function replayOutbox() {
+    const operations = Object.entries(readOutbox()).filter(([key]) => isSyncKey(key));
+    for (const [key, operation] of operations) {
+      if (operation?.type === 'delete') {
+        const { error } = await client.from(config.table).delete().eq('key', key);
+        if (error) throw error;
+      } else {
+        const value = operation?.value;
+        const { error } = await client.from(config.table).upsert({ key, value, updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        if (error) throw error;
+      }
+      clearOutboxOperation(key, operation);
+    }
   }
 
   async function flushPendingState() {
@@ -151,6 +207,7 @@
     const pendingTasks = pending.map(([key, value]) => trackPush(key, value));
     await Promise.all(pendingTasks);
     if (activePushes.size) await Promise.all([...activePushes]);
+    if (hasOutboxOperations()) await replayOutbox();
   }
 
   function protectInternalNavigation() {
@@ -161,34 +218,43 @@
       if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target || link.download) return;
       const destination = new URL(link.href, window.location.href);
       if (destination.origin !== window.location.origin || destination.href === window.location.href) return;
-      if (!pendingValues.size && !activePushes.size) return;
+      if (!pendingValues.size && !activePushes.size && !hasOutboxOperations()) return;
       event.preventDefault();
       addStatus('Saving production changes before opening the next screen…', 'offline');
-      await flushPendingState();
-      window.location.assign(destination.href);
+      try {
+        await flushPendingState();
+        window.location.assign(destination.href);
+      } catch (error) {
+        console.error('Navigation paused until production changes are saved:', error);
+        addStatus('Could not save production changes. This page was kept open; try again.', 'offline');
+      }
     });
   }
 
   function patchStorage() {
+    if (storagePatched) return;
+    storagePatched = true;
     Storage.prototype.setItem = function (key, value) {
       const previous = this === localStorage ? localStorage.getItem(key) : null;
       nativeSet.call(this, key, value);
       if (this === localStorage && isSyncKey(key) && previous !== String(value)) {
+        stageOutbox(key, { type: 'set', value: parseLocal(key) });
         window.clearTimeout(pushTimers.get(key));
         pendingValues.set(key, parseLocal(key));
         pushTimers.set(key, window.setTimeout(() => {
           pushTimers.delete(key);
           const pending = pendingValues.get(key);
           pendingValues.delete(key);
-          trackPush(key, pending);
+          trackPush(key, pending).catch(() => {});
         }, 250));
       }
     };
     Storage.prototype.removeItem = function (key) {
       nativeRemove.call(this, key);
       if (this === localStorage && isSyncKey(key) && cloudReady) {
+        stageOutbox(key, { type: 'delete' });
         pendingValues.delete(key);
-        trackDelete(key);
+        trackDelete(key).catch(() => {});
       }
     };
   }
@@ -233,6 +299,10 @@
   async function startSharedApplication() {
     addStatus('Connecting shared production data…', 'offline');
     try {
+      if (hasOutboxOperations()) {
+        addStatus('Recovering unsaved production changes…', 'offline');
+        await replayOutbox();
+      }
       await pullSharedState();
       cloudReady = true;
       patchStorage();
@@ -242,7 +312,13 @@
       addStatus(`Shared as ${email}`, 'online');
     } catch (error) {
       console.error('Supabase synchronization failed:', error);
-      addStatus('Cloud unavailable — local backup mode', 'offline');
+      // Continue recording every production mutation in the durable outbox.
+      // A later reload or explicit flush can replay it without data loss.
+      cloudReady = true;
+      patchStorage();
+      protectInternalNavigation();
+      window.kilnCloudFlush = flushPendingState;
+      addStatus('Cloud unavailable — changes are protected locally', 'offline');
     }
     loadApplication();
   }

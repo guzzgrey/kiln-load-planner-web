@@ -41,6 +41,7 @@ const result = await evaluate(`(() => {
   document.getElementById('acrossMode').value='manual';
   document.getElementById('across').value='8';
   writeCompletedCycles([]);
+  activeOrder.completedCycles=[];
   delete activeOrder.activeCycleNumber;
   globalOrderPlans=[]; globalOrderSignature=''; currentLoadNumber=1;
   calculate(true);

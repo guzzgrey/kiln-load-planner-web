@@ -27,6 +27,7 @@ await evaluate(`(() => {
     id:'preorder-test-order', number:'ORD-PREORDER', status:'active', plannedCycles:2, plannedBoards:176,
     inputs:{ supplier:'Westminster', species:'SPF', size:'1,6' }, inventory:{ 8:112, 10:64 },
     activeCycleNumber:2,
+    completedCycles:[{id:'done-1',orderId:'preorder-test-order',loadNumber:1,completedDate:'2026-09-18',species:'SPF',size:'1x6',quantities:{8:56},qualityLots:[{length:8,material:'SPF',quality:'good',quantity:56}],boards:56,bf:224}],
     viewCache:{ records:[
       { number:1, used:{8:56}, qualityLots:[{length:8,material:'SPF',quality:'good',quantity:56}] },
       { number:2, used:{8:56,10:64}, qualityLots:[{length:8,material:'Hemlock',quality:'good',quantity:24},{length:8,material:'SPF',quality:'good',quantity:32},{length:10,material:'SPF',quality:'good',quantity:64}] }
@@ -34,7 +35,7 @@ await evaluate(`(() => {
   };
   localStorage.setItem('kiln-planner-order-v1:'+order.id, JSON.stringify(order));
   localStorage.setItem('kiln-planner-active-order-v1', JSON.stringify({orderRef:order.id}));
-  localStorage.setItem('kiln-planner-completed-cycles-v1', JSON.stringify([{id:'done-1',orderId:order.id,loadNumber:1,completedDate:'2026-09-18',species:'SPF',size:'1x6',quantities:{8:56},qualityLots:[{length:8,material:'SPF',quality:'good',quantity:56}],boards:56,bf:224}]));
+  localStorage.setItem('kiln-planner-completed-cycles-v1', '[]');
   ['kiln-planner-shipping-tags-v1','kiln-planner-test-boards-v1','kiln-planner-recovery-operations-v1','kiln-planner-shipments-v1','kiln-planner-preliminary-orders-v1'].forEach((key)=>localStorage.setItem(key,'[]'));
 })()`);
 await send('Page.navigate', { url:'http://127.0.0.1:8771/warehouse.html?test=preorder' });

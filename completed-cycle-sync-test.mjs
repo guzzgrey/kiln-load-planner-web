@@ -55,19 +55,23 @@ const result = await evaluate(`(async () => {
   window.kilnCloudFlush=async()=>{flushCalls+=1; await new Promise((resolve)=>setTimeout(resolve,25));};
   await saveCompletedCycle({preventDefault(){}});
   const records=readCompletedCycles();
+  const embeddedRecords=activeOrder.completedCycles?.length||0;
+  writeCompletedCycles([]);
+  const survivesLedgerLoss=isLoadCompleted(1);
+  writeCompletedCycles(records);
   records[0]={...records[0],startedAt:'2026-08-18T12:00:00-07:00',completedAt:'2026-08-24T12:00:00-07:00',durationMs:6*24*60*60*1000};
   writeCompletedCycles(records);
   activeOrder.plannedCycles=7;
   renderManagementDashboard();
   const elapsedText=document.getElementById('managementElapsed').textContent;
   const averageText=document.getElementById('managementAverage').textContent;
-  const output={flushCalls,records:records.length,completed:isLoadCompleted(1),activeCycle:activeOrder.activeCycleNumber||null,loadNumber:records[0]?.loadNumber,boards:records[0]?.boards,elapsedText,averageText};
+  const output={flushCalls,records:records.length,embeddedRecords,survivesLedgerLoss,completed:isLoadCompleted(1),activeCycle:activeOrder.activeCycleNumber||null,loadNumber:records[0]?.loadNumber,boards:records[0]?.boards,elapsedText,averageText};
   localStorage.clear();
   Object.entries(backup).forEach(([key,value])=>localStorage.setItem(key,value));
   return output;
 })()`);
 console.log(JSON.stringify(result, null, 2));
-if (result.flushCalls !== 1 || result.records !== 1 || !result.completed || result.activeCycle !== null || result.loadNumber !== 1 || result.boards <= 0 || Number.parseInt(result.elapsedText,10) < 30 || !result.averageText.includes('6d 0h')) {
+if (result.flushCalls !== 1 || result.records !== 1 || result.embeddedRecords !== 1 || !result.survivesLedgerLoss || !result.completed || result.activeCycle !== null || result.loadNumber !== 1 || result.boards <= 0 || Number.parseInt(result.elapsedText,10) < 30 || !result.averageText.includes('6d 0h')) {
   throw new Error(`Completed-cycle synchronization test failed: ${JSON.stringify(result)}`);
 }
 ws.close();

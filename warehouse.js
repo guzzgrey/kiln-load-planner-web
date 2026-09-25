@@ -30,7 +30,19 @@ function activeOrder() {
 }
 function allCompleted() { return read(COMPLETED_KEY); }
 function belongsToOrder(item, order) { return !order || item.orderId === order.id || item.orderId === order.planSignature || item.productionOrderNumber === order.number || item.orderNumber === order.number; }
-function completed() { const order = activeOrder(); return allCompleted().filter((item) => belongsToOrder(item, order)).sort((a, b) => String(a.completedDate).localeCompare(String(b.completedDate)) || a.loadNumber - b.loadNumber); }
+function completed() {
+  const order = activeOrder();
+  const merged = new Map();
+  const ledger = allCompleted().filter((item) => belongsToOrder(item, order));
+  const embedded = Array.isArray(order?.completedCycles) ? order.completedCycles : [];
+  // Prefer the warehouse ledger when both copies exist. The order-embedded
+  // record is retained only as recovery protection.
+  [...embedded, ...ledger].forEach((record, index) => {
+    const key = record?.id || `${record?.orderId || record?.orderNumber || 'order'}::load-${record?.loadNumber || index}`;
+    merged.set(key, record);
+  });
+  return [...merged.values()].sort((a, b) => String(a.completedDate).localeCompare(String(b.completedDate)) || a.loadNumber - b.loadNumber);
+}
 function reconcileGormanCompletedInventory() {
   const order = activeOrder();
   if (!order || order.gormanWarehouseBalanceVersion === 'actual-231-v1') return false;
@@ -680,6 +692,12 @@ function deleteCompletedRecord(id) {
   }
   if (!window.confirm('Delete this Completed Kiln Load record? This action cannot be undone.')) return;
   write(COMPLETED_KEY, allCompleted().filter((record) => record.id !== id));
+  const order = activeOrder();
+  if (order && Array.isArray(order.completedCycles)) {
+    order.completedCycles = order.completedCycles.filter((record) => record.id !== id);
+    order.updatedAt = new Date().toISOString();
+    localStorage.setItem(`${ORDER_PREFIX}${order.id}`, JSON.stringify(order));
+  }
   $('completedMessage').className = 'calculation-status ready';
   $('completedMessage').textContent = 'Incorrect Completed Kiln Load row deleted.';
   renderCompleted();

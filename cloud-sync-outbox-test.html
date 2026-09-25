@@ -1,0 +1,24 @@
+<!doctype html>
+<html><body class="cloud-locked">
+  <script>
+    window.KILN_CLOUD_CONFIG = { url: 'test', publishableKey: 'test', table: 'state' };
+    window.__remoteState = new Map([['kiln-planner-completed-cycles-v1', []]]);
+    window.__failNextCloudWrite = false;
+    const result = (value) => Promise.resolve(value);
+    window.supabase = { createClient: () => ({
+      auth: { getSession: () => result({ data: { session: { user: { id: 'test-user' } } } }), signOut: () => result({}) },
+      from: () => ({
+        select: () => result({ data: [...window.__remoteState].map(([key, value]) => ({ key, value, updated_at: '2026-09-25T00:00:00.000Z' })), error: null }),
+        upsert: (row) => {
+          if (window.__failNextCloudWrite) { window.__failNextCloudWrite = false; return result({ error: { message: 'intentional test failure' } }); }
+          const rows = Array.isArray(row) ? row : [row];
+          rows.forEach((item) => window.__remoteState.set(item.key, item.value));
+          return result({ error: null });
+        },
+        delete: () => ({ eq: (_field, key) => { window.__remoteState.delete(key); return result({ error: null }); } }),
+      }),
+      channel: () => ({ on() { return this; }, subscribe() { return this; } }),
+    }) };
+  </script>
+  <script src="cloud-sync.js" data-app="cloud-sync-outbox-test-app.js"></script>
+</body></html>

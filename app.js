@@ -527,6 +527,13 @@ function completionRecordId(loadNumber, fingerprint = loadPlanFingerprint(loadNu
   return fingerprint ? `${orderId}::cycle-${shortFingerprint(fingerprint)}` : `${orderId}::${loadNumber}`;
 }
 
+function orderCompletionLink(record) {
+  // The order needs inventory, dates and identity for recovery, but not a
+  // second copy of the large rendered plan/program snapshots.
+  const { planSnapshot, dryingProgram, thermoProgram, ...link } = record || {};
+  return link;
+}
+
 function completedLoadAssignments() {
   const records = completionRecordsForActiveOrder();
   const loadNumbers = loadRecords.size
@@ -609,6 +616,9 @@ function linkCompletionRecordToLoad(record, loadNumber) {
     reconciledAt: new Date().toISOString(),
   };
   writeCompletedCycles(records);
+  if (Array.isArray(activeOrder?.completedCycles)) {
+    activeOrder.completedCycles = activeOrder.completedCycles.map((item) => item.id === records[index].id ? orderCompletionLink(records[index]) : item);
+  }
   if (Number(activeOrder?.activeCycleNumber || 0) === number) {
     delete activeOrder.activeCycleNumber;
     delete activeOrder.activeCycleStartedAt;
@@ -640,7 +650,16 @@ function completionCandidatesForLoad(loadNumber) {
 }
 
 function completionRecordsForActiveOrder() {
-  return readCompletedCycles().filter((record) =>
+  const ledger = readCompletedCycles();
+  const embedded = Array.isArray(activeOrder?.completedCycles) ? activeOrder.completedCycles : [];
+  const merged = new Map();
+  // The standalone ledger is the editable current record; the order copy is
+  // a fallback only when that ledger entry is absent.
+  [...embedded, ...ledger].forEach((record, index) => {
+    const key = record?.id || `${record?.orderId || record?.orderNumber || 'order'}::load-${record?.loadNumber || index}`;
+    merged.set(key, record);
+  });
+  return [...merged.values()].filter((record) =>
     record.orderId === activeOrder?.id
     || record.orderId === activeOrder?.planSignature
     || record.orderNumber === activeOrder?.number
@@ -4998,6 +5017,14 @@ async function saveCompletedCycle(event) {
   if (existingIndex >= 0) records[existingIndex] = record;
   else records.push(record);
   writeCompletedCycles(records);
+  // Keep the completed cycle linked to its production order as a redundant
+  // source of truth. The planner and TAG ledger can then repair one another
+  // after an interrupted cross-page cloud synchronization.
+  const embeddedCycles = Array.isArray(activeOrder.completedCycles) ? activeOrder.completedCycles : [];
+  const embeddedIndex = embeddedCycles.findIndex((item) => item.id === id);
+  if (embeddedIndex >= 0) embeddedCycles[embeddedIndex] = orderCompletionLink(record);
+  else embeddedCycles.push(orderCompletionLink(record));
+  activeOrder.completedCycles = embeddedCycles;
   // A completed transfer always ends the single active kiln process. Never
   // carry a stale "In progress" flag onto another saved cycle.
   delete activeOrder.activeCycleNumber;

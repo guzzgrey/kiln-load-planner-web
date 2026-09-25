@@ -10,6 +10,7 @@
     'kiln-planner-remainder-inventory-v1',
     'kiln-planner-completed-cycles-v1',
     'kiln-planner-shipping-tags-v1',
+    'kiln-planner-tag-sequence-v1',
     'kiln-planner-recovery-operations-v1',
     'kiln-planner-test-boards-v1',
     'kiln-planner-preliminary-orders-v1',

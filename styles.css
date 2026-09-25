@@ -791,6 +791,45 @@ button.is-loading::after {
 .tag-option span, .tag-option small { display: block; }
 .tag-option small { margin-top: 3px; }
 .tag-option.is-shipped { opacity: .55; }
+.tag-number-cell { display:grid; gap:5px; min-width:92px; }
+.tag-number-cell .print-yard-tag { width:100%; padding:6px 8px; white-space:nowrap; }
+.yard-tag-print { display:none; }
+
+@page yard-tag {
+  size: 8.5in 4in;
+  margin: .3in;
+}
+
+@media print {
+  body.print-yard-tag { margin:0; background:#fff; }
+  body.print-yard-tag > * { display:none !important; }
+  body.print-yard-tag > #yardTagPrint {
+    page:yard-tag;
+    display:grid !important;
+    grid-template-columns:minmax(0,1.55fr) minmax(2.3in,.75fr);
+    align-items:center;
+    gap:.28in;
+    width:7.9in;
+    min-height:3.35in;
+    margin:0 auto;
+    padding:.18in .25in;
+    border:3px solid #111;
+    color:#000;
+    background:#fff;
+    font-family:Arial,Helvetica,sans-serif;
+    box-sizing:border-box;
+  }
+  .yard-tag-print-main { display:flex; flex-direction:column; justify-content:center; min-width:0; }
+  .yard-tag-print-main h1 { margin:0 0 .16in; font-size:34pt; line-height:1; letter-spacing:.02em; }
+  .yard-tag-print-main h2 { margin:0 0 .08in; font-size:20pt; line-height:1.15; }
+  .yard-tag-print-main p { margin:0 0 .22in; font-size:13pt; font-weight:700; }
+  .yard-tag-print-main strong { font-size:24pt; line-height:1.1; }
+  .yard-tag-print-main small { margin-top:.12in; font-size:11pt; }
+  .yard-tag-print-identity { display:grid; grid-template-columns:1fr; align-content:center; text-align:center; border-left:2px solid #111; min-height:2.7in; padding-left:.24in; }
+  .yard-tag-print-identity span { margin:.04in 0; font-size:18pt; font-weight:900; font-style:italic; letter-spacing:.04em; }
+  .yard-tag-print-identity b { margin:0 0 .28in; font-size:30pt; line-height:1; }
+  .yard-tag-print-identity b:last-child { margin-bottom:0; }
+}
 .shipment-history { display: grid; gap: 7px; margin-top: 14px; }
 .shipment-history article { display: grid; grid-template-columns: 1fr .7fr .5fr 1fr auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 8px; background: var(--pale); }
 .yard-dialog { width: min(880px, calc(100vw - 32px)); }

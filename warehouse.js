@@ -1,6 +1,7 @@
 const LENGTHS = Array.from({ length: 18 }, (_, index) => index + 3);
 const COMPLETED_KEY = 'kiln-planner-completed-cycles-v1';
 const TAGS_KEY = 'kiln-planner-shipping-tags-v1';
+const TAG_SEQUENCE_KEY = 'kiln-planner-tag-sequence-v1';
 const SHIPMENTS_KEY = 'kiln-planner-shipments-v1';
 const RECOVERY_KEY = 'kiln-planner-recovery-operations-v1';
 const TEST_BOARDS_KEY = 'kiln-planner-test-boards-v1';
@@ -104,6 +105,21 @@ function warehouseTags() {
   });
   if (changed) write(TAGS_KEY, tags);
   return tags;
+}
+function numericTagNumber(value) {
+  const normalized = String(value || '').trim();
+  return /^\d+$/.test(normalized) ? Number(normalized) : 0;
+}
+function nextYardTagNumber() {
+  const saved = numericTagNumber(localStorage.getItem(TAG_SEQUENCE_KEY));
+  const highestExisting = warehouseTags().reduce((highest, tag) => Math.max(highest, numericTagNumber(tag.tag)), 0);
+  return Math.max(10001, saved, highestExisting + 1);
+}
+function advanceYardTagSequence(assignedTag) {
+  const assigned = numericTagNumber(assignedTag);
+  const next = Math.max(nextYardTagNumber(), assigned ? assigned + 1 : 10001);
+  localStorage.setItem(TAG_SEQUENCE_KEY, String(next));
+  return next;
 }
 function shipments() { return read(SHIPMENTS_KEY); }
 function recoveryOperations() { return read(RECOVERY_KEY); }
@@ -559,7 +575,7 @@ function completedHeader() {
   return `<thead><tr><th>Completed</th><th>Supplier</th><th>Marking</th><th>Material / quality</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
 }
 function tagHeader() {
-  return `<thead><tr><th>TAG</th><th>ORDER #</th><th>PRODUCT / MO #</th><th>DATE</th><th>MATERIAL / QUALITY</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
+  return `<thead><tr><th>TAG / PRINT</th><th>ORDER #</th><th>PRODUCT / MO #</th><th>DATE</th><th>MATERIAL / QUALITY</th>${LENGTHS.map((l) => `<th>${l}</th>`).join('')}<th>PCS</th><th>BFM</th><th>Action</th></tr></thead>`;
 }
 
 function renderCompleted() {
@@ -591,7 +607,7 @@ function renderWarehouseTags() {
   const testedTotals = sumQuantities(currentTests());
   const available = Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processedTotals[length] - consumedTotals[length] - testedTotals[length])]));
   const rows = tags.map((tag, rowIndex) => `<tr>
-    <td><input data-field="tag" data-row="${rowIndex}" value="${esc(tag.tag)}" placeholder="TAG #"></td>
+    <td><div class="tag-number-cell"><input data-field="tag" data-row="${rowIndex}" value="${esc(tag.tag)}" placeholder="TAG #"><button class="secondary small-action print-yard-tag" type="button" data-id="${esc(tag.id)}">Print TAG</button></div></td>
     <td><input data-field="orderNumber" data-row="${rowIndex}" value="${esc(tag.orderNumber)}" placeholder="ORDER #"></td>
     <td><input data-field="productMo" data-row="${rowIndex}" value="${esc(tag.productMo)}" placeholder="PRODUCT / MO #"></td>
     <td><input type="date" data-field="date" data-row="${rowIndex}" value="${esc(tag.date)}"></td>
@@ -602,6 +618,7 @@ function renderWarehouseTags() {
   $('warehouseTagTable').innerHTML = `${tagHeader()}<tbody>${rows}</tbody>${availableRow}`;
   $('availableBoards').textContent = fmt(totalBoards(available));
   document.querySelectorAll('#warehouseTagTable input').forEach((input) => input.addEventListener('change', updateWarehouseTag));
+  document.querySelectorAll('.print-yard-tag').forEach((button) => button.addEventListener('click', () => printYardTag(button.dataset.id)));
   document.querySelectorAll('.delete-yard-tag').forEach((button) => button.addEventListener('click', () => deleteYardTag(button.dataset.id)));
   renderRecoveryStage();
   renderTestRegister();
@@ -634,6 +651,7 @@ function updateWarehouseTag(event) {
   const globalIndex = allTags.findIndex((tag) => tag.id === tags[row].id);
   if (globalIndex >= 0) allTags[globalIndex] = tags[row];
   write(TAGS_KEY, allTags);
+  advanceYardTagSequence(tags[row].tag);
   $('warehouseMessage').className = 'calculation-status ready';
   $('warehouseMessage').textContent = 'YARD TAG saved.';
   renderWarehouseTags();
@@ -688,7 +706,7 @@ function openYardBuilder() {
   const order = activeOrder();
   const qualityLots = completedQualityLots();
   const materialNames = [...new Set(qualityLots.map((lot) => String(lot.material || '').trim()).filter(Boolean))];
-  $('yardTag').value = '';
+  $('yardTag').value = String(nextYardTagNumber());
   $('yardOrder').value = order?.number || '';
   $('yardProduct').value = source.marking || '';
   $('yardDate').value = new Date().toISOString().slice(0, 10);
@@ -990,10 +1008,59 @@ function createYardTag(event) {
     sourceLoads: allocateSourceLoads({ ...quantities }),
   });
   write(TAGS_KEY, tags);
+  advanceYardTagSequence(tagValue);
   $('yardTagDialog').close();
   $('warehouseMessage').className = 'calculation-status ready';
   $('warehouseMessage').textContent = 'YARD lift assembled from completed inventory and TAG assigned.';
   renderWarehouseTags();
+}
+
+function printYardTag(id) {
+  const tag = warehouseTags().find((item) => item.id === id);
+  if (!tag) {
+    $('warehouseMessage').className = 'calculation-status pending';
+    $('warehouseMessage').textContent = 'The selected YARD TAG could not be found.';
+    return;
+  }
+  const order = activeOrder();
+  const length = LENGTHS.find((item) => Number(tag.quantities?.[item] || 0) > 0) || 0;
+  const pieces = totalBoards(tag.quantities);
+  const boardFeet = tagBf(tag);
+  const supplier = tag.supplier || order?.inputs?.supplier || 'SUPPLIER';
+  const product = tag.productMo || tag.marking || tag.material || 'PRODUCT';
+  const materialDetails = [tag.material, tag.size, qualityLabel(tag.quality)]
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join(' · ');
+  const rcNumber = String(tag.orderNumber || tag.productionOrderNumber || order?.number || '')
+    .replace(/^ORD[-\s]*/i, '') || '—';
+  const printArea = $('yardTagPrint');
+  printArea.innerHTML = `
+    <div class="yard-tag-print-main">
+      <h1>${esc(supplier).toUpperCase()}</h1>
+      <h2>${esc(product).toUpperCase()}</h2>
+      ${materialDetails ? `<p>${esc(materialDetails).toUpperCase()}</p>` : ''}
+      <strong>${fmt(length)}′ / ${fmt(pieces)} PCS / ${fmt(boardFeet, Number.isInteger(boardFeet) ? 0 : 1)} BFM</strong>
+      ${tag.defectNote ? `<small>${esc(tag.defectNote)}</small>` : ''}
+    </div>
+    <div class="yard-tag-print-identity">
+      <span>TAG NUMBER</span>
+      <b>${esc(tag.tag)}</b>
+      <span>RC NUMBER</span>
+      <b>${esc(rcNumber)}</b>
+    </div>`;
+  const previousTitle = document.title;
+  document.title = `TAG ${tag.tag} - ${supplier}`;
+  document.body.classList.add('print-yard-tag');
+  const cleanup = () => {
+    document.body.classList.remove('print-yard-tag');
+    printArea.innerHTML = '';
+    document.title = previousTitle;
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  window.print();
+  window.setTimeout(cleanup, 1500);
 }
 
 function renderShippingSelection() {

@@ -4950,7 +4950,7 @@ function openCycleCompletion(loadNumber) {
   $('completeCycleDialog').showModal();
 }
 
-function saveCompletedCycle(event) {
+async function saveCompletedCycle(event) {
   event.preventDefault();
   const snapshot = loadRecords.get(completingLoadNumber);
   if (!snapshot) return;
@@ -5002,6 +5002,10 @@ function saveCompletedCycle(event) {
   persistActiveOrder(false);
   $('completeCycleDialog').close();
   renderLoadNavigation();
+  // Completion updates both the processed-cycle ledger and the active order.
+  // Persist them before another screen can pull an older cloud snapshot over
+  // the browser's newly completed cycle.
+  if (typeof window.kilnCloudFlush === 'function') await window.kilnCloudFlush();
 }
 
 function selectSavedLoad(loadNumber, { scrollToDetails = false } = {}) {

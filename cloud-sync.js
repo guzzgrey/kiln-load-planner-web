@@ -31,6 +31,9 @@
   const seenRevisions = new Map();
   const pushTimers = new Map();
   const pendingValues = new Map();
+  const activePushes = new Set();
+  const pushChains = new Map();
+  let navigationProtected = false;
   function isSyncKey(key) { return syncKeys.has(key) || syncPrefixes.some((prefix) => String(key).startsWith(prefix)); }
   function localSyncKeys() {
     return Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).filter((key) => key && isSyncKey(key));
@@ -117,6 +120,27 @@
     else addStatus(`Shared as ${email}`, 'online');
   }
 
+  function queueCloudOperation(key, operation) {
+    const previous = pushChains.get(key) || Promise.resolve();
+    const task = previous.catch(() => {}).then(operation);
+    pushChains.set(key, task);
+    activePushes.add(task);
+    task.finally(() => {
+      activePushes.delete(task);
+      if (pushChains.get(key) === task) pushChains.delete(key);
+    });
+    return task;
+  }
+
+  function trackPush(key, value) { return queueCloudOperation(key, () => pushState(key, value)); }
+
+  function trackDelete(key) {
+    return queueCloudOperation(key, async () => {
+      const { error } = await client.from(config.table).delete().eq('key', key);
+      if (error) addStatus('Offline deletion pending', 'offline');
+    });
+  }
+
   async function flushPendingState() {
     const pending = [...pendingValues.entries()];
     pending.forEach(([key]) => {
@@ -124,7 +148,25 @@
       pushTimers.delete(key);
       pendingValues.delete(key);
     });
-    await Promise.all(pending.map(([key, value]) => pushState(key, value)));
+    const pendingTasks = pending.map(([key, value]) => trackPush(key, value));
+    await Promise.all(pendingTasks);
+    if (activePushes.size) await Promise.all([...activePushes]);
+  }
+
+  function protectInternalNavigation() {
+    if (navigationProtected) return;
+    navigationProtected = true;
+    document.addEventListener('click', async (event) => {
+      const link = event.target.closest?.('a[href]');
+      if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target || link.download) return;
+      const destination = new URL(link.href, window.location.href);
+      if (destination.origin !== window.location.origin || destination.href === window.location.href) return;
+      if (!pendingValues.size && !activePushes.size) return;
+      event.preventDefault();
+      addStatus('Saving production changes before opening the next screen…', 'offline');
+      await flushPendingState();
+      window.location.assign(destination.href);
+    });
   }
 
   function patchStorage() {
@@ -138,7 +180,7 @@
           pushTimers.delete(key);
           const pending = pendingValues.get(key);
           pendingValues.delete(key);
-          pushState(key, pending);
+          trackPush(key, pending);
         }, 250));
       }
     };
@@ -146,9 +188,7 @@
       nativeRemove.call(this, key);
       if (this === localStorage && isSyncKey(key) && cloudReady) {
         pendingValues.delete(key);
-        client.from(config.table).delete().eq('key', key).then(({ error }) => {
-          if (error) addStatus('Offline deletion pending', 'offline');
-        });
+        trackDelete(key);
       }
     };
   }
@@ -196,6 +236,7 @@
       await pullSharedState();
       cloudReady = true;
       patchStorage();
+      protectInternalNavigation();
       subscribe();
       window.kilnCloudFlush = flushPendingState;
       addStatus(`Shared as ${email}`, 'online');

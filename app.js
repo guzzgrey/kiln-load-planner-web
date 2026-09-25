@@ -730,7 +730,10 @@ function renderManagementDashboard() {
   const firstStart = firstStartEntry?.time || null;
   const completedTimes = records.map((record) => Date.parse(record.completedAt || record.createdAt || '')).filter(Number.isFinite);
   const latestCompleted = completedTimes.length ? Math.max(...completedTimes) : null;
-  const productionEnd = activeNumber && Number.isFinite(activeStartedAt) ? Date.now() : latestCompleted;
+  // Total production time is the calendar age of the order's production run.
+  // Pauses between kiln cycles still count until every planned cycle is done.
+  const productionComplete = plannedCycles > 0 && completedCycles >= plannedCycles;
+  const productionEnd = productionComplete ? latestCompleted : Date.now();
   const elapsed = firstStart && productionEnd && productionEnd >= firstStart ? productionEnd - firstStart : null;
   const durations = records.map((record) => {
     const stored = Number(record.durationMs);
@@ -750,7 +753,7 @@ function renderManagementDashboard() {
   $('managementCycleNote').textContent = completedCycles ? `${fmt(Math.max(0, plannedCycles - completedCycles))} remaining` : 'No completed cycles';
   $('managementFirstStart').textContent = firstStart ? `${firstStartEntry.estimated ? '≈ ' : ''}${formatManagementDate(firstStart)}` : 'Not recorded';
   $('managementElapsed').textContent = elapsed !== null ? formatProductionDuration(elapsed) : 'Not recorded';
-  $('managementAverage').textContent = average !== null ? `Average cycle ${formatProductionDuration(average)}` : 'Average cycle not recorded';
+  $('managementAverage').textContent = average !== null ? `Average completed cycle ${formatProductionDuration(average)}` : 'Average completed cycle not recorded';
 
   const currentCard = $('managementCurrentCycle').closest('.current-cycle-card');
   currentCard.classList.toggle('active', Boolean(activeNumber));

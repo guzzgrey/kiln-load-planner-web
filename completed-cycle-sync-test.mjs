@@ -1,4 +1,4 @@
-const targets = await (await fetch('http://127.0.0.1:9233/json')).json();
+const targets = await (await fetch('http://127.0.0.1:9235/json')).json();
 const page = targets.find((target) => target.type === 'page');
 if (!page) throw new Error('Browser page not found');
 const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -22,7 +22,7 @@ async function evaluate(expression) {
   return response.result.value;
 }
 await send('Runtime.enable');
-await send('Page.navigate', { url: 'http://127.0.0.1:8772/index.html?test=completed-cycle-sync' });
+await send('Page.navigate', { url: 'http://127.0.0.1:8782/index.html?test=completed-cycle-sync' });
 await new Promise((resolve) => setTimeout(resolve, 1200));
 const result = await evaluate(`(async () => {
   const backup = Object.fromEntries(Array.from({length:localStorage.length},(_,index)=>localStorage.key(index)).map((key)=>[key,localStorage.getItem(key)]));
@@ -55,13 +55,19 @@ const result = await evaluate(`(async () => {
   window.kilnCloudFlush=async()=>{flushCalls+=1; await new Promise((resolve)=>setTimeout(resolve,25));};
   await saveCompletedCycle({preventDefault(){}});
   const records=readCompletedCycles();
-  const output={flushCalls,records:records.length,completed:isLoadCompleted(1),activeCycle:activeOrder.activeCycleNumber||null,loadNumber:records[0]?.loadNumber,boards:records[0]?.boards};
+  records[0]={...records[0],startedAt:'2026-08-18T12:00:00-07:00',completedAt:'2026-08-24T12:00:00-07:00',durationMs:6*24*60*60*1000};
+  writeCompletedCycles(records);
+  activeOrder.plannedCycles=7;
+  renderManagementDashboard();
+  const elapsedText=document.getElementById('managementElapsed').textContent;
+  const averageText=document.getElementById('managementAverage').textContent;
+  const output={flushCalls,records:records.length,completed:isLoadCompleted(1),activeCycle:activeOrder.activeCycleNumber||null,loadNumber:records[0]?.loadNumber,boards:records[0]?.boards,elapsedText,averageText};
   localStorage.clear();
   Object.entries(backup).forEach(([key,value])=>localStorage.setItem(key,value));
   return output;
 })()`);
 console.log(JSON.stringify(result, null, 2));
-if (result.flushCalls !== 1 || result.records !== 1 || !result.completed || result.activeCycle !== null || result.loadNumber !== 1 || result.boards <= 0) {
+if (result.flushCalls !== 1 || result.records !== 1 || !result.completed || result.activeCycle !== null || result.loadNumber !== 1 || result.boards <= 0 || Number.parseInt(result.elapsedText,10) < 30 || !result.averageText.includes('6d 0h')) {
   throw new Error(`Completed-cycle synchronization test failed: ${JSON.stringify(result)}`);
 }
 ws.close();

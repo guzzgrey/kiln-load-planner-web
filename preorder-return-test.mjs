@@ -34,6 +34,11 @@ const result = await evaluate(`(() => {
     {id:'return-cycle-1',orderId:order.id,orderNumber:order.number,loadNumber:1,species:'Hemlock',quantities:{12:240,20:272},qualityLots:[{length:12,quantity:168,material:'Hemlock',quality:'unclassified'},{length:20,quantity:208,material:'Hemlock',quality:'unclassified'}],boards:512,bf:4160},
     {id:'return-cycle-2',orderId:order.id,orderNumber:order.number,loadNumber:2,species:'Hemlock',quantities:{12:8},qualityLots:[{length:12,quantity:8,material:'Hemlock',quality:'good'}],boards:8,bf:48},
   ]);
+  // A YARD TAG is a physical classification, not consumption. These 80
+  // boards must remain available to the non-binding preliminary planner.
+  write(TAGS_KEY,[{id:'yard-on-hand-12',orderId:order.id,productionOrderNumber:order.number,tag:'99999',quantities:{12:80},sourceQuantities:{12:80},sourceLoads:[{id:'return-cycle-1',loadNumber:1,quantities:{12:80}}]}]);
+  write(SHIPMENTS_KEY,[]);
+  write(TEST_BOARDS_KEY,[]);
   const lot12=lotKey(1,12,'Hemlock','unclassified');
   const lot20=lotKey(1,20,'Hemlock','unclassified');
   const draft={id:'return-draft',orderId:order.id,purpose:'stock',customer:'',number:'',targetBf:0,stacks:[
@@ -50,7 +55,7 @@ const result = await evaluate(`(() => {
   activePreorderId=alternative.id;
   const alternativeRemaining=freeByLength(12);
   activePreorderId=draft.id;renderPreorderPlanner();
-  const before={twelve:free(lot12),twelveAll:freeByLength(12),twenty:free(lot20),physicalTwelve:availableForYard()[12],overLimitAccepted,alternativeRemaining};
+  const before={twelve:free(lot12),twelveAll:freeByLength(12),twenty:free(lot20),untaggedTwelve:availableForYard()[12],preorderTwelve:availableForPreorder()[12],overLimitAccepted,alternativeRemaining};
   document.querySelector('[data-item-id="item-12"].preorder-remove-item').click();
   const afterItem={twelve:free(lot12),twenty:free(lot20),status:document.getElementById('preorderStatus').textContent};
   document.querySelector('[data-stack-id="tag-10001"].preorder-remove-stack').click();
@@ -59,7 +64,7 @@ const result = await evaluate(`(() => {
   return {before,afterItem,afterStack};
 })()`);
 console.log(JSON.stringify(result,null,2));
-if (result.before.twelve!==72 || result.before.twelveAll!==80 || result.before.twenty!==208 || result.before.physicalTwelve!==248 || result.before.overLimitAccepted || result.before.alternativeRemaining!==48 || result.afterItem.twelve!==240 || result.afterItem.twenty!==208 || !result.afterItem.status.includes('168 boards at 12 ft returned') || result.afterStack.twelve!==240 || result.afterStack.twenty!==272 || !result.afterStack.status.includes('64 boards / 640.0 BF returned')) {
+if (result.before.twelve!==72 || result.before.twelveAll!==80 || result.before.twenty!==208 || result.before.untaggedTwelve!==168 || result.before.preorderTwelve!==248 || result.before.overLimitAccepted || result.before.alternativeRemaining!==48 || result.afterItem.twelve!==240 || result.afterItem.twenty!==208 || !result.afterItem.status.includes('168 boards at 12 ft returned') || result.afterStack.twelve!==240 || result.afterStack.twenty!==272 || !result.afterStack.status.includes('64 boards / 640.0 BF returned')) {
   throw new Error(`Preorder return failed: ${JSON.stringify(result)}`);
 }
 ws.close();

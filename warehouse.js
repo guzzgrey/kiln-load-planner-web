@@ -315,7 +315,11 @@ function lotsForCycle(record, status) {
   return [...result.values()];
 }
 function productionLots() {
-  const readyCap = availableForYard();
+  // Preliminary customer/TAG planning is a non-binding view of all finished
+  // material that is still physically on hand. A warehouse TAG classifies a
+  // board, but does not consume it; only TEST or a shipment removes it from
+  // the pool available to a draft order.
+  const readyCap = availableForPreorder();
   const ready = [];
   const usedByLength = Object.fromEntries(LENGTHS.map((length) => [length, 0]));
   completed().forEach((record) => lotsForCycle(record, 'ready').forEach((lot) => {
@@ -442,8 +446,9 @@ function renderPreorderPlanner() {
     : '<div class="empty-state">No material is available from completed or started cycles.</div>';
   const stackOptions = (draft.stacks || []).map((stack) => `<option value="${esc(stack.id)}">${esc(stack.name)}</option>`).join('');
   $('preorderSources').innerHTML = lots.length ? lots.map((lot) => {
-    const available = Math.max(0, lot.quantity - preorderReserved(lot.id, '', draft));
-    return `<div class="preorder-source-row" data-lot-id="${esc(lot.id)}"><span><b>${fmt(lot.length)} ft · ${esc(lot.material)}</b><small class="source-${lot.status}">${lot.status === 'ready' ? 'READY' : 'EXPECTED'} · Kiln Load ${fmt(lot.loadNumber || 0)} · ${esc(qualityLabel(lot.quality))}</small></span><strong><b>${fmt(available)} PCS</b><small>${fmt(preorderBf(lot.length, available), 1)} BF</small></strong><input class="preorder-source-qty" type="number" min="1" max="${available}" value="${available ? 1 : 0}" ${available ? '' : 'disabled'} aria-label="Quantity"><select class="preorder-source-stack" ${stackOptions ? '' : 'disabled'}>${stackOptions || '<option>Add TAG first</option>'}</select><button class="preorder-add-source" type="button" ${available && stackOptions ? '' : 'disabled'}>Add</button></div>`;
+    const reserved = preorderReserved(lot.id, '', draft);
+    const available = Math.max(0, lot.quantity - reserved);
+    return `<div class="preorder-source-row" data-lot-id="${esc(lot.id)}"><span><b>${fmt(lot.length)} ft · ${esc(lot.material)}</b><small class="source-${lot.status}">${lot.status === 'ready' ? 'READY' : 'EXPECTED'} · Kiln Load ${fmt(lot.loadNumber || 0)} · ${esc(qualityLabel(lot.quality))}</small><small>${fmt(lot.quantity)} on hand · ${fmt(reserved)} selected in this draft</small></span><strong><b>${fmt(available)} PCS</b><small>${fmt(preorderBf(lot.length, available), 1)} BF available</small></strong><input class="preorder-source-qty" type="number" min="1" max="${available}" value="${available ? 1 : 0}" ${available ? '' : 'disabled'} aria-label="Quantity"><select class="preorder-source-stack" ${stackOptions ? '' : 'disabled'}>${stackOptions || '<option>Add TAG first</option>'}</select><button class="preorder-add-source" type="button" ${available && stackOptions ? '' : 'disabled'}>Add</button></div>`;
   }).join('') : '<div class="empty-state">No material is available from a completed or currently started cycle.</div>';
   $('preorderStacks').innerHTML = (draft.stacks || []).length ? draft.stacks.map((stack) => {
     const stackBf = (stack.items || []).reduce((sum, item) => sum + preorderBf(item.length, item.quantity), 0);
@@ -584,6 +589,14 @@ function availableForYard() {
   const tagged = sumQuantities(currentTags());
   const tested = sumQuantities(currentTests());
   return Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processed[length] - tagged[length] - tested[length])]));
+}
+
+function availableForPreorder() {
+  const processed = adjustedProcessedInventory();
+  const tested = sumQuantities(currentTests());
+  const shippedTagIds = new Set(currentShipments().flatMap((shipment) => shipment.tagIds || []));
+  const shipped = sumQuantities(currentTags().filter((tag) => shippedTagIds.has(tag.id)));
+  return Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processed[length] - tested[length] - shipped[length])]));
 }
 
 function sumSourceQuantities(records) {

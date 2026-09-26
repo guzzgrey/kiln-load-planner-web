@@ -669,6 +669,7 @@ function completionRecordsForActiveOrder() {
 
 let managementClockTimer = null;
 const WESTMINSTER_TIMELINE_CORRECTION = 'westminster-cycle-timeline-2026-08-18-v2';
+const WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION = 'westminster-cycle-1-actual-20x272-12x240-13x16-v1';
 const WESTMINSTER_CYCLE_2_RECOVERY = 'westminster-cycle-2-completed-2026-09-25-v1';
 const WESTMINSTER_CYCLE_2_LAYOUT_CORRECTION = 'westminster-cycle-2-layout-6x8-11-1x7-12-v1';
 
@@ -701,6 +702,41 @@ function resizeQualityLotsToQuantities(record, quantities) {
       return { ...lot, length, quantity };
     }).filter((lot) => lot.quantity > 0);
   });
+}
+
+function correctWestminsterCycle1Actual(records) {
+  const index = records.findIndex((record) => Number(record.loadNumber) === 1
+    && (record.orderId === activeOrder.id || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number));
+  if (index < 0) return false;
+  const record = records[index];
+  const savedLink = (activeOrder.completedCycles || []).find((item) => Number(item.loadNumber) === 1
+    && (item.orderId === activeOrder.id || item.orderNumber === activeOrder.number || item.productionOrderNumber === activeOrder.number));
+  if (activeOrder.cycle1ActualCorrectionVersion === WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION
+    && Number(record.quantities?.[12]) === 240 && Number(record.quantities?.[13]) === 16
+    && Number(savedLink?.quantities?.[12]) === 240 && Number(savedLink?.quantities?.[13]) === 16) return false;
+
+  const quantities = { ...(record.quantities || {}), 12: 240, 13: 16 };
+  const boards = Object.values(quantities).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+  const boardFeet = Object.entries(quantities).reduce((sum, [length, quantity]) => sum + bf(Number(length), Number(quantity || 0)), 0);
+  records[index] = {
+    ...record,
+    quantities,
+    boards,
+    bf: boardFeet,
+    qualityLots: resizeQualityLotsToQuantities(record, quantities),
+    physicalQuantityCorrection: WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION,
+    physicalQuantityCorrectedAt: new Date().toISOString(),
+  };
+  writeCompletedCycles(records);
+  activeOrder.completedCycles = (Array.isArray(activeOrder.completedCycles) ? activeOrder.completedCycles : [])
+    .filter((item) => !(Number(item.loadNumber) === 1
+      && (item.orderId === activeOrder.id || item.orderNumber === activeOrder.number || item.productionOrderNumber === activeOrder.number)));
+  activeOrder.completedCycles.push(orderCompletionLink(records[index]));
+  activeOrder.cycle1ActualCorrectionVersion = WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION;
+  activeOrder.updatedAt = new Date().toISOString();
+  storeOrder(activeOrder);
+  writeActiveOrderPointer(activeOrder);
+  return true;
 }
 
 function correctWestminsterCycle2Layout(records) {
@@ -805,6 +841,7 @@ function repairWestminsterProductionTimeline() {
     writeCompletedCycles(records);
     changed = true;
   }
+  changed = correctWestminsterCycle1Actual(records) || changed;
 
   const secondCompleted = records.some((record) => Number(record.loadNumber) === 2 && (
     record.orderId === activeOrder.id || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number
@@ -4823,6 +4860,7 @@ function renderLoadNavigation() {
     historyRow.className = snapshot.number === currentLoadNumber ? 'current' : '';
     historyRow.dataset.load = snapshot.number;
     const completed = isLoadCompleted(snapshot.number);
+    const completedRecord = completed ? completedRecordForLoad(snapshot.number) : null;
     const inProgress = isLoadInProgress(snapshot.number);
     const completionCandidates = inProgress ? completionCandidatesForLoad(snapshot.number) : [];
     const actionLabel = completed ? '✓ Completed' : inProgress ? 'Complete' : 'Start';
@@ -4830,7 +4868,9 @@ function renderLoadNavigation() {
     const hasDryingData = dryingPrograms.has(String(snapshot.number));
     const stateLabel = completed ? 'Processed' : inProgress ? 'In progress' : `${fmt(snapshot.remainingBoards)} remaining`;
     const hasThermoData = thermoPrograms.has(String(snapshot.number));
-    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" title="${completed ? 'Open completed cycle details (view only)' : inProgress ? 'Complete this kiln cycle' : 'Start this kiln cycle'}">${actionLabel}</button>${!completed && !inProgress ? '<button class="complete-past-cycle secondary" type="button" title="Record a kiln cycle that was already physically completed">Complete past</button>' : ''}${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button>${!completed && !inProgress && globalOrderPlans.length > 1 ? '<button class="delete-planned-load danger" type="button" title="Delete this future load and return its boards to the remainder">Delete load</button>' : ''}</div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(snapshot.usedBoards)} boards <small>${fmt(snapshot.usedBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${completed ? stateLabel : inProgress ? stateLabel : `Planned · ${stateLabel}`}</span>`;
+    const outputBoards = completedRecord ? Number(completedRecord.boards || 0) : snapshot.usedBoards;
+    const outputBf = completedRecord ? Number(completedRecord.bf || 0) : snapshot.usedBf;
+    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" title="${completed ? 'Open completed cycle details (view only)' : inProgress ? 'Complete this kiln cycle' : 'Start this kiln cycle'}">${actionLabel}</button>${!completed && !inProgress ? '<button class="complete-past-cycle secondary" type="button" title="Record a kiln cycle that was already physically completed">Complete past</button>' : ''}${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button>${!completed && !inProgress && globalOrderPlans.length > 1 ? '<button class="delete-planned-load danger" type="button" title="Delete this future load and return its boards to the remainder">Delete load</button>' : ''}</div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(outputBoards)} boards <small>${fmt(outputBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${completed ? stateLabel : inProgress ? stateLabel : `Planned · ${stateLabel}`}</span>`;
     if (completionCandidates.length) {
       const match = document.createElement('button');
       match.type = 'button';

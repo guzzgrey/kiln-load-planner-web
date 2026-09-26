@@ -342,8 +342,8 @@ function productionLots() {
 function allPreorderItems(drafts = currentPreorders()) {
   return drafts.flatMap((draft) => (draft.stacks || []).flatMap((stack) => stack.items || []));
 }
-function preorderReserved(lotId, exceptId = '') {
-  return allPreorderItems().filter((item) => item.lotId === lotId && item.id !== exceptId).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+function preorderReserved(lotId, exceptId = '', draft = activePreorder()) {
+  return allPreorderItems(draft ? [draft] : []).filter((item) => item.lotId === lotId && item.id !== exceptId).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
 function findPreorderItem(draft, id) {
   for (const stack of draft?.stacks || []) {
@@ -383,7 +383,7 @@ function addPreorderAllocation(lotId, quantity, stackId) {
   const draft = activePreorder();
   const lot = productionLots().find((item) => item.id === lotId);
   const stack = draft?.stacks?.find((item) => item.id === stackId);
-  const available = Math.max(0, Number(lot?.quantity || 0) - preorderReserved(lotId));
+  const available = Math.max(0, Number(lot?.quantity || 0) - preorderReserved(lotId, '', draft));
   const requested = Math.max(0, Math.floor(Number(quantity || 0)));
   if (!lot || !stack || !requested || requested > available) {
     $('preorderStatus').className = 'calculation-status pending';
@@ -429,7 +429,7 @@ function renderPreorderPlanner() {
   const materialTotals = new Map();
   lots.forEach((lot) => {
     const values = materialTotals.get(lot.material) || { readyQty: 0, readyBf: 0, readyFreeQty: 0, readyFreeBf: 0, expectedQty: 0, expectedBf: 0, expectedFreeQty: 0, expectedFreeBf: 0 };
-    const free = Math.max(0, Number(lot.quantity || 0) - preorderReserved(lot.id));
+    const free = Math.max(0, Number(lot.quantity || 0) - preorderReserved(lot.id, '', draft));
     const prefix = lot.status === 'ready' ? 'ready' : 'expected';
     values[`${prefix}Qty`] += Number(lot.quantity || 0);
     values[`${prefix}Bf`] += preorderBf(lot.length, lot.quantity);
@@ -438,11 +438,11 @@ function renderPreorderPlanner() {
     materialTotals.set(lot.material, values);
   });
   $('preorderMaterialTotals').innerHTML = materialTotals.size
-    ? [...materialTotals.entries()].map(([material, values]) => `<article><h3>${esc(material)}</h3><div class="material-stock-line ready"><span>READY in warehouse</span><b>${fmt(values.readyQty)} PCS · ${fmt(values.readyBf, 1)} BF</b><small>${fmt(values.readyFreeQty)} PCS · ${fmt(values.readyFreeBf, 1)} BF free for drafts</small></div><div class="material-stock-line expected"><span>EXPECTED from started cycle</span><b>${fmt(values.expectedQty)} PCS · ${fmt(values.expectedBf, 1)} BF</b><small>${fmt(values.expectedFreeQty)} PCS · ${fmt(values.expectedFreeBf, 1)} BF free for drafts</small></div></article>`).join('')
+    ? [...materialTotals.entries()].map(([material, values]) => `<article><h3>${esc(material)}</h3><div class="material-stock-line ready"><span>READY in warehouse</span><b>${fmt(values.readyQty)} PCS · ${fmt(values.readyBf, 1)} BF</b><small>${fmt(values.readyFreeQty)} PCS · ${fmt(values.readyFreeBf, 1)} BF remaining in this draft</small></div><div class="material-stock-line expected"><span>EXPECTED from started cycle</span><b>${fmt(values.expectedQty)} PCS · ${fmt(values.expectedBf, 1)} BF</b><small>${fmt(values.expectedFreeQty)} PCS · ${fmt(values.expectedFreeBf, 1)} BF remaining in this draft</small></div></article>`).join('')
     : '<div class="empty-state">No material is available from completed or started cycles.</div>';
   const stackOptions = (draft.stacks || []).map((stack) => `<option value="${esc(stack.id)}">${esc(stack.name)}</option>`).join('');
   $('preorderSources').innerHTML = lots.length ? lots.map((lot) => {
-    const available = Math.max(0, lot.quantity - preorderReserved(lot.id));
+    const available = Math.max(0, lot.quantity - preorderReserved(lot.id, '', draft));
     return `<div class="preorder-source-row" data-lot-id="${esc(lot.id)}"><span><b>${fmt(lot.length)} ft · ${esc(lot.material)}</b><small class="source-${lot.status}">${lot.status === 'ready' ? 'READY' : 'EXPECTED'} · Kiln Load ${fmt(lot.loadNumber || 0)} · ${esc(qualityLabel(lot.quality))}</small></span><strong><b>${fmt(available)} PCS</b><small>${fmt(preorderBf(lot.length, available), 1)} BF</small></strong><input class="preorder-source-qty" type="number" min="1" max="${available}" value="${available ? 1 : 0}" ${available ? '' : 'disabled'} aria-label="Quantity"><select class="preorder-source-stack" ${stackOptions ? '' : 'disabled'}>${stackOptions || '<option>Add TAG first</option>'}</select><button class="preorder-add-source" type="button" ${available && stackOptions ? '' : 'disabled'}>Add</button></div>`;
   }).join('') : '<div class="empty-state">No material is available from a completed or currently started cycle.</div>';
   $('preorderStacks').innerHTML = (draft.stacks || []).length ? draft.stacks.map((stack) => {
@@ -483,7 +483,7 @@ function bindPreorderDynamicEvents() {
   document.querySelectorAll('.preorder-item-qty').forEach((input) => input.addEventListener('change', () => {
     const draft = activePreorder(); const found = findPreorderItem(draft, input.dataset.itemId); if (!found) return;
     const lot = productionLots().find((item) => item.id === found.item.lotId);
-    found.item.quantity = Math.max(1, Math.min(Math.floor(Number(input.value || 1)), Math.max(1, Number(lot?.quantity || found.item.quantity) - preorderReserved(found.item.lotId, found.item.id))));
+    found.item.quantity = Math.max(1, Math.min(Math.floor(Number(input.value || 1)), Math.max(1, Number(lot?.quantity || found.item.quantity) - preorderReserved(found.item.lotId, found.item.id, draft))));
     savePreorder(draft); renderPreorderPlanner();
   }));
   document.querySelectorAll('.preorder-remove-item').forEach((button) => button.addEventListener('click', () => {

@@ -273,22 +273,46 @@ function activePreorder() {
 function lotKey(loadNumber, length, material, quality) {
   return `load-${Number(loadNumber)}|${Number(length)}|${material || 'Material'}|${quality || 'unclassified'}`;
 }
+function reconciledCycleLots(record) {
+  const quantities = record?.quantities || {};
+  const savedLots = Array.isArray(record?.qualityLots) ? record.qualityLots : [];
+  return Object.entries(quantities).flatMap(([rawLength, rawQuantity]) => {
+    const length = Number(rawLength);
+    let remaining = Math.max(0, Number(rawQuantity || 0));
+    if (!remaining) return [];
+    const result = [];
+    savedLots.filter((lot) => Number(lot.length) === length && Number(lot.quantity || 0) > 0).forEach((lot) => {
+      const quantity = Math.min(remaining, Number(lot.quantity || 0));
+      if (quantity > 0) result.push({ ...lot, length, quantity });
+      remaining -= quantity;
+    });
+    if (remaining > 0) result.push({
+      length,
+      material: record?.species || record?.marking || 'Material',
+      quality: 'unclassified',
+      qualityLabel: 'Unclassified',
+      quantity: remaining,
+      recoveredFromCycleTotal: true,
+    });
+    return result;
+  });
+}
 function lotsForCycle(record, status) {
-  const result = [];
-  const sourceLots = Array.isArray(record?.qualityLots) && record.qualityLots.length
-    ? record.qualityLots
-    : Object.entries(record?.quantities || {}).map(([length, quantity]) => ({ length: Number(length), quantity, material: record?.species || record?.marking || 'Material', quality: 'unclassified' }));
+  const result = new Map();
+  const sourceLots = reconciledCycleLots(record);
   sourceLots.forEach((lot) => {
     const quantity = Math.max(0, Number(lot.quantity || 0));
     if (!quantity) return;
     const material = lot.material || record?.species || record?.marking || 'Material';
     const quality = lot.quality || 'unclassified';
-    result.push({
-      id: lotKey(record.loadNumber, lot.length, material, quality), loadNumber: Number(record.loadNumber),
-      length: Number(lot.length), material, quality, quantity, status,
+    const id = lotKey(record.loadNumber, lot.length, material, quality);
+    const existing = result.get(id);
+    if (existing) existing.quantity += quantity;
+    else result.set(id, {
+      id, loadNumber: Number(record.loadNumber), length: Number(lot.length), material, quality, quantity, status,
     });
   });
-  return result;
+  return [...result.values()];
 }
 function productionLots() {
   const readyCap = availableForYard();

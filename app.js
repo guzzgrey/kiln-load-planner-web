@@ -670,6 +670,113 @@ function completionRecordsForActiveOrder() {
 let managementClockTimer = null;
 const WESTMINSTER_TIMELINE_CORRECTION = 'westminster-cycle-timeline-2026-08-18-v2';
 const WESTMINSTER_CYCLE_2_RECOVERY = 'westminster-cycle-2-completed-2026-09-25-v1';
+const WESTMINSTER_CYCLE_2_LAYOUT_CORRECTION = 'westminster-cycle-2-layout-6x8-11-1x7-12-v1';
+
+function westminsterCycle2ActualQuantities() {
+  return { 6: 64, 7: 24, 8: 48, 9: 24, 10: 24, 11: 48, 12: 8, 13: 32, 14: 240, 19: 128 };
+}
+
+function resizeQualityLotsToQuantities(record, quantities) {
+  const sourceLots = Array.isArray(record?.qualityLots) ? record.qualityLots : [];
+  return Object.entries(quantities).flatMap(([rawLength, rawTarget]) => {
+    const length = Number(rawLength);
+    const target = Number(rawTarget || 0);
+    if (!target) return [];
+    const lots = sourceLots.filter((lot) => Number(lot.length) === length && Number(lot.quantity || 0) > 0);
+    if (!lots.length) return [{
+      length,
+      material: record?.species || record?.marking || 'Hemlock',
+      quality: 'unclassified',
+      qualityLabel: 'Unclassified',
+      quantity: target,
+    }];
+    let remainingTarget = target;
+    let remainingSource = lots.reduce((sum, lot) => sum + Number(lot.quantity || 0), 0);
+    return lots.map((lot, index) => {
+      const quantity = index === lots.length - 1
+        ? remainingTarget
+        : Math.min(remainingTarget, Math.max(0, Math.round(remainingTarget * Number(lot.quantity || 0) / remainingSource)));
+      remainingTarget -= quantity;
+      remainingSource -= Number(lot.quantity || 0);
+      return { ...lot, length, quantity };
+    }).filter((lot) => lot.quantity > 0);
+  });
+}
+
+function correctWestminsterCycle2Layout(records) {
+  const indices = records.map((record, index) => ({ record, index })).filter(({ record }) => (
+    Number(record.loadNumber) === 2
+    && (record.orderId === activeOrder.id || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number)
+  ));
+  if (!indices.length) return false;
+
+  const quantities = westminsterCycle2ActualQuantities();
+  const expectedFingerprint = quantityFingerprint(quantities);
+  const savedRecordsCorrect = indices.every(({ record }) => quantityFingerprint(record.quantities) === expectedFingerprint
+    && Number(record.boards) === 640 && Number(record.bf) === 4112);
+  const savedLink = (activeOrder.completedCycles || []).find((item) => Number(item.loadNumber) === 2
+    && (item.orderId === activeOrder.id || item.orderNumber === activeOrder.number || item.productionOrderNumber === activeOrder.number));
+  const savedLinkCorrect = savedLink && quantityFingerprint(savedLink.quantities) === expectedFingerprint;
+  const savedState = (globalOrderPlans[1]?.activeStates || []).find((item) => Number(item.length) === 19);
+  const savedRows = savedState?.rowSequence || [];
+  const savedPlanCorrect = !savedState || (
+    savedRows.filter((row) => (row.pattern || []).join('|') === '8|11').length === 6
+    && savedRows.filter((row) => (row.pattern || []).join('|') === '7|12').length === 1
+  );
+  if (activeOrder.cycle2LayoutCorrectionVersion === WESTMINSTER_CYCLE_2_LAYOUT_CORRECTION
+    && savedRecordsCorrect && savedLinkCorrect && savedPlanCorrect) return false;
+
+  indices.forEach(({ record, index }) => {
+    records[index] = {
+      ...record,
+      quantities: { ...quantities },
+      boards: 640,
+      bf: 4112,
+      qualityLots: resizeQualityLotsToQuantities(record, quantities),
+      physicalLayoutCorrection: WESTMINSTER_CYCLE_2_LAYOUT_CORRECTION,
+      physicalLayoutCorrectedAt: new Date().toISOString(),
+    };
+  });
+  writeCompletedCycles(records);
+
+  const plan = globalOrderPlans[1];
+  const state = (plan?.activeStates || []).find((item) => Number(item.length) === 19
+    && (item.rowSequence || []).some((row) => (row.pattern || []).join('|') === '7|12'));
+  if (state) {
+    const row = state.rowSequence.find((item) => (item.pattern || []).join('|') === '7|12');
+    row.pattern = [8, 11];
+    delete row.materialSegments;
+    state.groups = rebuildGroups(state);
+    plan.completedUsedMap = numericMap(quantities);
+    plan.usedMap = numericMap(quantities);
+    try {
+      const physical = Math.floor(num('kiln'));
+      const clearance = Math.min(Math.max(0, physical - 1), Math.floor(num('supplierClearance')));
+      globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), computeGeometry(), Math.max(1, physical - clearance)).map(restorePlanTypes);
+    } catch (error) {
+      console.warn('Future Westminster cycles could not be rebalanced after the physical Load 2 correction:', error);
+    }
+  }
+
+  const correctedRecord = records[indices[0].index];
+  const snapshot = loadRecords.get(2);
+  if (snapshot) {
+    snapshot.used = numericMap(quantities);
+    snapshot.usedBoards = 640;
+    snapshot.usedBf = 4112;
+    snapshot.qualityLots = correctedRecord.qualityLots.map((lot) => ({ ...lot }));
+  }
+  activeOrder.completedCycles = (Array.isArray(activeOrder.completedCycles) ? activeOrder.completedCycles : [])
+    .filter((item) => !(Number(item.loadNumber) === 2
+      && (item.orderId === activeOrder.id || item.orderNumber === activeOrder.number || item.productionOrderNumber === activeOrder.number)));
+  activeOrder.completedCycles.push(orderCompletionLink(correctedRecord));
+  activeOrder.cycle2LayoutCorrectionVersion = WESTMINSTER_CYCLE_2_LAYOUT_CORRECTION;
+  activeOrder.updatedAt = new Date().toISOString();
+  if (globalOrderPlans.length) activeOrder.viewCache = cacheRenderedCalculation();
+  storeOrder(activeOrder);
+  writeActiveOrderPointer(activeOrder);
+  return true;
+}
 
 function repairWestminsterProductionTimeline() {
   if (activeOrder?.number !== 'ORD-334605') return false;
@@ -748,6 +855,8 @@ function repairWestminsterProductionTimeline() {
       changed = true;
     }
   }
+  const layoutCorrected = correctWestminsterCycle2Layout(records);
+  changed = layoutCorrected || changed;
   if (!secondCompleted && activeOrder.productionTimelineCorrection !== WESTMINSTER_TIMELINE_CORRECTION) {
     if (activeOrder.cycle2RecoveryVersion !== WESTMINSTER_CYCLE_2_RECOVERY) {
       activeOrder.activeCycleNumber = 2;
@@ -5396,6 +5505,8 @@ function init() {
       status.className = 'calculation-status pending';
       status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
     } else {
+      const westminsterCorrected = repairWestminsterProductionTimeline();
+      if (westminsterCorrected) persistActiveOrder(true);
       if (repairGormanActualLoads()) {
         const status = $('calculationStatus');
         status.className = 'calculation-status ready';

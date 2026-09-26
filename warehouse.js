@@ -464,7 +464,11 @@ function bindPreorderDynamicEvents() {
   }));
   document.querySelectorAll('.preorder-remove-item').forEach((button) => button.addEventListener('click', () => {
     const draft = activePreorder(); const found = findPreorderItem(draft, button.dataset.itemId); if (!found) return;
+    const returnedQuantity = Number(found.item.quantity || 0);
+    const returnedLength = Number(found.item.length || 0);
     found.stack.items = found.stack.items.filter((item) => item.id !== button.dataset.itemId); savePreorder(draft); renderPreorderPlanner();
+    $('preorderStatus').className = 'calculation-status ready';
+    $('preorderStatus').textContent = `${fmt(returnedQuantity)} boards at ${fmt(returnedLength)} ft returned to Available production.`;
   }));
   document.querySelectorAll('.preorder-stack-name').forEach((input) => input.addEventListener('change', () => {
     const draft = activePreorder(); const stack = draft.stacks.find((item) => item.id === input.dataset.stackId); if (!stack) return;
@@ -473,7 +477,11 @@ function bindPreorderDynamicEvents() {
   document.querySelectorAll('.preorder-remove-stack').forEach((button) => button.addEventListener('click', () => {
     const draft = activePreorder(); const stack = draft.stacks.find((item) => item.id === button.dataset.stackId); if (!stack) return;
     if ((stack.items || []).length && !window.confirm('Delete this future TAG and return all planned boards to availability?')) return;
+    const returnedBoards = (stack.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const returnedBf = (stack.items || []).reduce((sum, item) => sum + preorderBf(item.length, item.quantity), 0);
     draft.stacks = draft.stacks.filter((item) => item.id !== stack.id); savePreorder(draft); renderPreorderPlanner();
+    $('preorderStatus').className = 'calculation-status ready';
+    $('preorderStatus').textContent = `${fmt(returnedBoards)} boards / ${fmt(returnedBf, 1)} BF returned to Available production.`;
   }));
   document.querySelectorAll('.preorder-allocation').forEach((item) => item.addEventListener('dragstart', () => { draggedPreorderItemId = item.dataset.itemId; }));
   document.querySelectorAll('.preorder-stack').forEach((stackElement) => {

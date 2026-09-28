@@ -305,8 +305,8 @@ function inventorySnapshot() { return Object.fromEntries([...readInventory()]); 
 function serializeLoadRecords() {
   return [...loadRecords.values()].map((record) => ({ ...record, available: Object.fromEntries(record.available), used: Object.fromEntries(record.used), remaining: Object.fromEntries(record.remaining) }));
 }
-function serializeCalculatedPlans() {
-  const compactPlans = globalOrderPlans.map((plan) => ({
+function serializeCalculatedPlans(plans = globalOrderPlans) {
+  const compactPlans = plans.map((plan) => ({
     stock: plan.stock,
     availableStock: plan.availableStock,
     usedMap: plan.usedMap,
@@ -669,7 +669,7 @@ function completionRecordsForActiveOrder() {
 
 let managementClockTimer = null;
 const WESTMINSTER_TIMELINE_CORRECTION = 'westminster-cycle-timeline-2026-08-18-v2';
-const WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION = 'westminster-cycle-1-physical-20x272-12x216-13x40-v2';
+const WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION = 'westminster-cycle-1-physical-5x13-27x12-v3';
 const WESTMINSTER_CYCLE_2_RECOVERY = 'westminster-cycle-2-completed-2026-09-25-v1';
 const WESTMINSTER_CYCLE_2_LAYOUT_CORRECTION = 'westminster-cycle-2-layout-6x8-11-1x7-12-v1';
 
@@ -704,6 +704,39 @@ function resizeQualityLotsToQuantities(record, quantities) {
   });
 }
 
+function correctWestminsterCycle1Plan(plan, quantities) {
+  if (!plan) return null;
+  const corrected = restorePlanTypes(plan);
+  const activeStates = (corrected.activeStates || []).map((state) => ({
+    ...state,
+    rowSequence: (state.rowSequence || []).map((row) => ({ ...row, pattern: [...(row.pattern || [])] })),
+    manualRows: (state.manualRows || []).map((row) => ({ ...row })),
+  }));
+  const stateIndex = activeStates.findIndex((state) => Number(state.length) === 13
+    || (state.rowSequence || []).some((row) => (row.pattern || []).some((length) => [12, 13].includes(Number(length)))));
+  if (stateIndex < 0) return { ...corrected, activeStates, states: activeStates, usedMap: numericMap(quantities), completedUsedMap: numericMap(quantities) };
+  const state = activeStates[stateIndex];
+  const rows = state.rowSequence || [];
+  const template13 = rows.find((row) => (row.pattern || []).every((length) => Number(length) === 13)) || { type: 'solid' };
+  const template12 = rows.find((row) => (row.pattern || []).every((length) => Number(length) === 12)) || { type: 'solid' };
+  const makeRow = (template, length) => ({ ...template, type: 'solid', pattern: [length], materialSegments: undefined });
+  state.rowSequence = [
+    ...Array.from({ length: 5 }, () => makeRow(template13, 13)),
+    ...Array.from({ length: 27 }, () => makeRow(template12, 12)),
+  ];
+  state.groups = rebuildGroups(state);
+  activeStates[stateIndex] = state;
+  return { ...corrected, activeStates, states: activeStates, usedMap: numericMap(quantities), completedUsedMap: numericMap(quantities) };
+}
+
+function westminsterCycle1PlanIsPhysical(plan) {
+  const state = (restorePlanTypes(plan)?.activeStates || []).find((item) => Number(item.length) === 13
+    || (item.rowSequence || []).some((row) => (row.pattern || []).some((length) => [12, 13].includes(Number(length)))));
+  const rows = state?.rowSequence || [];
+  return rows.filter((row) => (row.pattern || []).join('|') === '13').length === 5
+    && rows.filter((row) => (row.pattern || []).join('|') === '12').length === 27;
+}
+
 function correctWestminsterCycle1Actual(records) {
   const index = records.findIndex((record) => Number(record.loadNumber) === 1
     && (record.orderId === activeOrder.id || record.orderNumber === activeOrder.number || record.productionOrderNumber === activeOrder.number));
@@ -713,22 +746,26 @@ function correctWestminsterCycle1Actual(records) {
     && (item.orderId === activeOrder.id || item.orderNumber === activeOrder.number || item.productionOrderNumber === activeOrder.number));
   if (activeOrder.cycle1ActualCorrectionVersion === WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION
     && Number(record.quantities?.[12]) === 216 && Number(record.quantities?.[13]) === 40 && Number(record.quantities?.[20]) === 272
-    && Number(savedLink?.quantities?.[12]) === 216 && Number(savedLink?.quantities?.[13]) === 40 && Number(savedLink?.quantities?.[20]) === 272) return false;
+    && Number(savedLink?.quantities?.[12]) === 216 && Number(savedLink?.quantities?.[13]) === 40 && Number(savedLink?.quantities?.[20]) === 272
+    && westminsterCycle1PlanIsPhysical(record.planSnapshot || globalOrderPlans[0])) return false;
 
   // Physical production is authoritative: Load 1 used all five 13 ft rows
   // (5 × 8 = 40), 216 boards at 12 ft and 272 boards at 20 ft.
   const quantities = { 12: 216, 13: 40, 20: 272 };
   const boards = Object.values(quantities).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
   const boardFeet = 4276;
+  const correctedPlan = correctWestminsterCycle1Plan(record.planSnapshot || globalOrderPlans[0], quantities);
   records[index] = {
     ...record,
     quantities,
     boards,
     bf: boardFeet,
     qualityLots: resizeQualityLotsToQuantities(record, quantities),
+    planSnapshot: correctedPlan ? JSON.parse(serializeCalculatedPlans([correctedPlan]))[0] : record.planSnapshot,
     physicalQuantityCorrection: WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION,
     physicalQuantityCorrectedAt: new Date().toISOString(),
   };
+  if (correctedPlan && globalOrderPlans[0]) globalOrderPlans[0] = correctedPlan;
   writeCompletedCycles(records);
   activeOrder.completedCycles = (Array.isArray(activeOrder.completedCycles) ? activeOrder.completedCycles : [])
     .filter((item) => !(Number(item.loadNumber) === 1

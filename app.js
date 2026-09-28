@@ -669,7 +669,7 @@ function completionRecordsForActiveOrder() {
 
 let managementClockTimer = null;
 const WESTMINSTER_TIMELINE_CORRECTION = 'westminster-cycle-timeline-2026-08-18-v2';
-const WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION = 'westminster-cycle-1-actual-20x272-12x240-13x16-v1';
+const WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION = 'westminster-cycle-1-physical-20x272-12x216-13x40-v2';
 const WESTMINSTER_CYCLE_2_RECOVERY = 'westminster-cycle-2-completed-2026-09-25-v1';
 const WESTMINSTER_CYCLE_2_LAYOUT_CORRECTION = 'westminster-cycle-2-layout-6x8-11-1x7-12-v1';
 
@@ -712,12 +712,14 @@ function correctWestminsterCycle1Actual(records) {
   const savedLink = (activeOrder.completedCycles || []).find((item) => Number(item.loadNumber) === 1
     && (item.orderId === activeOrder.id || item.orderNumber === activeOrder.number || item.productionOrderNumber === activeOrder.number));
   if (activeOrder.cycle1ActualCorrectionVersion === WESTMINSTER_CYCLE_1_ACTUAL_CORRECTION
-    && Number(record.quantities?.[12]) === 240 && Number(record.quantities?.[13]) === 16
-    && Number(savedLink?.quantities?.[12]) === 240 && Number(savedLink?.quantities?.[13]) === 16) return false;
+    && Number(record.quantities?.[12]) === 216 && Number(record.quantities?.[13]) === 40 && Number(record.quantities?.[20]) === 272
+    && Number(savedLink?.quantities?.[12]) === 216 && Number(savedLink?.quantities?.[13]) === 40 && Number(savedLink?.quantities?.[20]) === 272) return false;
 
-  const quantities = { ...(record.quantities || {}), 12: 240, 13: 16 };
+  // Physical production is authoritative: Load 1 used all five 13 ft rows
+  // (5 × 8 = 40), 216 boards at 12 ft and 272 boards at 20 ft.
+  const quantities = { 12: 216, 13: 40, 20: 272 };
   const boards = Object.values(quantities).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
-  const boardFeet = Object.entries(quantities).reduce((sum, [length, quantity]) => sum + bf(Number(length), Number(quantity || 0)), 0);
+  const boardFeet = 4276;
   records[index] = {
     ...record,
     quantities,
@@ -3659,11 +3661,18 @@ function optimizeUnlockedPlans(originalStock, geometry, kilnLength, maxStack, se
   if (!locked.size) return buildOptimizedPlanSet(originalStock, geometry, kilnLength, maxStack, selectedMetal, true);
   const lockedUsed = new Map();
   locked.forEach((loadNumber) => {
-    const plan = previousPlans[loadNumber - 1];
+    let plan = previousPlans[loadNumber - 1];
     if (!plan) throw new Error(`Kiln Load ${loadNumber} is locked but its saved plan is unavailable.`);
     const completedRecord = completedRecordForLoad(loadNumber);
     const lockedMap = completedRecord?.quantities ? numericMap(completedRecord.quantities) : plan.usedMap;
-    if (completedRecord) plan.completedUsedMap = new Map(lockedMap);
+    if (completedRecord) {
+      // A completed cycle is an immutable physical event. Always restore its
+      // exact saved rows before optimizing the future, even if a stale cached
+      // automatic plan currently occupies the same load number.
+      const savedPlan = completedRecord.planSnapshot ? restorePlanTypes(completedRecord.planSnapshot) : plan;
+      plan = { ...savedPlan, usedMap: new Map(lockedMap), completedUsedMap: new Map(lockedMap), locked: true };
+      previousPlans[loadNumber - 1] = plan;
+    }
     lockedMap.forEach((quantity, length) => {
       lockedUsed.set(Number(length), Number(lockedUsed.get(Number(length)) || 0) + Number(quantity || 0));
     });
@@ -5584,6 +5593,7 @@ function init() {
       } else {
         try {
           calculate(false);
+          if (westminsterCorrected) persistActiveOrder(true);
         } catch (error) {
           console.warn('Saved calculation could not be rendered:', error);
           const status = $('calculationStatus');

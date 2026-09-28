@@ -964,29 +964,24 @@ function formatProductionDuration(value) {
   return `${minutes}m`;
 }
 
-function renderManagementDashboard() {
-  if (!$('managementReadyPercent')) return;
-  repairWestminsterProductionTimeline();
-  const records = completionRecordsForActiveOrder();
-  const inventory = activeOrder?.inventory || inventorySnapshot();
-  const totalBoards = Object.values(inventory || {}).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+function productionManagementState(order, records, plannedLoadCount, now = Date.now()) {
+  const inventory = order?.inventory || {};
+  const totalBoards = Object.values(inventory).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
   const readyBoards = records.reduce((sum, record) => sum + Number(record.boards || Object.values(record.quantities || {}).reduce((qty, value) => qty + Number(value || 0), 0)), 0);
   const readyBf = records.reduce((sum, record) => sum + Number(record.bf || 0), 0);
   const readyPercent = totalBoards > 0 ? Math.min(100, readyBoards / totalBoards * 100) : 0;
-  const plannedCycles = Math.max(loadRecords.size, Number(activeOrder?.plannedCycles || 0));
+  const plannedCycles = Math.max(Number(plannedLoadCount || 0), Number(order?.plannedCycles || 0));
   const completedCycles = records.length;
-  const activeNumber = Number(activeOrder?.activeCycleNumber || 0);
-  const activeStartedAt = Date.parse(activeOrder?.activeCycleStartedAt || '');
+  const activeNumber = Number(order?.activeCycleNumber || 0);
+  const activeStartedAt = Date.parse(order?.activeCycleStartedAt || '');
   const recordedStarts = records.map((record) => ({ time: Date.parse(record.startedAt || ''), estimated: Boolean(record.startedAtEstimated) })).filter((entry) => Number.isFinite(entry.time));
   if (Number.isFinite(activeStartedAt)) recordedStarts.push({ time: activeStartedAt, estimated: false });
   const firstStartEntry = recordedStarts.sort((left, right) => left.time - right.time)[0] || null;
   const firstStart = firstStartEntry?.time || null;
   const completedTimes = records.map((record) => Date.parse(record.completedAt || record.createdAt || '')).filter(Number.isFinite);
   const latestCompleted = completedTimes.length ? Math.max(...completedTimes) : null;
-  // Total production time is the calendar age of the order's production run.
-  // Pauses between kiln cycles still count until every planned cycle is done.
   const productionComplete = plannedCycles > 0 && completedCycles >= plannedCycles;
-  const productionEnd = productionComplete ? latestCompleted : Date.now();
+  const productionEnd = productionComplete ? latestCompleted : now;
   const elapsed = firstStart && productionEnd && productionEnd >= firstStart ? productionEnd - firstStart : null;
   const durations = records.map((record) => {
     const stored = Number(record.durationMs);
@@ -996,6 +991,14 @@ function renderManagementDashboard() {
     return Number.isFinite(started) && Number.isFinite(completed) && completed >= started ? completed - started : null;
   }).filter((duration) => Number.isFinite(duration) && duration >= 0);
   const average = durations.length ? durations.reduce((sum, duration) => sum + duration, 0) / durations.length : null;
+  return { totalBoards, readyBoards, readyBf, readyPercent, plannedCycles, completedCycles, activeNumber, activeStartedAt, firstStartEntry, firstStart, elapsed, average };
+}
+
+function renderManagementDashboard({ repair = true } = {}) {
+  if (!$('managementReadyPercent')) return;
+  if (repair) repairWestminsterProductionTimeline();
+  const records = completionRecordsForActiveOrder();
+  const { totalBoards, readyBoards, readyBf, readyPercent, plannedCycles, completedCycles, activeNumber, activeStartedAt, firstStartEntry, firstStart, elapsed, average } = productionManagementState(activeOrder, records, loadRecords.size);
 
   $('managementReadyPercent').textContent = `${fmt(readyPercent, 1)}%`;
   $('managementReadyBoards').textContent = fmt(readyBoards);
@@ -5640,6 +5643,12 @@ function init() {
       }
     }
   }
-}
+  // The production overview is an operational projection, not a side effect
+  // of restoring the editable load planner. Always render it from the saved
+  // order and cycle ledger, even when a legacy/missing view cache cannot
+  // rebuild the planning UI. This read-only fallback must not repair or write
+  // production records during page initialization.
+  renderManagementDashboard({ repair: false });
+ }
 
 init();

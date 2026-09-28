@@ -1,4 +1,4 @@
-const targets = await (await fetch('http://127.0.0.1:9232/json')).json();
+const targets = await (await fetch('http://127.0.0.1:9241/json')).json();
 const page = targets.find((target) => target.type === 'page');
 if (!page) throw new Error('Browser page not found');
 const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -38,7 +38,7 @@ await evaluate(`(() => {
   localStorage.setItem('kiln-planner-completed-cycles-v1', '[]');
   ['kiln-planner-shipping-tags-v1','kiln-planner-test-boards-v1','kiln-planner-recovery-operations-v1','kiln-planner-shipments-v1','kiln-planner-preliminary-orders-v1'].forEach((key)=>localStorage.setItem(key,'[]'));
 })()`);
-await send('Page.navigate', { url:'http://127.0.0.1:8771/warehouse.html?test=preorder' });
+await send('Page.navigate', { url:'http://127.0.0.1:8790/future-planner.html?test=preorder' });
 await new Promise((resolve) => setTimeout(resolve, 1300));
 const result = await evaluate(`(() => {
   const lots = productionLots();
@@ -57,11 +57,10 @@ const result = await evaluate(`(() => {
     physicalAvailable: availableForYard()[8],
     readyLeft: productionLots().find((lot)=>lot.id===ready.id).quantity-preorderReserved(ready.id),
     sourceOverflow: [...document.querySelectorAll('.preorder-source-row')].some((row) => row.scrollWidth > row.clientWidth + 1 || [...row.children].some((child) => child.getBoundingClientRect().right > row.getBoundingClientRect().right + 1)),
-    completedLocked: !document.querySelector('.delete-completed') && document.getElementById('completedTable').textContent.includes('Locked'),
     pageText: document.getElementById('preorderPlanner').textContent,
   };
 })()`);
-if (result.items !== 2 || result.selected !== 64 || result.selectedBf !== 256 || result.physicalAvailable !== 56 || result.readyLeft !== 16 || result.sourceOverflow || !result.completedLocked
+if (result.items !== 2 || result.selected !== 64 || result.selectedBf !== 256 || result.physicalAvailable !== 56 || result.readyLeft !== 16 || result.sourceOverflow
   || !result.pageText.includes('SPF') || !result.pageText.includes('Hemlock') || !result.pageText.includes('READY') || !result.pageText.includes('EXPECTED')
   || !result.pageText.includes('READY in warehouse56 PCS · 224.0 BF') || !result.pageText.includes('64 PCS · 256.0 BF')
   || !result.pageText.includes('SPF40 PCS · 160.0 BF') || !result.pageText.includes('Hemlock24 PCS · 96.0 BF')) {

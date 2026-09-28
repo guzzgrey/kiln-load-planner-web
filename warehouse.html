@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
     <link rel="icon" type="image/png" href="assets/conifer-forest-mark-v1.png" />
-    <link rel="stylesheet" href="styles.css?v=yard-tag-print-v19" />
+    <link rel="stylesheet" href="styles.css?v=mixed-yard-tag-v20" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -166,7 +166,7 @@
           <label>QUALITY GRADE<select id="yardQuality"><option value="good">No.1 / good</option><option value="crooked">Crooked / bowed</option><option value="cracked">Cracked</option><option value="knots">Large or damaged knots</option><option value="recovered-grade-1">Recovered Grade #1</option><option value="unclassified">Unclassified</option></select></label>
           <label>DEFECT / SORT NOTE<input id="yardDefectNote" placeholder="Bow, large knots, cracks…" /></label>
         </div>
-        <p class="note">Select one finished length for this YARD lift. Quantities already reflect every confirmed recovery cut; one TAG cannot contain multiple lengths.</p>
+        <p class="note">Enter every finished length physically packed in this YARD lift. Available quantities already include every confirmed recovery cut.</p>
         <div id="yardAvailableSource" class="yard-source-summary"></div>
         <div class="scroll"><table class="yard-builder"><thead><tr><th>Finished length</th><th>Available after recovery</th><th>Boards in this TAG</th></tr></thead><tbody id="yardBuilderRows"></tbody></table></div>
         <div id="yardDialogStatus" class="calculation-status idle">Enter quantities and confirm the TAG.</div>
@@ -178,6 +178,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="cloud-sync.js?v=local-first-v8" data-app="warehouse.js?v=preorder-stock-v14"></script>
+    <script src="cloud-sync.js?v=local-first-v8" data-app="warehouse.js?v=mixed-yard-tag-v15"></script>
   </body>
 </html>

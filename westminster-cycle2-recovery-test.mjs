@@ -28,6 +28,7 @@ const result = await evaluate(`(() => {
   const backup=Object.fromEntries(Array.from({length:localStorage.length},(_,index)=>localStorage.key(index)).map((key)=>[key,localStorage.getItem(key)]));
   localStorage.clear();
   activeOrder={id:'westminster-recovery',number:'ORD-334605',status:'active',plannedCycles:7,inventory:{19:128,14:512},inputs:{supplier:'Westminster',species:'Hemlock',size:'1,6'},activeCycleNumber:2,activeCycleStartedAt:'2026-09-09T12:00:00-07:00'};
+  document.getElementById('size').value='1,6';
   document.getElementById('actualT').value='1';document.getElementById('actualW').value='6';
   loadRecords.clear();globalOrderSignature='westminster-recovery-plan';
   const joinedRows=[];

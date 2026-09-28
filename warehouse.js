@@ -1032,7 +1032,7 @@ function createYardTag(event) {
   const duplicateTag = warehouseTags().some((tag) => String(tag.tag || '').trim().toLowerCase() === tagValue.toLowerCase());
   const selectedLengths = LENGTHS.filter((length) => quantities[length] > 0);
   const invalid = LENGTHS.filter((length) => quantities[length] > available[length]);
-  if (missingFields || duplicateTag || invalid.length || selectedLengths.length !== 1) {
+  if (missingFields || duplicateTag || invalid.length || selectedLengths.length < 1) {
     $('yardDialogStatus').className = 'calculation-status pending';
     $('yardDialogStatus').textContent = missingFields
       ? 'Complete TAG, ORDER #, PRODUCT / MO #, DATE and MATERIAL.'
@@ -1040,7 +1040,7 @@ function createYardTag(event) {
         ? 'This TAG already exists. Enter a unique TAG.'
         : invalid.length
           ? `Quantity exceeds completed inventory at ${invalid.map((length) => `${length} ft`).join(', ')}.`
-          : 'Each YARD TAG must contain exactly one finished board length.';
+          : 'Enter boards for at least one finished length.';
     return;
   }
   const source = completed().at(-1) || {};
@@ -1085,7 +1085,9 @@ function printYardTag(id) {
     return;
   }
   const order = activeOrder();
-  const length = LENGTHS.find((item) => Number(tag.quantities?.[item] || 0) > 0) || 0;
+  const lengthRows = LENGTHS.filter((length) => Number(tag.quantities?.[length] || 0) > 0)
+    .map((length) => ({ length, quantity: Number(tag.quantities[length]) }));
+  const contents = lengthRows.map((row) => `${fmt(row.quantity)}×${fmt(row.length)}′`).join(' + ');
   const pieces = totalBoards(tag.quantities);
   const boardFeet = tagBf(tag);
   const supplier = tag.supplier || order?.inputs?.supplier || 'SUPPLIER';
@@ -1102,7 +1104,7 @@ function printYardTag(id) {
       <h1>${esc(supplier).toUpperCase()}</h1>
       <h2>${esc(product).toUpperCase()}</h2>
       ${materialDetails ? `<p>${esc(materialDetails).toUpperCase()}</p>` : ''}
-      <strong>${fmt(length)}′ / ${fmt(pieces)} PCS / ${fmt(boardFeet, Number.isInteger(boardFeet) ? 0 : 1)} BFM</strong>
+      <strong class="${lengthRows.length > 1 ? 'multi-length' : ''}">${contents} / ${fmt(pieces)} PCS / ${fmt(boardFeet, Number.isInteger(boardFeet) ? 0 : 1)} BFM</strong>
       ${tag.defectNote ? `<small>${esc(tag.defectNote)}</small>` : ''}
     </div>
     <div class="yard-tag-print-identity">

@@ -74,31 +74,6 @@ function storeOrder(order) {
 function readStoredOrder(id) {
   try { return JSON.parse(localStorage.getItem(orderStorageKey(id)) || 'null'); } catch (_) { return null; }
 }
-function recoverWestminster334605(order) {
-  if (!order || order.recoveryVersion === 'ord-334605-v1') return order;
-  const number = String(order.number || '').toUpperCase().replace(/\s+/g, '');
-  const supplier = String(order.inputs?.supplier || '').toLowerCase();
-  const inventoryTotal = Object.values(order.inventory || {}).reduce((sum, quantity) => sum + Math.max(0, Number(quantity) || 0), 0);
-  const matchingOrder = number === 'ORD-334605' || number === '334605';
-  const matchingSupplier = supplier.includes('westminster');
-  if (!matchingOrder || inventoryTotal !== 0) return order;
-  if (!matchingSupplier) order.inputs = { ...(order.inputs || {}), supplier: 'Westminster', supplierClearance: '1' };
-
-  order.inventory = Object.fromEntries(DEFAULT_QUANTITIES);
-  order.calculated = false;
-  order.plannedCycles = 0;
-  order.plannedBoards = 0;
-  order.plannedBf = 0;
-  order.updatedAt = new Date().toISOString();
-  order.recoveryVersion = 'ord-334605-v1';
-  delete order.planSignature;
-  delete order.calculatedAt;
-  delete order.viewCache;
-  storeOrder(order);
-  writeActiveOrderPointer(order);
-  return order;
-}
-
 function manualRowsFromMaterialLots(length, lots, across, prefix) {
   const rows = [];
   let row = null;
@@ -434,12 +409,16 @@ function restoreRenderedCalculation() {
   currentLoadSnapshot = loadRecords.get(currentLoadNumber) || loadRecords.get(1);
   $('loadNumber').textContent = currentLoadNumber;
   $('nextLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
-  renderLoadNavigation();
+  renderLoadNavigation({ reconcile: false });
   calculationDirty = Boolean(activeOrder?.planStale);
   $('calculationStatus').className = 'calculation-status ready';
   $('calculationStatus').textContent = 'Saved calculation restored. Change an input and click Calculate Load to optimize again.';
   $('calc').textContent = 'Recalculate Load';
   return true;
+}
+function hasRestorableCalculation(order) {
+  const cache = order?.viewCache;
+  return Boolean(cache?.records?.length && deserializeCalculatedPlans(cache.plans).length);
 }
 function persistActiveOrder(calculated = false) {
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, createdAt: new Date().toISOString() };
@@ -1759,7 +1738,7 @@ function clearInvalidatedCalculationView() {
     row.querySelector('.used').textContent = '0';
     row.querySelector('.remain').textContent = '0';
   });
-  renderLoadNavigation();
+  renderLoadNavigation({ reconcile: !renderSavedSnapshot });
 }
 
 function applyRemainderTransfer(event) {
@@ -3767,7 +3746,7 @@ function buildManualPlanSet(originalStock, geometry, kilnLength, selectedMetal) 
   return rebuildPlanBalances(kept, originalStock, geometry, kilnLength);
 }
 
-function calculate(allowOptimization = false) {
+function calculate(allowOptimization = false, { renderSavedSnapshot = false } = {}) {
   const stackingDetailsWasOpen = Boolean($('productionNeed')?.querySelector('.stacking-details')?.open);
   const physicalKilnLength = Math.floor(num('kiln'));
   const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
@@ -3779,12 +3758,12 @@ function calculate(allowOptimization = false) {
   const originalStock = readInventory();
   const lengths = [...originalStock.keys()].filter((length) => length <= maxStack);
   const supplier = $('supplier').value.trim() || 'Not specified';
-  saveSupplierProfile();
+  if (!renderSavedSnapshot) saveSupplierProfile();
   $('reportMeta').textContent = `Supplier: ${supplier} · Ordered size: ${materialSizeLabel()} · Physical: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))} · Kiln: ${physicalKilnLength} ft physical / ${kilnLength} ft usable`;
   $('geometryPreview').innerHTML = `<strong>Live physical capacity:</strong> ${geometry.across} boards across × ${geometry.rows} rows high = ${geometry.lines} board positions per full lift. Physical batch: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))}.${geometry.manualAcross ? ` Manual row limit is active; width allows no more than ${geometry.physicalAcross}.` : ''}`;
 
   const signature = orderSignature(originalStock, geometry, kilnLength, maxStack, selectedMetal);
-  if (signature !== globalOrderSignature && !allowOptimization) {
+  if (signature !== globalOrderSignature && !allowOptimization && !renderSavedSnapshot) {
     throw new Error('Optimization is locked. Use the Calculate Load button to create a new plan.');
   }
   const completionBalanceMismatch = [...completedLoadAssignments()].some(([loadNumber, record]) => {
@@ -3792,7 +3771,7 @@ function calculate(allowOptimization = false) {
     const planned = quantityFingerprint(globalOrderPlans[loadNumber - 1]?.usedMap);
     return actual && actual !== planned;
   });
-  if (allowOptimization || completionBalanceMismatch) {
+  if (allowOptimization || (!renderSavedSnapshot && completionBalanceMismatch)) {
     const previousLoadNumber = currentLoadNumber;
     globalOrderSignature = signature;
     // Use the same proven sequential planner in local files and on the web.
@@ -3806,7 +3785,7 @@ function calculate(allowOptimization = false) {
     currentLoadNumber = Math.min(previousLoadNumber, Math.max(1, globalOrderPlans.length));
   }
 
-  if (compactEmptyAutomaticPlans()) {
+  if (!renderSavedSnapshot && compactEmptyAutomaticPlans()) {
     globalOrderPlans = rebuildPlanBalances(globalOrderPlans, originalStock, geometry, kilnLength).map(restorePlanTypes);
     currentLoadNumber = Math.min(currentLoadNumber, Math.max(1, globalOrderPlans.length));
     loadRecords.clear();
@@ -4899,9 +4878,11 @@ function removeManualRow(liftIndex, rowIndex) {
   }
 }
 
-function renderLoadNavigation() {
-  reconcileActiveCompletionByTotals();
-  reconcileProductionState();
+function renderLoadNavigation({ reconcile = true } = {}) {
+  if (reconcile) {
+    reconcileActiveCompletionByTotals();
+    reconcileProductionState();
+  }
   const history = $('loadHistory');
   history.innerHTML = '';
   [...loadRecords.values()].sort((left, right) => left.number - right.number).forEach((snapshot) => {
@@ -5542,7 +5523,7 @@ function bindEvents() {
 }
 
 function init() {
-  const savedOrder = recoverWestminster334605(readActiveOrder());
+  const savedOrder = readActiveOrder();
   activeOrder = savedOrder;
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, number: newOrderNumber(), status: 'active', createdAt: new Date().toISOString(), inventory: {} };
   reconcileProductionState();
@@ -5587,9 +5568,8 @@ function init() {
     $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
   }
   renderOrderSelector();
-  if (activeOrder.calculated) {
+  if (activeOrder.calculated || hasRestorableCalculation(activeOrder)) {
     if (!restoreRenderedCalculation()) {
-      activeOrder.calculated = false;
       const status = $('calculationStatus');
       status.className = 'calculation-status pending';
       status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
@@ -5626,9 +5606,17 @@ function init() {
             status.textContent = 'The saved rows need material reconciliation. Click Calculate Load to rebuild only the unstarted cycles.';
           }
         } else {
-          const status = $('calculationStatus');
-          status.className = 'calculation-status pending';
-          status.textContent = 'The saved report is preserved, but its physical inputs no longer match. Click Calculate Load to explicitly rebuild only the unstarted cycles.';
+          try {
+            calculate(false, { renderSavedSnapshot: true });
+            const status = $('calculationStatus');
+            status.className = 'calculation-status pending';
+            status.textContent = 'Saved kiln loads restored without recalculation. Inputs differ from the saved calculation; use Calculate Load only when you intentionally want to rebuild unstarted cycles.';
+          } catch (error) {
+            console.warn('Saved calculation snapshot could not be rendered:', error);
+            const status = $('calculationStatus');
+            status.className = 'calculation-status pending';
+            status.textContent = 'The saved report is preserved but could not be displayed. No production data was changed.';
+          }
         }
       } else {
         try {

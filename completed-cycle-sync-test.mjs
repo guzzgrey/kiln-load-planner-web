@@ -61,6 +61,9 @@ const result = await evaluate(`(async () => {
   const physical=Math.floor(num('kiln'));const clearance=Math.min(Math.max(0,physical-1),Math.floor(num('supplierClearance')));
   globalOrderPlans=optimizeUnlockedPlans(readInventory(),geometry,Math.max(1,physical-clearance),Math.floor(num('maxStack')),Math.floor(Number(document.getElementById('metalBox').value)),true);
   const completedPlanRestored=loadPlanFingerprint(1)===completedFingerprint;
+  restoreLoadRecordsFromPlans(globalOrderPlans);
+  renderLoadNavigation();
+  const actualLayout=document.querySelector('#loadHistory [data-load="1"] .load-layout')?.textContent||'';
   const embeddedRecords=activeOrder.completedCycles?.length||0;
   writeCompletedCycles([]);
   const survivesLedgerLoss=isLoadCompleted(1);
@@ -77,13 +80,13 @@ const result = await evaluate(`(async () => {
   openThermoProgram(1);
   const thermoLocked=document.getElementById('saveThermoProgram').disabled && [...document.querySelectorAll('#thermoProgramRows input')].every((input)=>input.disabled);
   document.getElementById('thermoProgramDialog').close();
-  const output={flushCalls,records:records.length,embeddedRecords,survivesLedgerLoss,completedPlanRestored,dryingLocked,thermoLocked,completed:isLoadCompleted(1),activeCycle:activeOrder.activeCycleNumber||null,loadNumber:records[0]?.loadNumber,boards:records[0]?.boards,elapsedText,averageText};
+  const output={flushCalls,records:records.length,embeddedRecords,survivesLedgerLoss,completedPlanRestored,actualLayout,dryingLocked,thermoLocked,completed:isLoadCompleted(1),activeCycle:activeOrder.activeCycleNumber||null,loadNumber:records[0]?.loadNumber,boards:records[0]?.boards,elapsedText,averageText};
   localStorage.clear();
   Object.entries(backup).forEach(([key,value])=>localStorage.setItem(key,value));
   return output;
 })()`);
 console.log(JSON.stringify(result, null, 2));
-if (result.flushCalls !== 1 || result.records !== 1 || result.embeddedRecords !== 1 || !result.survivesLedgerLoss || !result.completedPlanRestored || !result.dryingLocked || !result.thermoLocked || !result.completed || result.activeCycle !== null || result.loadNumber !== 1 || result.boards <= 0 || Number.parseInt(result.elapsedText,10) < 30 || !result.averageText.includes('6d 0h')) {
+if (result.flushCalls !== 1 || result.records !== 1 || result.embeddedRecords !== 1 || !result.survivesLedgerLoss || !result.completedPlanRestored || result.actualLayout !== '32 × 8 ft' || !result.dryingLocked || !result.thermoLocked || !result.completed || result.activeCycle !== null || result.loadNumber !== 1 || result.boards <= 0 || Number.parseInt(result.elapsedText,10) < 30 || !result.averageText.includes('6d 0h')) {
   throw new Error(`Completed-cycle synchronization test failed: ${JSON.stringify(result)}`);
 }
 ws.close();

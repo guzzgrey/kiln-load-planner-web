@@ -4896,6 +4896,15 @@ function removeManualRow(liftIndex, rowIndex) {
   }
 }
 
+function completedRecordLayout(record, fallback = '') {
+  const quantities = Object.entries(record?.quantities || {})
+    .map(([length, quantity]) => [Number(length), Number(quantity || 0)])
+    .filter(([length, quantity]) => Number.isFinite(length) && quantity > 0)
+    .sort((left, right) => left[0] - right[0]);
+  if (!quantities.length) return fallback;
+  return quantities.map(([length, quantity]) => `${fmt(quantity)} × ${fmt(length)} ft`).join(' · ');
+}
+
 function renderLoadNavigation() {
   reconcileActiveCompletionByTotals();
   reconcileProductionState();
@@ -4916,7 +4925,8 @@ function renderLoadNavigation() {
     const hasThermoData = thermoPrograms.has(String(snapshot.number));
     const outputBoards = completedRecord ? Number(completedRecord.boards || 0) : snapshot.usedBoards;
     const outputBf = completedRecord ? Number(completedRecord.bf || 0) : snapshot.usedBf;
-    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" title="${completed ? 'Open completed cycle details (view only)' : inProgress ? 'Complete this kiln cycle' : 'Start this kiln cycle'}">${actionLabel}</button>${!completed && !inProgress ? '<button class="complete-past-cycle secondary" type="button" title="Record a kiln cycle that was already physically completed">Complete past</button>' : ''}${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button>${!completed && !inProgress && globalOrderPlans.length > 1 ? '<button class="delete-planned-load danger" type="button" title="Delete this future load and return its boards to the remainder">Delete load</button>' : ''}</div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${snapshot.layout}</span><span class="load-output">${fmt(outputBoards)} boards <small>${fmt(outputBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${completed ? stateLabel : inProgress ? stateLabel : `Planned · ${stateLabel}`}</span>`;
+    const displayedLayout = completedRecordLayout(completedRecord, snapshot.layout);
+    historyRow.innerHTML = `<div class="load-actions"><button class="complete-cycle ${completed ? 'is-complete' : ''} ${inProgress ? 'is-progress' : ''}" type="button" title="${completed ? 'Open completed cycle details (view only)' : inProgress ? 'Complete this kiln cycle' : 'Start this kiln cycle'}">${actionLabel}</button>${!completed && !inProgress ? '<button class="complete-past-cycle secondary" type="button" title="Record a kiln cycle that was already physically completed">Complete past</button>' : ''}${inProgress ? '<button class="cancel-cycle-start" type="button" title="Return this kiln load to Planned">Cancel start</button>' : ''}<button class="drying-program-open ${hasDryingData ? 'has-data' : ''}" type="button">${hasDryingData ? 'Drying ✓' : 'Drying'}</button><button class="thermo-program-open ${hasThermoData ? 'has-data' : ''}" type="button">${hasThermoData ? 'TM ✓' : 'TM'}</button>${!completed && !inProgress && globalOrderPlans.length > 1 ? '<button class="delete-planned-load danger" type="button" title="Delete this future load and return its boards to the remainder">Delete load</button>' : ''}</div><b>Kiln Load ${snapshot.number}</b><span class="load-layout">${displayedLayout}</span><span class="load-output">${fmt(outputBoards)} boards <small>${fmt(outputBf, 1)} BF</small></span><span class="load-state ${completed ? 'done' : inProgress ? 'active' : ''}">${completed ? stateLabel : inProgress ? stateLabel : `Planned · ${stateLabel}`}</span>`;
     if (completionCandidates.length) {
       const match = document.createElement('button');
       match.type = 'button';

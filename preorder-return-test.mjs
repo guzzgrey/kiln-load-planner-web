@@ -1,4 +1,4 @@
-const targets = await (await fetch('http://127.0.0.1:9242/json')).json();
+const targets = await (await fetch('http://127.0.0.1:9235/json')).json();
 const page = targets.find((target) => target.type === 'page');
 if (!page) throw new Error('Browser page not found');
 const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -22,7 +22,7 @@ async function evaluate(expression) {
   return response.result.value;
 }
 await send('Runtime.enable');
-await send('Page.navigate', { url: 'http://127.0.0.1:8790/future-planner.html?test=preorder-return-v2' });
+await send('Page.navigate', { url: 'http://127.0.0.1:8782/warehouse.html?test=preorder-return-v2' });
 await new Promise((resolve) => setTimeout(resolve, 1300));
 const result = await evaluate(`(() => {
   const backup=Object.fromEntries(Array.from({length:localStorage.length},(_,index)=>localStorage.key(index)).map((key)=>[key,localStorage.getItem(key)]));
@@ -30,15 +30,15 @@ const result = await evaluate(`(() => {
   const order={id:'preorder-return-order',number:'ORD-PREORDER-RETURN',status:'active',inputs:{size:'1x6',actualT:'1',actualW:'6'}};
   localStorage.setItem(ACTIVE_ORDER_KEY,JSON.stringify({orderRef:order.id}));
   localStorage.setItem(ORDER_PREFIX+order.id,JSON.stringify(order));
-  localStorage.setItem(COMPLETED_KEY,JSON.stringify([
+  write(COMPLETED_KEY,[
     {id:'return-cycle-1',orderId:order.id,orderNumber:order.number,loadNumber:1,species:'Hemlock',quantities:{12:216,13:40,20:272},qualityLots:[{length:12,quantity:168,material:'Hemlock',quality:'unclassified'},{length:13,quantity:40,material:'Hemlock',quality:'unclassified'},{length:20,quantity:208,material:'Hemlock',quality:'unclassified'}],boards:528,bf:4276},
     {id:'return-cycle-2',orderId:order.id,orderNumber:order.number,loadNumber:2,species:'Hemlock',quantities:{12:8},qualityLots:[{length:12,quantity:8,material:'Hemlock',quality:'good'}],boards:8,bf:48},
-  ]));
+  ]);
   // A YARD TAG is a physical classification, not consumption. These 56
   // boards must remain available to the non-binding preliminary planner.
-  localStorage.setItem(TAGS_KEY,JSON.stringify([{id:'yard-on-hand-12',orderId:order.id,productionOrderNumber:order.number,tag:'99999',quantities:{12:56},sourceQuantities:{12:56},sourceLoads:[{id:'return-cycle-1',loadNumber:1,quantities:{12:56}}]}]));
-  localStorage.setItem(SHIPMENTS_KEY,'[]');
-  localStorage.setItem(TEST_BOARDS_KEY,'[]');
+  write(TAGS_KEY,[{id:'yard-on-hand-12',orderId:order.id,productionOrderNumber:order.number,tag:'99999',quantities:{12:56},sourceQuantities:{12:56},sourceLoads:[{id:'return-cycle-1',loadNumber:1,quantities:{12:56}}]}]);
+  write(SHIPMENTS_KEY,[]);
+  write(TEST_BOARDS_KEY,[]);
   const lot12=lotKey(1,12,'Hemlock','unclassified');
   const lot20=lotKey(1,20,'Hemlock','unclassified');
   const draft={id:'return-draft',orderId:order.id,purpose:'stock',customer:'',number:'',targetBf:0,stacks:[
@@ -46,7 +46,7 @@ const result = await evaluate(`(() => {
     {id:'tag-10001',name:'10001',items:[{id:'item-20',lotId:lot20,loadNumber:1,length:20,material:'Hemlock',quality:'unclassified',sourceStatus:'ready',quantity:64}]},
   ]};
   const alternative={id:'alternative-draft',orderId:order.id,purpose:'customer',customer:'Scenario B',number:'B',targetBf:0,stacks:[{id:'alternative-tag',name:'Alternative',items:[{id:'alternative-12',lotId:lot12,loadNumber:1,length:12,material:'Hemlock',quality:'unclassified',sourceStatus:'ready',quantity:200},{id:'alternative-20',lotId:lot20,loadNumber:1,length:20,material:'Hemlock',quality:'unclassified',sourceStatus:'ready',quantity:200}]}]};
-  localStorage.setItem(PREORDERS_KEY,JSON.stringify([draft,alternative]));activePreorderId=draft.id;
+  write(PREORDERS_KEY,[draft,alternative]);activePreorderId=draft.id;
   const free=(lotId)=>productionLots().find((lot)=>lot.id===lotId).quantity-preorderReserved(lotId);
   const freeByLength=(length)=>productionLots().filter((lot)=>lot.length===length).reduce((sum,lot)=>sum+lot.quantity-preorderReserved(lot.id),0);
   window.confirm=()=>true;

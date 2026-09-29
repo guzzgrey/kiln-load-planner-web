@@ -107,6 +107,48 @@
     }
   }
 
+  function parsedObject(value) {
+    if (value && typeof value === 'object') return value;
+    try { return JSON.parse(value || 'null'); } catch (_) { return null; }
+  }
+
+  function savedPlanCount(order) {
+    const plans = order?.viewCache?.plans;
+    if (Array.isArray(plans)) return plans.length;
+    if (typeof plans !== 'string') return 0;
+    try {
+      const parsed = JSON.parse(plans);
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch (_) { return 0; }
+  }
+
+  function isWestminsterProductionOrder(order) {
+    return String(order?.number || '').trim().toUpperCase().replace(/\s+/g, '') === 'ORD-334605';
+  }
+
+  async function recoverWestminsterSnapshotFromCloud() {
+    const { data, error } = await client.from(config.table).select('key,value,updated_at');
+    if (error) throw error;
+    let recoveredPlans = 0;
+    for (const row of data || []) {
+      if (!String(row.key || '').startsWith('kiln-planner-order-v1:')) continue;
+      const remoteOrder = parsedObject(row.value);
+      const localOrder = parsedObject(localStorage.getItem(row.key));
+      if (!isWestminsterProductionOrder(remoteOrder) || !isWestminsterProductionOrder(localOrder)) continue;
+      const remotePlans = savedPlanCount(remoteOrder);
+      const localPlans = savedPlanCount(localOrder);
+      if (remotePlans < 1 || remotePlans <= localPlans) continue;
+      // Restore the existing richer cloud snapshot locally before the app
+      // starts. Never push the incomplete local copy over this backup.
+      setLocal(row.key, typeof row.value === 'string' ? row.value : json(row.value));
+      const outbox = readOutbox();
+      delete outbox[row.key];
+      writeOutbox(outbox);
+      recoveredPlans = Math.max(recoveredPlans, remotePlans);
+    }
+    return recoveredPlans;
+  }
+
   function addStatus(text, state = 'online') {
     let bar = document.getElementById('cloudStatusBar');
     if (!bar) {
@@ -335,6 +377,7 @@
   async function startSharedApplication() {
     addStatus('Connecting shared production data…', 'offline');
     try {
+      const recoveredPlans = await recoverWestminsterSnapshotFromCloud();
       const localWorkspace = hasLocalWorkspace();
       // Temporary V2 policy: an existing browser workspace is authoritative.
       // Pull only when opening the application on a browser with no order.
@@ -344,6 +387,7 @@
       protectInternalNavigation();
       window.kilnCloudFlush = flushPendingState;
       loadApplication();
+      if (recoveredPlans) addStatus(`Recovered ${recoveredPlans} saved kiln loads from cloud backup`, 'online');
       if (hasOutboxOperations()) {
         addStatus('Working locally — cloud backup is syncing…', 'offline');
         try {

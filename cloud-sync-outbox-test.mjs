@@ -29,18 +29,20 @@ const result = await evaluate(`(async () => {
   const localAfterStartup=JSON.parse(localStorage.getItem(key)||'[]');
   const protectedAfterFailure=JSON.parse(localStorage.getItem('kiln-planner-cloud-outbox-v1')||'{}');
   const localWorkspaceWon=localStorage.getItem('kiln-planner-tag-sequence-v1')==='10009';
+  const recoveredOrder=JSON.parse(localStorage.getItem('kiln-planner-order-v1:westminster-order')||'null');
   await window.kilnCloudFlush();
   return {
     appLoaded:Boolean(window.__outboxTestAppLoaded),
     localSurvived:localAfterStartup[0]?.loadNumber===2,
     protectedAfterFailure:Boolean(protectedAfterFailure[key]),
     localWorkspaceWon,
+    recoveredPlans:JSON.parse(recoveredOrder?.viewCache?.plans||'[]').length,
     outboxCleared:!localStorage.getItem('kiln-planner-cloud-outbox-v1'),
     remote:window.__remoteState.get(key),
   };
 })()`);
 console.log(JSON.stringify(result, null, 2));
-if (!result.appLoaded || !result.localSurvived || !result.protectedAfterFailure || !result.localWorkspaceWon || !result.outboxCleared || result.remote?.[0]?.loadNumber !== 2) {
+if (!result.appLoaded || !result.localSurvived || !result.protectedAfterFailure || !result.localWorkspaceWon || result.recoveredPlans !== 7 || !result.outboxCleared || result.remote?.[0]?.loadNumber !== 2) {
   throw new Error(`Durable cloud outbox test failed: ${JSON.stringify(result)}`);
 }
 ws.close();

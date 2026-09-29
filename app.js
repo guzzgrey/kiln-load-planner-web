@@ -28,6 +28,7 @@ const COMPLETED_CYCLES_STORAGE = 'kiln-planner-completed-cycles-v1';
 const REMAINDER_INVENTORY_STORAGE = 'kiln-planner-remainder-inventory-v1';
 const ACTIVE_ORDER_STORAGE = 'kiln-planner-active-order-v1';
 const ORDER_INDEX_STORAGE = 'kiln-planner-order-index-v1';
+const ORDER_ARCHIVE_STORAGE = 'kiln-planner-order-archive-v1';
 const ORDER_STORAGE_PREFIX = 'kiln-planner-order-v1:';
 let completingLoadNumber = null;
 let editingDryingLoadNumber = null;
@@ -391,11 +392,9 @@ function cacheRenderedCalculation() {
   // the structured plans and load records.
   return { version: 2, currentLoadNumber, signature: globalOrderSignature, plans: serializeCalculatedPlans(), records: serializeLoadRecords() };
 }
-function restoreRenderedCalculation() {
-  const cache = activeOrder?.viewCache;
+function restoreRenderedCalculation(cache = activeOrder?.viewCache) {
   if (!cache?.records?.length) return false;
   const restoredPlans = deserializeCalculatedPlans(cache.plans);
-  if (!restoredPlans.length) return false;
   Object.entries(cache.html || {}).forEach(([id, value]) => { if ($(id)) $(id).innerHTML = value; });
   Object.entries(cache.text || {}).forEach(([id, value]) => { if ($(id)) $(id).textContent = value; });
   [...document.querySelectorAll('#inventory tr')].forEach((row, index) => { const cells = cache.inventoryCells?.[index]; if (!cells) return; row.querySelector('.before').textContent = cells.before; row.querySelector('.used').textContent = cells.used; row.querySelector('.remain').textContent = cells.remain; });
@@ -403,8 +402,8 @@ function restoreRenderedCalculation() {
   cache.records.forEach((record) => loadRecords.set(record.number, { ...record, available: new Map(Object.entries(record.available || {}).map(([k,v]) => [Number(k),v])), used: new Map(Object.entries(record.used || {}).map(([k,v]) => [Number(k),v])), remaining: new Map(Object.entries(record.remaining || {}).map(([k,v]) => [Number(k),v])) }));
   currentLoadNumber = Number(cache.currentLoadNumber || 1);
   globalOrderPlans = restoredPlans;
-  globalOrderSignature = globalOrderPlans.length ? (cache.signature || activeOrder.planSignature || '') : '';
-  restoreLoadRecordsFromPlans(globalOrderPlans);
+  globalOrderSignature = cache.signature || activeOrder.planSignature || '';
+  if (globalOrderPlans.length) restoreLoadRecordsFromPlans(globalOrderPlans);
   currentLoadNumber = loadRecords.has(currentLoadNumber) ? currentLoadNumber : 1;
   currentLoadSnapshot = loadRecords.get(currentLoadNumber) || loadRecords.get(1);
   $('loadNumber').textContent = currentLoadNumber;
@@ -416,9 +415,44 @@ function restoreRenderedCalculation() {
   $('calc').textContent = 'Recalculate Load';
   return true;
 }
-function hasRestorableCalculation(order) {
-  const cache = order?.viewCache;
-  return Boolean(cache?.records?.length && deserializeCalculatedPlans(cache.plans).length);
+function normalizedOrderNumber(value) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+function sameOrderIdentity(candidate, order) {
+  if (!candidate || !order) return false;
+  if (candidate.id && order.id && candidate.id === order.id) return true;
+  const candidateNumber = normalizedOrderNumber(candidate.number);
+  return Boolean(candidateNumber && candidateNumber === normalizedOrderNumber(order.number));
+}
+function restorableSnapshotScore(candidate, order) {
+  if (!sameOrderIdentity(candidate, order) || !candidate.viewCache?.records?.length) return -1;
+  const plans = deserializeCalculatedPlans(candidate.viewCache.plans).length;
+  const records = candidate.viewCache.records.length;
+  const expected = Number(order.plannedCycles || candidate.plannedCycles || 0);
+  const complete = expected > 0 && plans === expected && records === expected ? 1 : 0;
+  return complete * 1e9 + plans * 1e6 + records * 1e3 + Math.min(999, Object.keys(candidate.viewCache.html || {}).length);
+}
+function findRestorableOrderSnapshot(order) {
+  if (!order) return null;
+  const candidates = [order];
+  try {
+    const pointer = JSON.parse(localStorage.getItem(ACTIVE_ORDER_STORAGE) || 'null');
+    if (pointer && !pointer.orderRef) candidates.push(pointer);
+  } catch (_) { /* Ignore an unreadable legacy pointer. */ }
+  try {
+    const archive = JSON.parse(localStorage.getItem(ORDER_ARCHIVE_STORAGE) || '[]');
+    if (Array.isArray(archive)) candidates.push(...archive);
+  } catch (_) { /* Ignore an unreadable archive. */ }
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(ORDER_STORAGE_PREFIX)) continue;
+    try { candidates.push(JSON.parse(localStorage.getItem(key) || 'null')); }
+    catch (_) { /* Ignore an unrelated unreadable order. */ }
+  }
+  return candidates
+    .map((candidate) => ({ candidate, score: restorableSnapshotScore(candidate, order) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => right.score - left.score)[0]?.candidate || null;
 }
 function persistActiveOrder(calculated = false) {
   if (!activeOrder) activeOrder = { id: `order-${Date.now()}`, createdAt: new Date().toISOString() };
@@ -1738,7 +1772,7 @@ function clearInvalidatedCalculationView() {
     row.querySelector('.used').textContent = '0';
     row.querySelector('.remain').textContent = '0';
   });
-  renderLoadNavigation({ reconcile: !renderSavedSnapshot });
+  renderLoadNavigation();
 }
 
 function applyRemainderTransfer(event) {
@@ -4136,7 +4170,7 @@ function calculate(allowOptimization = false, { renderSavedSnapshot = false } = 
   }
   $('loadNumber').textContent = currentLoadNumber;
   $('nextLoad').disabled = !loadRecords.has(currentLoadNumber + 1);
-  renderLoadNavigation();
+  renderLoadNavigation({ reconcile: !renderSavedSnapshot });
 }
 
 function rebuildAfterOperatorEdit(previousPlans, { reoptimizeFuture = true } = {}) {
@@ -5568,15 +5602,19 @@ function init() {
     $('orderState').textContent = activeOrder.calculated ? `ACTIVE · ${activeOrder.plannedCycles || 0} KILN LOADS` : 'ACTIVE DRAFT';
   }
   renderOrderSelector();
-  if (activeOrder.calculated || hasRestorableCalculation(activeOrder)) {
-    if (!restoreRenderedCalculation()) {
+  const snapshotOrder = findRestorableOrderSnapshot(activeOrder);
+  const snapshotCache = snapshotOrder?.viewCache;
+  if (activeOrder.calculated || snapshotCache?.records?.length) {
+    if (!restoreRenderedCalculation(snapshotCache)) {
       const status = $('calculationStatus');
       status.className = 'calculation-status pending';
       status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
     } else {
-      const westminsterCorrected = repairWestminsterProductionTimeline();
+      const recoveredFromExistingCopy = snapshotOrder !== activeOrder;
+      const mayRepairActiveSnapshot = !recoveredFromExistingCopy && globalOrderPlans.length > 0;
+      const westminsterCorrected = mayRepairActiveSnapshot ? repairWestminsterProductionTimeline() : false;
       if (westminsterCorrected) persistActiveOrder(true);
-      if (repairGormanActualLoads()) {
+      if (mayRepairActiveSnapshot && repairGormanActualLoads()) {
         const status = $('calculationStatus');
         status.className = 'calculation-status ready';
         status.textContent = 'Gorman actual production restored: Load 1 = 88 SPF + 24 Hemlock at 8 ft; Load 2 = 91 SPF at 8 ft + 28 Hemlock at 10 ft. Three 8 ft boards remain.';
@@ -5588,9 +5626,9 @@ function init() {
       const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
       const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
       const signature = orderSignature(readInventory(), computeGeometry(), kilnLength, Math.floor(num('maxStack')), Math.floor(Number($('metalBox').value)));
-      if (signature !== globalOrderSignature) {
-        const savedSignature = activeOrder.planSignature || activeOrder.viewCache?.signature || globalOrderSignature;
-        if (legacyPlanSignatureNeedsIdentityMigration(savedSignature)) {
+      if (signature !== globalOrderSignature || recoveredFromExistingCopy) {
+        const savedSignature = activeOrder.planSignature || snapshotCache?.signature || globalOrderSignature;
+        if (!recoveredFromExistingCopy && legacyPlanSignatureNeedsIdentityMigration(savedSignature)) {
           try {
             globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), computeGeometry(), kilnLength).map(restorePlanTypes);
             globalOrderSignature = signature;

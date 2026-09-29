@@ -41,10 +41,14 @@ const before = await evaluate(`(() => {
   persistActiveOrder(true);
   const key = 'kiln-planner-order-v1:' + activeOrder.id;
   const order = JSON.parse(localStorage.getItem(key));
+  const backup = JSON.parse(JSON.stringify(order));
+  backup.viewCache.signature = 'saved-signature-that-does-not-match-current-inputs';
+  localStorage.setItem('kiln-planner-order-v1:saved-copy-of-' + order.id, JSON.stringify(backup));
   order.calculated = false;
-  order.viewCache.signature = 'saved-signature-that-does-not-match-current-inputs';
-  localStorage.setItem(key, JSON.stringify(order));
-  return { key, plans: deserializeCalculatedPlans(order.viewCache.plans).length, records: order.viewCache.records.length };
+  delete order.viewCache;
+  const activeRaw = JSON.stringify(order);
+  localStorage.setItem(key, activeRaw);
+  return { key, activeRaw, plans: deserializeCalculatedPlans(backup.viewCache.plans).length, records: backup.viewCache.records.length };
 })()`);
 assert.equal(before.plans, 7);
 assert.equal(before.records, 7);
@@ -57,19 +61,22 @@ const after = await evaluate(`(() => {
     plans: globalOrderPlans.length,
     records: loadRecords.size,
     storedCalculated: stored.calculated,
-    storedPlans: deserializeCalculatedPlans(stored.viewCache.plans).length,
+    activeStillHasNoCache: !stored.viewCache,
+    storedRaw: JSON.stringify(stored),
     selectedBoards: Number(document.getElementById('loadBF').textContent.replaceAll(',', '')),
     status: document.getElementById('calculationStatus').textContent,
     cycleRows: document.querySelectorAll('#loadHistory > article').length,
   };
 })()`);
 
-console.log(JSON.stringify(after));
 assert.equal(after.plans, 7);
 assert.equal(after.records, 7);
 assert.equal(after.storedCalculated, false, 'Opening the page must not rewrite the stored calculated flag');
-assert.equal(after.storedPlans, 7);
+assert.equal(after.activeStillHasNoCache, true, 'Opening the page must not copy the recovered snapshot into production data');
+assert.equal(after.storedRaw, before.activeRaw, 'Opening the recovered snapshot mutated the active order');
 assert.ok(after.selectedBoards > 0, 'Saved selected load was not rendered');
 assert.equal(after.cycleRows, 7);
 assert.match(after.status, /restored without recalculation/i);
+const { storedRaw: _storedRaw, ...reported } = after;
+console.log(JSON.stringify(reported));
 ws.close();

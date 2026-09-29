@@ -1465,20 +1465,55 @@ function saveMaterialSplit(event) {
         : 'Enter the primary material name.';
     return;
   }
-  activeOrder.materialSplits = {
-    ...(activeOrder.materialSplits || {}),
-    [String(length)]: {
-      primary,
-      secondary: hasSecondary ? secondary : '',
-      secondaryQuantity: hasSecondary ? secondaryQuantity : 0,
-      quality: { primary: qualityInputs('primary'), secondary: hasSecondary ? qualityInputs('secondary') : normalizedDefects() },
-    },
+  const previousIdentity = materialIdentityForSignature(activeOrder.materialSplits?.[String(length)]);
+  const nextSplit = {
+    primary,
+    secondary: hasSecondary ? secondary : '',
+    secondaryQuantity: hasSecondary ? secondaryQuantity : 0,
+    quality: { primary: qualityInputs('primary'), secondary: hasSecondary ? qualityInputs('secondary') : normalizedDefects() },
   };
+  const qualityOnly = JSON.stringify(previousIdentity) === JSON.stringify(materialIdentityForSignature(nextSplit));
+  activeOrder.materialSplits = { ...(activeOrder.materialSplits || {}), [String(length)]: nextSplit };
   $('species').value = primary;
+  if (qualityOnly && activeOrder.calculated && globalOrderPlans.length) {
+    saveQualityOnlyChange(length, nextSplit);
+    return;
+  }
   markCalculationPending();
   activeOrder.calculated = false;
   delete activeOrder.viewCache;
   persistActiveOrder(false);
+  refreshMaterialSplitCells();
+  $('materialSplitDialog').close();
+}
+
+// Saving defect counts must never discard the saved kiln plan: completed
+// loads and the manual layouts of planned loads stay exactly as they are.
+function saveQualityOnlyChange(length, split) {
+  if (activeOrder.calculatedMaterialSplits) {
+    activeOrder.calculatedMaterialSplits = {
+      ...activeOrder.calculatedMaterialSplits,
+      [String(length)]: JSON.parse(JSON.stringify(split)),
+    };
+  }
+  let rendered = false;
+  if (!calculationDirty) {
+    try {
+      calculate(false);
+      rendered = true;
+    } catch (error) {
+      console.warn('Quality saved; the load view was not refreshed:', error);
+    }
+  }
+  if (rendered) {
+    const { calculatedAt, optimizerVersion } = activeOrder;
+    persistActiveOrder(true);
+    if (calculatedAt) activeOrder.calculatedAt = calculatedAt;
+    if (optimizerVersion) activeOrder.optimizerVersion = optimizerVersion;
+    storeOrder(activeOrder);
+  } else {
+    persistActiveOrder(false);
+  }
   refreshMaterialSplitCells();
   $('materialSplitDialog').close();
 }
@@ -2530,6 +2565,39 @@ function usableInventoryFeet(stock, across) {
 
 function orderSignature(stock, geometry, kilnLength, maxStack, selectedMetal) {
   return JSON.stringify({ stock: [...stock.entries()], rows: geometry.rows, across: geometry.across, kilnLength, maxStack, selectedMetal, planningMode: $('planningMode')?.value || 'automatic', materialSplits: activeOrder?.materialSplits || {}, liftStickers: [...manualLiftStickers], liftTargets: [...manualLiftTargets] });
+}
+
+// Board quality (crooked, cracked, knots) is bookkeeping about boards that
+// are already planned; it never changes which boards go into which lift.
+// Plans are therefore compared by physical inputs and material identity only.
+function materialIdentityForSignature(split) {
+  const saved = split || {};
+  const secondary = String(saved.secondary || '').trim();
+  return {
+    primary: String(saved.primary || $('species')?.value || 'Primary material').trim() || 'Primary material',
+    secondary,
+    secondaryQuantity: secondary ? Math.max(0, Math.floor(Number(saved.secondaryQuantity) || 0)) : 0,
+  };
+}
+
+function planningIdentityOfSignature(value) {
+  const saved = JSON.parse(String(value || ''));
+  if (!saved || !Object.hasOwn(saved, 'planningMode') || !Object.hasOwn(saved, 'materialSplits')) return null;
+  const { materialSplits, ...physical } = saved;
+  const materials = (saved.stock || []).map(([length]) => [length, materialIdentityForSignature(materialSplits?.[String(length)])]);
+  return JSON.stringify({ ...physical, materials });
+}
+
+function sameOrderSignature(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  try {
+    const leftIdentity = planningIdentityOfSignature(left);
+    const rightIdentity = planningIdentityOfSignature(right);
+    return Boolean(leftIdentity) && leftIdentity === rightIdentity;
+  } catch (_) {
+    return false;
+  }
 }
 
 function legacyPlanSignatureNeedsIdentityMigration(value) {
@@ -3781,7 +3849,7 @@ function calculate(allowOptimization = false) {
   $('geometryPreview').innerHTML = `<strong>Live physical capacity:</strong> ${geometry.across} boards across × ${geometry.rows} rows high = ${geometry.lines} board positions per full lift. Physical batch: ${fmtMeasure(num('actualT'))} × ${fmtMeasure(num('actualW'))}.${geometry.manualAcross ? ` Manual row limit is active; width allows no more than ${geometry.physicalAcross}.` : ''}`;
 
   const signature = orderSignature(originalStock, geometry, kilnLength, maxStack, selectedMetal);
-  if (signature !== globalOrderSignature && !allowOptimization) {
+  if (!sameOrderSignature(signature, globalOrderSignature) && !allowOptimization) {
     throw new Error('Optimization is locked. Use the Calculate Load button to create a new plan.');
   }
   const completionBalanceMismatch = [...completedLoadAssignments()].some(([loadNumber, record]) => {
@@ -5615,7 +5683,7 @@ function init() {
       const safetyClearance = Math.min(Math.max(0, physicalKilnLength - 1), Math.floor(num('supplierClearance')));
       const kilnLength = Math.max(1, physicalKilnLength - safetyClearance);
       const signature = orderSignature(readInventory(), computeGeometry(), kilnLength, Math.floor(num('maxStack')), Math.floor(Number($('metalBox').value)));
-      if (signature !== globalOrderSignature) {
+      if (!sameOrderSignature(signature, globalOrderSignature)) {
         const savedSignature = activeOrder.planSignature || activeOrder.viewCache?.signature || globalOrderSignature;
         if (legacyPlanSignatureNeedsIdentityMigration(savedSignature)) {
           try {
@@ -5653,3 +5721,6 @@ function init() {
 }
 
 init();
+// The management summary reads only recorded facts, so it must render even
+// when the saved load plan cannot be shown.
+try { renderManagementDashboard(); } catch (error) { console.error('Production summary could not be rendered:', error); }

@@ -50,6 +50,22 @@
     try { return JSON.parse(raw); } catch (_) { return raw; }
   }
   function json(value) { return JSON.stringify(value); }
+  // Postgres JSON cannot store U+0000, which the planner uses as a key separator
+  // (e.g. "20\u0000Hemlock"). Encode it reversibly for the cloud only; local data
+  // keeps the original separator.
+  const NUL = '\u0000';
+  const CLOUD_NUL = '\uE000';
+  function mapJson(value, from, to) {
+    if (typeof value === 'string') return value.split(from).join(to);
+    if (Array.isArray(value)) return value.map((item) => mapJson(item, from, to));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key.split(from).join(to), mapJson(item, from, to)]));
+    }
+    return value;
+  }
+  function toCloud(value) { return mapJson(value, NUL, CLOUD_NUL); }
+  function fromCloud(value) { return mapJson(value, CLOUD_NUL, NUL); }
+  function cloudText(value) { return typeof value === 'string' ? fromCloud(value) : json(fromCloud(value)); }
   function normalizeJson(value) {
     if (Array.isArray(value)) return value.map(normalizeJson);
     if (value && typeof value === 'object') {
@@ -159,7 +175,7 @@
   async function pushState(key, value) {
     if (!cloudReady || !isSyncKey(key)) return;
     const operation = { type: 'set', value };
-    const { error } = await client.from(config.table).upsert({ key, value, updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    const { error } = await client.from(config.table).upsert({ key, value: toCloud(value), updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if (error) {
       addStatus('Production changes are not yet saved — stay on this screen', 'offline');
       scheduleOutboxRetry();
@@ -204,7 +220,7 @@
         if (error) throw error;
       } else {
         const value = operation?.value;
-        const { error } = await client.from(config.table).upsert({ key, value, updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        const { error } = await client.from(config.table).upsert({ key, value: toCloud(value), updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'key' });
         if (error) throw error;
       }
       clearOutboxOperation(key, operation);
@@ -294,7 +310,7 @@
     const { data, error } = await client.from(config.table).select('key,value,updated_at');
     if (error) throw error;
     if (!data.length) {
-      const seed = localSyncKeys().map((key) => ({ key, value: parseLocal(key), updated_by: userId, updated_at: new Date().toISOString() }));
+      const seed = localSyncKeys().map((key) => ({ key, value: toCloud(parseLocal(key)), updated_by: userId, updated_at: new Date().toISOString() }));
       if (seed.length) {
         const result = await client.from(config.table).upsert(seed, { onConflict: 'key' });
         if (result.error) throw result.error;
@@ -310,7 +326,7 @@
       if (!isSyncKey(row.key)) return;
       seenRevisions.set(row.key, row.updated_at || '');
       if (protectedKeys.has(row.key)) return;
-      setLocal(row.key, typeof row.value === 'string' ? row.value : json(row.value));
+      setLocal(row.key, cloudText(row.value));
     });
   }
 
@@ -321,7 +337,7 @@
       const revision = payload.new?.updated_at || '';
       if (revision && revision <= (seenRevisions.get(key) || '')) return;
       if (revision) seenRevisions.set(key, revision);
-      const remoteValue = payload.new ? (typeof payload.new.value === 'string' ? payload.new.value : json(payload.new.value)) : null;
+      const remoteValue = payload.new ? cloudText(payload.new.value) : null;
       const localValue = localStorage.getItem(key);
       if (sameStoredValue(remoteValue, localValue)) return;
       if (remoteValue === null) removeLocal(key); else setLocal(key, remoteValue);

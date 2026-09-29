@@ -1,8 +1,8 @@
 // Run: node --test core/kiln-core.test.mjs
+// core/kiln-core.js is GENERATED from kiln-planner-to-be (npm run build:kiln-core). Do not edit it here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 await import('./kiln-core.js');
-await import('./legacy-adapter.js');
 const { tagPlanning, orderBalance, migrateLegacyDrafts } = globalThis.KilnCore;
 
 // Real figures from 2026-09-29 (anonymized): 2 of 7 loads completed, 3 recovery cuts, 5 TAGs.
@@ -86,7 +86,7 @@ test('a TAG cannot fulfil two stacks and a deleted TAG is reported', () => {
 });
 
 test('order balance matches the warehouse and rejects duplicates', () => {
-  const input = { nominal: { thicknessIn: 1, widthIn: 6 }, maxCycles: 7,
+  const input = { orderId: 'o', nominal: { thicknessIn: 1, widthIn: 6 }, maxCycles: 7,
     receipts: [{ id: 'r', lines: L({ 6: 106, 7: 36, 8: 522, 9: 104, 10: 1077, 11: 88, 12: 320, 13: 78, 14: 240, 16: 226, 18: 264, 19: 184, 20: 328 }) }],
     cycles: [{ id: 'c1', number: 1, status: 'completed', lines: L(load1) }, { id: 'c2', number: 2, status: 'completed', lines: L(load2) }],
     recoveries, tags, tests: [] };

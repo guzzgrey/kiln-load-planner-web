@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Customer TAG Planner</title>
+    <link rel="icon" type="image/png" href="assets/conifer-forest-mark-v1.png" />
+    <link rel="stylesheet" href="styles.css?v=tag-planner-v1" />
+  </head>
+  <body>
+    <main class="wrap warehouse-page tag-planner-page">
+      <header class="page-header">
+        <div class="brand-heading">
+          <span class="brand-mark"><img src="assets/conifer-forest-mark-v1.png" alt="Conifer forest production mark" /></span>
+          <div class="page-title-copy">
+            <p class="eyebrow">CUSTOMER PLANNING</p>
+            <h1>Customer TAG Planner</h1>
+            <p class="lead">Plan future customer TAG stacks from kiln-load output. Built YARD TAGs fulfil the stacks they are assigned to; nothing here moves physical inventory.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <a class="button-link secondary-link" href="index.html">← Kiln Load Planner</a>
+          <a class="button-link secondary-link" href="warehouse.html">Processed Inventory &amp; Shipping</a>
+          <a class="button-link secondary-link" href="remainders.html">Remainder Inventory</a>
+        </div>
+      </header>
+
+      <section class="card warehouse-summary tag-planner-summary" id="plannerSummary"></section>
+
+      <section class="card warehouse-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">SUPPLY FROM KILN LOADS</p><h2 id="supplyTitle">Finished material available for customer plans</h2></div>
+        </div>
+        <p class="note">Finished = completed kiln output − boards cut + recovered pieces. Free to plan = finished − built YARD TAGs − TEST − planned stacks of <b>all</b> drafts. The cycle in the kiln can be planned as EXPECTED; loads not yet started are shown as forecast only.</p>
+        <div class="scroll"><table id="supplyTable" class="ledger-table tag-supply-table"></table></div>
+        <div id="supplyIssues"></div>
+      </section>
+
+      <section class="card warehouse-section preorder-planner" id="draftSection">
+        <div class="section-heading">
+          <div><p class="eyebrow" id="draftEyebrow">CUSTOMER ORDER</p><h2 id="draftHeading">Future customer TAG stacks</h2></div>
+          <div class="preorder-heading-actions">
+            <button id="newDraft" class="secondary" type="button">New draft</button>
+            <button id="deleteDraft" class="danger" type="button">Delete draft</button>
+          </div>
+        </div>
+        <div class="preorder-controls">
+          <label>Saved draft<select id="draftSelect"></select></label>
+          <label>Plan purpose<select id="draftPurpose"><option value="stock">No customer · unassigned stock</option><option value="customer">Customer order / contract</option></select></label>
+          <label class="preorder-customer-field">Customer / project<input id="draftCustomer" placeholder="Customer name"></label>
+          <label class="preorder-customer-field">Preliminary order #<input id="draftNumber" placeholder="PO / quote #"></label>
+          <label>Target, BF <small>Customer quantity goal</small><input id="draftTarget" type="number" min="0" step="1" value="0"></label>
+        </div>
+        <div id="draftMetrics" class="preorder-metrics"></div>
+        <div class="tag-planner-actions">
+          <button id="addStack" type="button">+ Future TAG stack</button>
+          <label class="inline-field">Assign a built YARD TAG<select id="assignTagSelect"></select></label>
+          <button id="assignTag" class="secondary" type="button">Assign TAG</button>
+        </div>
+        <div id="draftStacks" class="preorder-stacks"></div>
+        <div id="plannerStatus" class="calculation-status idle">Select or create a draft.</div>
+      </section>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="core/kiln-core.js?v=1"></script>
+    <script src="core/legacy-adapter.js?v=1"></script>
+    <script src="cloud-sync.js?v=cloud-nul-safe-v9" data-app="tag-planner.js?v=1"></script>
+  </body>
+</html>

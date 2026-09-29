@@ -1693,3 +1693,25 @@ th {
   .current-cycle-card { grid-column:1 / -1; }
   .advanced-settings { display:none; }
 }
+
+/* Customer TAG Planner */
+.tag-planner-summary { grid-template-columns: repeat(5, 1fr); }
+.tag-supply-table { width: 100%; min-width: 980px; font-size: 13px; }
+.tag-supply-table th, .tag-supply-table td { padding: 7px 8px; text-align: right; }
+.tag-supply-table th:first-child, .tag-supply-table td:first-child { text-align: left; }
+.tag-supply-table td small { color: var(--muted); }
+.tag-supply-table tfoot { background: var(--pale); }
+.tag-planner-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 0 0 14px; }
+.tag-planner-actions .inline-field { display: grid; gap: 4px; min-width: 280px; color: var(--green); font-weight: 800; }
+.tag-stack { border-style: solid; border-color: #9fbdac; background: #f3f8f5; }
+.tag-stack.broken { border-color: var(--red); background: #fbf1f1; }
+.tag-stack.shipped { opacity: .75; }
+.tag-stack-label { color: var(--green); font-weight: 800; letter-spacing: .02em; }
+.preorder-allocation.tagged { cursor: default; grid-template-columns: 1fr auto; }
+.stack-add-row { display: grid; grid-template-columns: 1fr 72px auto; gap: 6px; margin-top: 8px; }
+.stack-add-row:last-child { grid-template-columns: 1fr auto; }
+.stack-add-row input, .stack-add-row select { min-width: 0; padding: 6px; }
+@media (max-width: 900px) { .tag-planner-summary { grid-template-columns: 1fr 1fr; } }
+.tag-stack header { grid-template-columns: 1fr auto; }
+.tag-stack header > span:nth-of-type(2) { grid-column: 1 / -1; grid-row: 2; }
+.tag-stack { min-height: 0; }

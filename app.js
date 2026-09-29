@@ -1012,7 +1012,6 @@ function renderManagementDashboard({ repair = true } = {}) {
   if (repair) repairWestminsterProductionTimeline();
   const records = completionRecordsForActiveOrder();
   const { totalBoards, readyBoards, readyBf, readyPercent, plannedCycles, completedCycles, activeNumber, activeStartedAt, firstStartEntry, firstStart, elapsed, average } = productionManagementState(activeOrder, records, loadRecords.size);
-
   $('managementReadyPercent').textContent = `${fmt(readyPercent, 1)}%`;
   $('managementReadyBoards').textContent = fmt(readyBoards);
   $('managementTotalBoards').textContent = fmt(totalBoards);
@@ -5611,15 +5610,6 @@ function init() {
       status.textContent = 'No reusable saved calculation was found. Click Calculate Load to create it; nothing was calculated automatically.';
     } else {
       const recoveredFromExistingCopy = snapshotOrder !== activeOrder;
-      const mayRepairActiveSnapshot = !recoveredFromExistingCopy && globalOrderPlans.length > 0;
-      const westminsterCorrected = mayRepairActiveSnapshot ? repairWestminsterProductionTimeline() : false;
-      if (westminsterCorrected) persistActiveOrder(true);
-      if (mayRepairActiveSnapshot && repairGormanActualLoads()) {
-        const status = $('calculationStatus');
-        status.className = 'calculation-status ready';
-        status.textContent = 'Gorman actual production restored: Load 1 = 88 SPF + 24 Hemlock at 8 ft; Load 2 = 91 SPF at 8 ft + 28 Hemlock at 10 ft. Three 8 ft boards remain.';
-        return;
-      }
       // Re-render from the saved plan so restored manual controls receive live
       // event handlers and always drive the calculation and visualization.
       const physicalKilnLength = Math.floor(num('kiln'));
@@ -5633,10 +5623,9 @@ function init() {
             globalOrderPlans = rebuildPlanBalances(globalOrderPlans, readInventory(), computeGeometry(), kilnLength).map(restorePlanTypes);
             globalOrderSignature = signature;
             calculate(false);
-            persistActiveOrder(true);
             const status = $('calculationStatus');
             status.className = 'calculation-status ready';
-            status.textContent = 'Saved rows migrated to material-aware planning. Physical row order and locked cycles were preserved.';
+            status.textContent = 'Saved rows restored in memory. Production records were not modified.';
           } catch (error) {
             console.warn('Saved material identities could not be migrated:', error);
             const status = $('calculationStatus');
@@ -5659,7 +5648,6 @@ function init() {
       } else {
         try {
           calculate(false);
-          if (westminsterCorrected) persistActiveOrder(true);
         } catch (error) {
           console.warn('Saved calculation could not be rendered:', error);
           const status = $('calculationStatus');
@@ -5669,12 +5657,7 @@ function init() {
       }
     }
   }
-  // The production overview is an operational projection, not a side effect
-  // of restoring the editable load planner. Always render it from the saved
-  // order and cycle ledger, even when a legacy/missing view cache cannot
-  // rebuild the planning UI. This read-only fallback must not repair or write
-  // production records during page initialization.
   renderManagementDashboard({ repair: false });
- }
+}
 
 init();

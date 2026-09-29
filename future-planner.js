@@ -208,7 +208,8 @@ function productionLots() {
   // material that is still physically on hand. A warehouse TAG classifies a
   // board, but does not consume it; only TEST or a shipment removes it from
   // the pool available to a draft order.
-  const readyCap = availableForPreorder();
+  const projection = physicalProjection();
+  const readyCap = projection.regular;
   const ready = [];
   const usedByLength = Object.fromEntries(LENGTHS.map((length) => [length, 0]));
   completed().forEach((record) => lotsForCycle(record, 'ready').forEach((lot) => {
@@ -220,8 +221,8 @@ function productionLots() {
     }
   }));
   LENGTHS.forEach((length) => {
-    const missing = Math.max(0, Number(readyCap[length] || 0) - usedByLength[length]);
-    if (missing) ready.push({ id: `recovered|${length}`, loadNumber: 0, length, material: 'Recovered material', quality: 'recovered-grade-1', quantity: missing, status: 'ready' });
+    const recovered = Math.max(0, Number(projection.recoveredCurrent[length] || 0));
+    if (recovered) ready.push({ id: `recovered|${length}`, loadNumber: 0, length, material: 'Recovered material', quality: 'recovered-grade-1', quantity: recovered, status: 'ready' });
   });
 
   const order = activeOrder();
@@ -428,6 +429,20 @@ function recoveryTotals(records = currentRecoveries()) {
   return { source, output, inputLinearFt, outputLinearFt, wasteLinearFt: inputLinearFt - outputLinearFt };
 }
 
+function physicalProjection() {
+  const projector = globalThis.KilnPhysicalSourceProjection;
+  if (!projector?.projectPhysicalSources) throw new Error('Physical source projection is unavailable.');
+  return projector.projectPhysicalSources({
+    lengths: LENGTHS,
+    completed: completed(),
+    recoveries: currentRecoveries(),
+    tests: currentTests(),
+    tags: currentTags(),
+    shipments: currentShipments(),
+    dimensions: orderedBoardDimensions(),
+  });
+}
+
 function adjustedProcessedInventory(records = currentRecoveries()) {
   const processed = sumQuantities(completed());
   const recovery = recoveryTotals(records);
@@ -442,11 +457,7 @@ function availableForYard() {
 }
 
 function availableForPreorder() {
-  const processed = adjustedProcessedInventory();
-  const tested = sumQuantities(currentTests());
-  const shippedTagIds = new Set(currentShipments().flatMap((shipment) => shipment.tagIds || []));
-  const shipped = sumQuantities(currentTags().filter((tag) => shippedTagIds.has(tag.id)));
-  return Object.fromEntries(LENGTHS.map((length) => [length, Math.max(0, processed[length] - tested[length] - shipped[length])]));
+  return physicalProjection().current;
 }
 
 

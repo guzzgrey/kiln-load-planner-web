@@ -3,7 +3,13 @@
 
   const config = window.KILN_CLOUD_CONFIG;
   const appScript = document.currentScript?.dataset.app;
-  const email = 'ivan@firesmartroofing.com';
+  // The signed-in person's email comes from the session; no address lives in the code.
+  // The last one used is remembered in this browser only, to prefill the sign-in form.
+  const LAST_EMAIL_KEY = 'kiln-ui-last-email';
+  let email = '';
+  const rememberedEmail = () => { try { return localStorage.getItem(LAST_EMAIL_KEY) || ''; } catch (_) { return ''; } };
+  const rememberEmail = (value) => { try { localStorage.setItem(LAST_EMAIL_KEY, value || ''); } catch (_) { /* storage unavailable */ } };
+  const escapeAttr = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const OUTBOX_KEY = 'kiln-planner-cloud-outbox-v1';
   const syncKeys = new Set([
     'kiln-planner-active-order-v1',
@@ -128,13 +134,33 @@
     if (!bar) {
       bar = document.createElement('div');
       bar.id = 'cloudStatusBar';
-      bar.innerHTML = `<span></span><b></b><button type="button">Sign out</button>`;
-      bar.querySelector('button').addEventListener('click', async () => { await client.auth.signOut(); window.location.reload(); });
+      bar.innerHTML = `<span></span><b></b><button type="button" class="cloud-backup" title="Download every production record held in this browser as a JSON file">Download backup</button><button type="button" class="cloud-sign-out">Sign out</button>`;
+      bar.querySelector('.cloud-backup').addEventListener('click', downloadBackup);
+      bar.querySelector('.cloud-sign-out').addEventListener('click', async () => { await client.auth.signOut(); window.location.reload(); });
       document.body.prepend(bar);
     }
     bar.dataset.state = state;
     bar.querySelector('span').textContent = state === 'online' ? '●' : '○';
     bar.querySelector('b').textContent = text;
+  }
+
+  // A full copy of the production records in this browser (the same keys that are
+  // shared through the cloud), saved as a file. Read-only: nothing is changed.
+  function downloadBackup() {
+    const data = {};
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && key.startsWith('kiln-planner')) data[key] = localStorage.getItem(key);
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), origin: location.origin, signedInAs: email, data })], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `kiln-backup-${stamp}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 10000);
   }
 
   function loadApplication() {
@@ -150,7 +176,7 @@
     document.body.classList.add('cloud-locked');
     const overlay = document.createElement('div');
     overlay.className = 'cloud-login';
-    overlay.innerHTML = `<form><small>AUTHORIZED PRODUCTION ACCESS</small><h1>Kiln Load Planner</h1><p>Sign in to open the shared production order.</p><label>Email<input type="email" value="${email}" autocomplete="username" required></label><label>Password<input type="password" autocomplete="current-password" required autofocus></label><div class="cloud-login-message">${message}</div><button type="submit">Sign in</button></form>`;
+    overlay.innerHTML = `<form><small>AUTHORIZED PRODUCTION ACCESS</small><h1>Kiln Load Planner</h1><p>Sign in to open the shared production order.</p><label>Email<input type="email" value="${escapeAttr(rememberedEmail())}" autocomplete="username" required></label><label>Password<input type="password" autocomplete="current-password" required autofocus></label><div class="cloud-login-message">${message}</div><button type="submit">Sign in</button></form>`;
     document.body.appendChild(overlay);
     overlay.querySelector('form').addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -167,6 +193,8 @@
         return;
       }
       userId = data.user.id;
+      email = data.user.email || '';
+      rememberEmail(email);
       overlay.remove();
       await startSharedApplication();
     });
@@ -397,6 +425,7 @@
     const { data } = await client.auth.getSession();
     if (!data.session) { showLogin(); return; }
     userId = data.session.user.id;
+    email = data.session.user.email || '';
     await startSharedApplication();
   }
 

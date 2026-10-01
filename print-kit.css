@@ -1,0 +1,69 @@
+/* PDF printing (print-kit.js): per-block PDF buttons, report dialog, print layout. */
+[data-print-block] { position: relative; }
+.kp-block-button {
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  min-height: 0; padding: 3px 8px; border: 1px solid var(--line, #d9ded9); border-radius: 7px;
+  background: rgba(255, 255, 255, .92); color: var(--forest-deep, #103d2d);
+  font: 700 11px/1.2 inherit; letter-spacing: .04em; cursor: pointer; opacity: .55;
+  transition: opacity .15s ease;
+}
+[data-print-block]:hover > .kp-block-button, .kp-block-button:focus-visible { opacity: 1; }
+@media (hover: none) { .kp-block-button { opacity: .9; } }
+
+.kp-dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line, #d9ded9); border-radius: 14px; box-shadow: 0 24px 60px rgba(16, 61, 45, .2); }
+.kp-dialog::backdrop { background: rgba(16, 32, 25, .35); }
+.kp-dialog form { display: grid; gap: 12px; padding: 20px; }
+.kp-dialog h2 { margin: 0; }
+.kp-dialog .kp-hint { margin: 0; color: var(--muted, #657068); font-size: 13px; }
+.kp-dialog .kp-safari { padding: 8px 10px; border-radius: 8px; background: #fff7e8; color: #7a4a06; }
+.kp-blocks { display: grid; gap: 6px; max-height: 42vh; overflow: auto; padding: 8px; border: 1px solid var(--line, #d9ded9); border-radius: 10px; }
+.kp-blocks label, .kp-row label, label.kp-row { display: flex; align-items: center; gap: 8px; }
+.kp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.kp-row > span { font-weight: 700; }
+.kp-status { margin: 0; min-height: 1em; color: var(--amber, #9b5b08); }
+.kp-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Measuring before print: the page at sheet width, scroll areas opened. */
+body.kp-measure main.wrap { width: var(--kp-width) !important; max-width: none !important; padding: 0 !important; }
+body.kp-measure .scroll, body.kp-measure [class*="scroll"] { overflow: visible !important; }
+
+.kp-meta { display: none; }
+.kp-value { display: none; }
+/* While a report is prepared and printed: fields show their values, and a fitted table
+   uses one type size so that it can be scaled as a whole. */
+body.kp-measure .kp-hidden-field, body.kp-printing .kp-hidden-field { display: none !important; }
+body.kp-measure .kp-value, body.kp-printing .kp-value { display: inline; white-space: pre-wrap; }
+body.kp-measure table.kp-fit :is(th, td, th *, td *),
+body.kp-printing table.kp-fit :is(th, td, th *, td *) { font-size: inherit !important; }
+
+@media print {
+  body.kp-printing .kp-block-button, body.kp-printing .kp-dialog { display: none !important; }
+  body.kp-printing main.wrap { width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  body.kp-printing .header-actions,
+  body.kp-printing .order-workspace,
+  body.kp-printing main.wrap [data-print-block]:not(.kp-include) { display: none !important; }
+  body.kp-printing .kp-meta { display: flex; flex-wrap: wrap; gap: 4mm 8mm; align-items: baseline; margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: .3mm solid #9fb3a7; font-size: 9pt; }
+  body.kp-printing .kp-meta b { font-size: 11pt; }
+
+  /* Blocks: one per page when asked; never split a small table or a row. */
+  body.kp-printing [data-print-block] { break-before: auto; page-break-before: auto; break-inside: auto; page-break-inside: auto; box-shadow: none; }
+  body.kp-printing [data-print-block].kp-break { break-before: page; page-break-before: always; }
+  body.kp-printing h2, body.kp-printing h3, body.kp-printing .section-title-row, body.kp-printing .section-heading { break-after: avoid; page-break-after: avoid; }
+  body.kp-printing .scroll, body.kp-printing [class*="scroll"] { overflow: visible !important; max-height: none !important; }
+  body.kp-printing table { width: 100% !important; max-width: 100%; }
+  body.kp-printing table.kp-keep { break-inside: avoid; page-break-inside: avoid; }
+  body.kp-printing thead { display: table-header-group; }
+  body.kp-printing tfoot { display: table-footer-group; }
+  body.kp-printing tr, body.kp-printing th, body.kp-printing td { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Controls are not part of a report; phone layouts do not apply to paper. */
+  body.kp-printing main.wrap button:not([data-print-keep]) { display: none !important; }
+  body.kp-printing .page-header { flex-direction: row !important; align-items: center !important; }
+  body.kp-printing .warehouse-summary { grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.2fr) !important; gap: 3mm; }
+  body.kp-printing .warehouse-summary > div { padding: 2mm 3mm; }
+  body.kp-printing .warehouse-summary b { font-size: 15px; }
+  body.kp-printing .management-dashboard { grid-template-columns: 1.3fr repeat(3, minmax(0, 1fr)) !important; }
+
+  /* Landscape registers keep their full-sheet layout; portrait uses the page width. */
+  body.kp-printing .warehouse-page { width: auto !important; max-width: none !important; }
+}

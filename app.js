@@ -5557,6 +5557,7 @@ function bindEvents() {
       status.textContent = 'Calculate the changed order before downloading the report.';
       return;
     }
+    if (window.KilnPrint) { window.KilnPrint.open({ name: 'Kiln Load Report' }); return; }
     const supplier = $('supplier').value.trim() || 'Supplier';
     const previousTitle = document.title;
     document.title = `Kiln Load Report - ${supplier} - ${new Date().toISOString().slice(0, 10)}`;

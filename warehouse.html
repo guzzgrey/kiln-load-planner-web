@@ -6,6 +6,7 @@
     <title>Processed Inventory & Shipping</title>
     <link rel="icon" type="image/png" href="assets/conifer-forest-mark-v1.png" />
     <link rel="stylesheet" href="styles.css?v=forest-backdrop-v19" />
+    <link rel="stylesheet" href="print-kit.css?v=1" />
   </head>
   <body>
     <main class="wrap warehouse-page">
@@ -27,7 +28,7 @@
         </div>
       </header>
 
-      <section class="card warehouse-summary">
+      <section class="card warehouse-summary" aria-label="Order summary">
         <div><b id="cycleCount">0 / 0</b><span>completed kiln cycles</span></div>
         <div><b id="processedBoards">0 / 0</b><span>processed / planned boards</span><small id="processedFormula">0 received − 0 unprocessed</small></div>
         <div><b id="completionPercent">0%</b><span>thermal-cycle completion</span></div>
@@ -95,7 +96,7 @@
         <div id="warehouseMessage" class="calculation-status idle">Processed inventory is available for YARD TAG allocation.</div>
       </section>
 
-      <section class="card warehouse-section">
+      <section class="card warehouse-section" data-print-default="off">
         <div class="section-heading">
           <div><p class="eyebrow">SHIPPING</p><h2>Form Shipping Order from YARD TAGs</h2></div>
           <button id="createShipment" type="button">Create shipping order</button>
@@ -148,7 +149,8 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
+    <script src="print-kit.js?v=1"></script>
     <script src="core/kiln-core.js?v=4"></script>
-    <script src="cloud-sync.js?v=cloud-nul-safe-v9" data-app="warehouse.js?v=phase-labels-v17"></script>
+    <script src="cloud-sync.js?v=cloud-nul-safe-v9" data-app="warehouse.js?v=print-blocks-v18"></script>
   </body>
 </html>

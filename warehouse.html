@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processed Inventory & Shipping</title>
     <link rel="icon" type="image/png" href="assets/conifer-forest-mark-v1.png" />
-    <link rel="stylesheet" href="styles.css?v=forest-backdrop-v19" />
+    <link rel="stylesheet" href="styles.css?v=test-examples-v20" />
     <link rel="stylesheet" href="print-kit.css?v=1" />
   </head>
   <body>
@@ -77,9 +77,9 @@
           <label>Board length<select id="testLength" required></select></label>
           <label>Quantity<input id="testQuantity" type="number" min="1" step="1" value="1" required></label>
           <label>Date taken<input id="testDate" type="date" required></label>
-          <label>Taken by<input id="testTakenBy" value="Chris" required></label>
-          <label>Product / research ID<input id="testProduct" required placeholder="Product or sample ID"></label>
-          <label class="test-note-field">Purpose / note<input id="testNote" placeholder="Reason, experiment, sample destination…"></label>
+          <label>Taken by<input id="testTakenBy" required placeholder="Example: name (company)" autocomplete="off"></label>
+          <label>Product / research ID<input id="testProduct" required placeholder="Example: product or sample ID" autocomplete="off"></label>
+          <label class="test-note-field">Purpose / note<input id="testNote" placeholder="Example: moisture check, sample sent to the lab"></label>
           <button type="submit">Record TEST boards</button>
         </form>
         <div id="testBoardStatus" class="calculation-status idle">Select a completed kiln cycle and record only boards physically removed for testing.</div>
@@ -151,6 +151,6 @@
     <script src="supabase-config.js"></script>
     <script src="print-kit.js?v=1"></script>
     <script src="core/kiln-core.js?v=4"></script>
-    <script src="cloud-sync.js?v=cloud-nul-safe-v9" data-app="warehouse.js?v=print-blocks-v18"></script>
+    <script src="cloud-sync.js?v=cloud-nul-safe-v9" data-app="warehouse.js?v=test-examples-v19"></script>
   </body>
 </html>

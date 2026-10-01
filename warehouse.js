@@ -581,7 +581,7 @@ function testAvailableForCompleted(record) {
   return available;
 }
 
-function updateTestSourceFields({ resetProduct = false } = {}) {
+function updateTestSourceFields() {
   const source = completed().find((record) => record.id === $('testSourceLoad').value);
   const previousLength = Number($('testLength').value);
   const sourceAvailable = testAvailableForCompleted(source);
@@ -590,7 +590,10 @@ function updateTestSourceFields({ resetProduct = false } = {}) {
     .map((length) => `<option value="${length}">${length} ft · ${fmt(Math.min(sourceAvailable[length], aggregateAvailable[length]))} available</option>`).join('');
   $('testLength').innerHTML = options || '<option value="">No unallocated boards in this cycle</option>';
   if ([...$('testLength').options].some((option) => Number(option.value) === previousLength)) $('testLength').value = String(previousLength);
-  if (resetProduct && source) $('testProduct').value = source.marking || source.species || '';
+  // Fields start empty: the cycle's marking is only offered as an example, never
+  // written into the record unless the person types it.
+  $('testProduct').placeholder = source && (source.marking || source.species)
+    ? `Example: ${source.marking || source.species}` : 'Example: product or sample ID';
   $('testQuantity').max = options ? Math.min(sourceAvailable[Number($('testLength').value)] || 0, aggregateAvailable[Number($('testLength').value)] || 0) : 0;
 }
 
@@ -602,7 +605,7 @@ function renderTestRegister() {
     ? sources.map((record) => `<option value="${esc(record.id)}">Kiln Load ${fmt(record.loadNumber)} · ${esc(record.completedDate || 'date unknown')} · ${esc(record.marking || record.species || 'product')}</option>`).join('')
     : '<option value="">No completed kiln cycles</option>';
   if (sources.some((record) => record.id === previousSource)) $('testSourceLoad').value = previousSource;
-  updateTestSourceFields({ resetProduct: !$('testProduct').value });
+  updateTestSourceFields();
   $('testBoardForm').querySelector('button[type="submit"]').disabled = !sources.length || !$('testLength').value;
   $('testBoardHistory').innerHTML = records.length ? records.slice().reverse().map((record) => {
     const drying = record.dryingProgram || activeOrder()?.dryingPrograms?.[record.loadNumber];
@@ -611,8 +614,30 @@ function renderTestRegister() {
       <header><span><b>${fmt(record.quantity)} × ${fmt(record.length)} ft · ${esc(record.product || 'Test sample')}</b><small>Kiln Load ${fmt(record.loadNumber)} · produced ${esc(record.completedDate || '—')} · taken ${esc(record.date || '—')}</small><small>${esc(record.note || 'No research note')}</small></span><strong>TEST · ${esc(record.takenBy || '—')}</strong><button class="danger small-action delete-test-record" type="button" data-id="${esc(record.id)}">Delete</button></header>
       <details><summary>Production settings used for this test material</summary><div class="test-program-grid"><section><h4>Drying program</h4>${dryingProgramTable(drying)}</section><section><h4>Thermo Vacuum (TM)</h4>${thermoProgramTable(thermo)}</section></div></details>
     </article>`;
-  }).join('') : '<div class="empty-state">No finished boards have been recorded as TEST samples.</div>';
+  }).join('') : testExampleRecord();
+  const example = document.querySelector('.test-board-record.is-example');
+  example?.addEventListener('click', dismissTestExample);
+  example?.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); dismissTestExample(); } });
   document.querySelectorAll('.delete-test-record').forEach((button) => button.addEventListener('click', () => deleteTestRecord(button.dataset.id)));
+}
+
+// With no TEST records yet the register shows one greyed example of how an entry
+// reads. It is not data: nothing is stored, it is not counted, and a click removes it
+// for this browser.
+const TEST_EXAMPLE_DISMISSED_KEY = 'kiln-ui-test-example-dismissed';
+function testExampleDismissed() {
+  try { return localStorage.getItem(TEST_EXAMPLE_DISMISSED_KEY) === '1'; } catch (_) { return false; }
+}
+function testExampleRecord() {
+  const empty = '<div class="empty-state">No finished boards have been recorded as TEST samples.</div>';
+  if (testExampleDismissed()) return empty;
+  return `${empty}<article class="test-board-record is-example" role="button" tabindex="0" title="Example only — click to remove">
+    <header><span><b>12 × 8 ft · Example: product or sample ID</b><small>Kiln Load 1 · produced YYYY-MM-DD · taken YYYY-MM-DD</small><small>Example: moisture check, sample sent to the lab</small></span><strong>TEST · Example: name (company)</strong><em class="example-badge">EXAMPLE · click to remove</em></header>
+  </article>`;
+}
+function dismissTestExample() {
+  try { localStorage.setItem(TEST_EXAMPLE_DISMISSED_KEY, '1'); } catch (_) { /* storage unavailable: hide for now */ }
+  document.querySelector('.test-board-record.is-example')?.remove();
 }
 
 function saveTestRecord(event) {
@@ -662,6 +687,8 @@ function saveTestRecord(event) {
   write(TEST_BOARDS_KEY, records);
   $('testQuantity').value = '1';
   $('testNote').value = '';
+  $('testProduct').value = '';
+  $('testTakenBy').value = '';
   $('testBoardStatus').className = 'calculation-status ready';
   $('testBoardStatus').textContent = `${fmt(quantity)} finished ${fmt(length)} ft board${quantity === 1 ? '' : 's'} recorded as TEST and removed from TAG availability.`;
   renderTestRegister();
@@ -980,7 +1007,7 @@ function completeActiveOrder() {
 
 $('addWarehouseTag').addEventListener('click', openYardBuilder);
 $('testBoardForm').addEventListener('submit', saveTestRecord);
-$('testSourceLoad').addEventListener('change', () => updateTestSourceFields({ resetProduct: true }));
+$('testSourceLoad').addEventListener('change', () => updateTestSourceFields());
 $('testLength').addEventListener('change', () => updateTestSourceFields());
 $('addRecoveryCut').addEventListener('click', () => addRecoveryCutRow({ sourceLength: 20 }));
 $('applyRecoveryCuts').addEventListener('click', applyRecoveryCuts);

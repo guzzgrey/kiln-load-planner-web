@@ -5052,6 +5052,15 @@ function renderLoadNavigation() {
   renderManagementDashboard();
 }
 
+// Phase codes (PH1…PH8) are controller codes. The shared core restores them when
+// browser page translation has rewritten them on screen (for example "ПХ8").
+function canonicalPhase(label) {
+  return window.KilnCore?.phaseLabel ? window.KilnCore.phaseLabel(label) : String(label ?? '').trim();
+}
+function canonicalKilnProgram(program) {
+  return window.KilnCore?.kilnProgram ? window.KilnCore.kilnProgram(program) : program;
+}
+
 const MASPEL_DRYING_DEFAULTS = [
   { phase: 'PH1', mc: 20, mbar: 150, temp: 67 },
   { phase: 'PH2', mc: 18, mbar: 150, temp: 67 },
@@ -5068,7 +5077,7 @@ function defaultDryingRows() {
 }
 
 function renderDryingCurrentRows(rows) {
-  $('dryingCurrentRows').innerHTML = rows.map((row) => `<tr><td>${escapeHtml(row.phase)}</td><td>${Number(row.mc)}</td><td>${Number(row.mbar)}</td><td>${Number(row.temp)}</td><td>${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</td><td>${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</td></tr>`).join('');
+  $('dryingCurrentRows').innerHTML = rows.map((row) => `<tr><td translate="no">${escapeHtml(canonicalPhase(row.phase))}</td><td>${Number(row.mc)}</td><td>${Number(row.mbar)}</td><td>${Number(row.temp)}</td><td>${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</td><td>${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</td></tr>`).join('');
 }
 
 function renderDryingScenarioRows(rows, baseline = []) {
@@ -5076,7 +5085,7 @@ function renderDryingScenarioRows(rows, baseline = []) {
     const current = baseline[index] || {};
     const deltaEmc = Number.isFinite(row.emc) && Number.isFinite(current.emc) ? row.emc - current.emc : null;
     const deltaGradient = Number.isFinite(row.gradient) && Number.isFinite(current.gradient) ? row.gradient - current.gradient : null;
-    return `<tr data-phase="${index}"><td>${escapeHtml(row.phase)}</td><td><input class="drying-mc" type="number" min="0" max="100" step="0.1" value="${Number(row.mc)}"></td><td><input class="drying-mbar" type="number" min="0.1" step="0.1" value="${Number(row.mbar)}"></td><td><input class="drying-temp" type="number" min="-20" max="120" step="0.1" value="${Number(row.temp)}"></td><td><output class="drying-emc">${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</output></td><td><output class="drying-gradient">${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</output></td><td><output class="drying-delta-emc">${formatSigned(deltaEmc)}</output></td><td><output class="drying-delta-gradient">${formatSigned(deltaGradient)}</output></td></tr>`;
+    return `<tr data-phase="${index}"><td translate="no">${escapeHtml(canonicalPhase(row.phase))}</td><td><input class="drying-mc" type="number" min="0" max="100" step="0.1" value="${Number(row.mc)}"></td><td><input class="drying-mbar" type="number" min="0.1" step="0.1" value="${Number(row.mbar)}"></td><td><input class="drying-temp" type="number" min="-20" max="120" step="0.1" value="${Number(row.temp)}"></td><td><output class="drying-emc">${Number.isFinite(row.emc) ? row.emc.toFixed(2) : '—'}</output></td><td><output class="drying-gradient">${Number.isFinite(row.gradient) ? row.gradient.toFixed(2) : '—'}</output></td><td><output class="drying-delta-emc">${formatSigned(deltaEmc)}</output></td><td><output class="drying-delta-gradient">${formatSigned(deltaGradient)}</output></td></tr>`;
   }).join('');
 }
 
@@ -5153,11 +5162,14 @@ function dryingModelWarnings(rows) {
 }
 
 function readAndCalculateDryingRows() {
-  return [...$('dryingScenarioRows').querySelectorAll('tr')].map((row) => {
+  return [...$('dryingScenarioRows').querySelectorAll('tr')].map((row, index) => {
+    // The phase comes from the saved rows, never from on-screen text that a
+    // browser translation may have rewritten.
+    const phase = canonicalPhase(dryingBaselineRows?.[Number(row.dataset.phase ?? index)]?.phase ?? row.cells[0].textContent);
     const mc = Number(row.querySelector('.drying-mc').value);
     const mbar = Number(row.querySelector('.drying-mbar').value);
     const temp = Number(row.querySelector('.drying-temp').value);
-    return calculateDryingRow({ phase: row.cells[0].textContent, mc, mbar, temp });
+    return calculateDryingRow({ phase, mc, mbar, temp });
   });
 }
 
@@ -5241,7 +5253,7 @@ function saveThermoProgram(event) {
     $('thermoProgramStatus').textContent = 'Completed production records are locked and cannot be changed.';
     return;
   }
-  const rows = [...$('thermoProgramRows').querySelectorAll('tr')].map((row) => ({ stage: row.querySelector('.thermo-stage').value.trim(), setpoint: Number(row.querySelector('.thermo-setpoint').value), temp: Number(row.querySelector('.thermo-temp').value), duration: Number(row.querySelector('.thermo-duration').value), note: row.querySelector('.thermo-note').value.trim() }));
+  const rows = [...$('thermoProgramRows').querySelectorAll('tr')].map((row) => ({ stage: canonicalPhase(row.querySelector('.thermo-stage').value), setpoint: Number(row.querySelector('.thermo-setpoint').value), temp: Number(row.querySelector('.thermo-temp').value), duration: Number(row.querySelector('.thermo-duration').value), note: row.querySelector('.thermo-note').value.trim() }));
   if (rows.some((row) => !row.stage || !Number.isFinite(row.setpoint) || !Number.isFinite(row.temp) || !Number.isFinite(row.duration) || row.duration < 0)) {
     $('thermoProgramStatus').className = 'calculation-status error';
     $('thermoProgramStatus').textContent = 'Check every TM stage, setpoint, temperature and duration.';
@@ -5630,10 +5642,10 @@ function init() {
     if (Number.isFinite(rows) && rows > 0) manualLiftTargets.set(key, rows);
   });
   Object.entries(activeOrder.dryingPrograms || {}).forEach(([loadNumber, program]) => {
-    if (program?.rows?.length) dryingPrograms.set(String(loadNumber), program);
+    if (program?.rows?.length) dryingPrograms.set(String(loadNumber), canonicalKilnProgram(program));
   });
   Object.entries(activeOrder.thermoPrograms || {}).forEach(([loadNumber, program]) => {
-    if (program?.rows?.length) thermoPrograms.set(String(loadNumber), program);
+    if (program?.rows?.length) thermoPrograms.set(String(loadNumber), canonicalKilnProgram(program));
   });
   $('orderNumber').value = activeOrder.number || newOrderNumber();
   if (activeOrder.inputs) Object.entries(activeOrder.inputs).forEach(([id, value]) => { if ($(id)) $(id).value = value; });

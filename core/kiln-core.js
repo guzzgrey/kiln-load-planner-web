@@ -367,6 +367,38 @@ function checkPlanningChange(input, currentDrafts, nextDrafts) {
 return {tagPlanningKey,planningBoardFeet,tagPlanning,checkPlanningChange};
 })();
 
+// src/domain/kiln-program.js
+modules["src/domain/kiln-program.js"]=(()=>{
+// Kiln program labels (Drying phases PH1…PH8, Thermo Vacuum stages PH1.1…).
+// They are machine codes printed on the kiln controller, never words to translate.
+// Browser page translation can rewrite "PH8" as "ПХ8" (Cyrillic) on screen; a
+// label read back from such a page must still mean the same phase.
+
+const PHASE_CODE = /^\s*([PpПпРр])\s*([HhХхНн])\s*[-_.]?\s*(\d+(?:\.\d+)*)\s*$/u;
+
+/** @param {unknown} label @returns {string} canonical label ("PH8"), or the trimmed input if it is not a phase code */
+function normalizePhaseLabel(label) {
+  const text = String(label ?? '').trim();
+  const match = PHASE_CODE.exec(text);
+  return match ? `PH${match[3]}` : text;
+}
+
+/** @template {{ rows?: Array<Record<string, unknown>> }} T @param {T | null | undefined} program @returns {T | null | undefined} */
+function normalizeKilnProgram(program) {
+  if (!program || !Array.isArray(program.rows)) return program;
+  return {
+    ...program,
+    rows: program.rows.map((row) => ({
+      ...row,
+      ...(Object.hasOwn(row, 'phase') ? { phase: normalizePhaseLabel(row.phase) } : {}),
+      ...(Object.hasOwn(row, 'stage') ? { stage: normalizePhaseLabel(row.stage) } : {}),
+    })),
+  };
+}
+
+return {normalizePhaseLabel,normalizeKilnProgram};
+})();
+
 // src/adapters/legacy-tag-planning.js
 modules["src/adapters/legacy-tag-planning.js"]=(()=>{
 // Legacy browser-storage records → Domain inputs for order balance and TAG planning.
@@ -521,11 +553,13 @@ modules["src/bundles/kiln-core.js"]=(()=>{
 const { computeOrderBalance }=modules["src/domain/order-balance.js"];
 const { tagPlanning, checkPlanningChange, planningBoardFeet, tagPlanningKey }=modules["src/domain/tag-planning.js"];
 const { DomainError }=modules["src/domain/shared.js"];
+const { normalizePhaseLabel, normalizeKilnProgram }=modules["src/domain/kiln-program.js"];
 const { LEGACY_KEYS, loadLegacyOrder, legacyActiveOrder, legacyBelongsToOrder, migrateLegacyDrafts }=modules["src/adapters/legacy-tag-planning.js"];
 
 const KilnCore = Object.freeze({
   CoreError:DomainError, orderBalance:computeOrderBalance, tagPlanning, checkPlanningChange,
   migrateLegacyDrafts, boardFeet:planningBoardFeet, lotKey:tagPlanningKey,
+  phaseLabel:normalizePhaseLabel, kilnProgram:normalizeKilnProgram,
 });
 const KilnLegacy = Object.freeze({
   KEYS:LEGACY_KEYS, load:loadLegacyOrder, activeOrder:legacyActiveOrder, belongsToOrder:legacyBelongsToOrder,

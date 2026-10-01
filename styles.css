@@ -32,10 +32,26 @@ html, body {
 
 body {
   min-height: 100vh;
+  isolation: isolate;
   background:
     radial-gradient(circle at 8% -8%, rgba(159, 189, 172, .32), transparent 28rem),
     linear-gradient(180deg, #edf4ef 0, var(--bg) 300px);
 }
+
+/* A quiet conifer tree line along the bottom of every page. It sits behind all
+   content, never takes clicks and is left out of printed reports. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: -1;
+  height: clamp(120px, 24vh, 240px);
+  background: url("assets/forest-backdrop.svg") center bottom / auto 100% repeat-x;
+  opacity: .5;
+  pointer-events: none;
+}
+@media (max-width: 640px) { body::after { height: 110px; opacity: .4; } }
+@media print { body::after { display: none; } }
 
 .wrap {
   max-width: 1680px;

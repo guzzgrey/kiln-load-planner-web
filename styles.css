@@ -700,6 +700,11 @@ button.is-loading::after {
 .test-board-record > header span { display:grid; gap:2px; }
 .test-board-record > header small { color:var(--muted); }
 .test-board-record details { border-top:1px solid var(--line); padding:9px 13px 12px; }
+.test-board-record.is-example { margin-top:10px; border-style:dashed; border-left-style:dashed; border-left-color:#d8c3a0; background:transparent; color:var(--muted); cursor:pointer; opacity:.75; }
+.test-board-record.is-example:hover, .test-board-record.is-example:focus-visible { opacity:1; }
+.test-board-record.is-example b, .test-board-record.is-example strong { color:var(--muted); font-weight:600; }
+.example-badge { padding:3px 8px; border:1px dashed #c9b48e; border-radius:999px; color:#8a6a2f; font-size:11px; font-style:normal; font-weight:700; letter-spacing:.04em; }
+@media print { .test-board-record.is-example { display:none !important; } }
 .test-board-record summary { color:var(--green); cursor:pointer; font-weight:850; }
 .test-program-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px; }
 .test-program-grid h4 { margin:0 0 6px; }

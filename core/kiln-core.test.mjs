@@ -96,3 +96,11 @@ test('order balance matches the warehouse and rejects duplicates', () => {
   assert.throws(() => orderBalance({ ...input, tags: [...tags, { ...tags[0], id: 'copy' }] }), { code: 'DUPLICATE_TAG_LABEL' });
   assert.throws(() => orderBalance({ ...input, cycles: [...input.cycles, { ...input.cycles[1], id: 'c2b' }] }), { code: 'DUPLICATE_CYCLE_NUMBER' });
 });
+
+test('kiln program phase codes survive browser translation', () => {
+  const { phaseLabel, kilnProgram } = globalThis.KilnCore;
+  assert.equal(phaseLabel('ПХ8'), 'PH8');
+  assert.equal(phaseLabel('PH1.2'), 'PH1.2');
+  assert.equal(phaseLabel('Cooling'), 'Cooling');
+  assert.deepEqual(kilnProgram({ rows: [{ phase: 'ПХ8', mc: 5 }] }).rows, [{ phase: 'PH8', mc: 5 }]);
+});

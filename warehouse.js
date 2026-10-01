@@ -901,13 +901,13 @@ function renderOrderArchive() {
 function dryingProgramTable(program) {
   const rows = program?.rows || [];
   if (!rows.length) return '<p class="program-empty">No saved Drying program.</p>';
-  return `<table class="process-setting-table"><thead><tr><th>Phase</th><th>MC, %</th><th>mBar</th><th>Temp, °C</th><th>EMC, %</th><th>Gradient</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.phase)}</td><td>${fmt(row.mc, 1)}</td><td>${fmt(row.mbar, 1)}</td><td>${fmt(row.temp, 1)}</td><td>${Number.isFinite(Number(row.emc)) ? fmt(row.emc, 2) : '—'}</td><td>${Number.isFinite(Number(row.gradient)) ? fmt(row.gradient, 2) : '—'}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="process-setting-table"><thead><tr><th>Phase</th><th>MC, %</th><th>mBar</th><th>Temp, °C</th><th>EMC, %</th><th>Gradient</th></tr></thead><tbody>${rows.map((row) => `<tr><td translate="no">${esc(window.KilnCore ? KilnCore.phaseLabel(row.phase) : row.phase)}</td><td>${fmt(row.mc, 1)}</td><td>${fmt(row.mbar, 1)}</td><td>${fmt(row.temp, 1)}</td><td>${Number.isFinite(Number(row.emc)) ? fmt(row.emc, 2) : '—'}</td><td>${Number.isFinite(Number(row.gradient)) ? fmt(row.gradient, 2) : '—'}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function thermoProgramTable(program) {
   const rows = program?.rows || [];
   if (!rows.length) return '<p class="program-empty">No saved Thermo Vacuum program.</p>';
-  return `<table class="process-setting-table"><thead><tr><th>Stage</th><th>Control setpoint</th><th>Target temp, °C</th><th>Duration, min</th><th>Operator note</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.stage)}</td><td>${fmt(row.setpoint)}</td><td>${fmt(row.temp)}</td><td>${fmt(row.duration)}</td><td>${esc(row.note)}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="process-setting-table"><thead><tr><th>Stage</th><th>Control setpoint</th><th>Target temp, °C</th><th>Duration, min</th><th>Operator note</th></tr></thead><tbody>${rows.map((row) => `<tr><td translate="no">${esc(window.KilnCore ? KilnCore.phaseLabel(row.stage) : row.stage)}</td><td>${fmt(row.setpoint)}</td><td>${fmt(row.temp)}</td><td>${fmt(row.duration)}</td><td>${esc(row.note)}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function renderKilnSettingsReport() {

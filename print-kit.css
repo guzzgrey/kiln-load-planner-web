@@ -17,9 +17,16 @@
 .kp-dialog .kp-hint { margin: 0; color: var(--muted, #657068); font-size: 13px; }
 .kp-dialog .kp-safari { padding: 8px 10px; border-radius: 8px; background: #fff7e8; color: #7a4a06; }
 .kp-blocks { display: grid; gap: 6px; max-height: 42vh; overflow: auto; padding: 8px; border: 1px solid var(--line, #d9ded9); border-radius: 10px; }
-.kp-blocks label, .kp-row label, label.kp-row { display: flex; align-items: center; gap: 8px; }
-.kp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
-.kp-row > span { font-weight: 700; }
+/* The app styles every input as a full-width text field; the dialog's checkboxes and
+   radios must keep their own small size so their labels stay readable. */
+.kp-dialog .kp-check { display: flex; align-items: flex-start; gap: 10px; margin: 0; color: var(--ink, #18221d); font-size: 14px; line-height: 1.35; cursor: pointer; }
+.kp-dialog .kp-check > span { min-width: 0; overflow-wrap: anywhere; }
+.kp-dialog .kp-check input[type="checkbox"], .kp-dialog .kp-check input[type="radio"] {
+  flex: 0 0 auto; width: 18px; height: 18px; min-width: 18px; margin: 1px 0 0; padding: 0; border: 0; border-radius: 0;
+  background: none; box-shadow: none; accent-color: var(--green, #195f43);
+}
+.kp-orientation { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; margin: 0; padding: 0; border: 0; }
+.kp-orientation legend { float: left; margin-right: 8px; padding: 0; font-weight: 700; color: var(--ink, #18221d); }
 .kp-status { margin: 0; min-height: 1em; color: var(--amber, #9b5b08); }
 .kp-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
@@ -35,6 +42,10 @@ body.kp-measure .kp-hidden-field, body.kp-printing .kp-hidden-field { display: n
 body.kp-measure .kp-value, body.kp-printing .kp-value { display: inline; white-space: pre-wrap; }
 body.kp-measure table.kp-fit :is(th, td, th *, td *),
 body.kp-printing table.kp-fit :is(th, td, th *, td *) { font-size: inherit !important; }
+/* Words are never split inside a cell ("Heml|ock"); a column takes the width its
+   longest word needs and the table's type size is fitted to that. */
+body.kp-measure table.kp-fit :is(th, td, th *, td *),
+body.kp-printing table.kp-fit :is(th, td, th *, td *) { word-break: normal !important; overflow-wrap: normal !important; hyphens: manual !important; }
 
 @media print {
   body.kp-printing .kp-block-button, body.kp-printing .kp-dialog { display: none !important; }
@@ -51,6 +62,10 @@ body.kp-printing table.kp-fit :is(th, td, th *, td *) { font-size: inherit !impo
   body.kp-printing h2, body.kp-printing h3, body.kp-printing .section-title-row, body.kp-printing .section-heading { break-after: avoid; page-break-after: avoid; }
   body.kp-printing .scroll, body.kp-printing [class*="scroll"] { overflow: visible !important; max-height: none !important; }
   body.kp-printing table { width: 100% !important; max-width: 100%; }
+  /* Type size follows the printed sheet (portrait or landscape, whichever the browser
+     uses): 100cqi is the block's printed width. */
+  body.kp-printing [data-print-block].kp-include { container-type: inline-size; }
+  body.kp-printing table.kp-fit { font-size: max(6.5px, min(var(--kp-base, 12px), calc(100cqi * var(--kp-k, 1)))) !important; }
   body.kp-printing table.kp-keep { break-inside: avoid; page-break-inside: avoid; }
   body.kp-printing thead { display: table-header-group; }
   body.kp-printing tfoot { display: table-footer-group; }

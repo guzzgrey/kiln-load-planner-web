@@ -105,18 +105,27 @@
         table.style.fontSize = `${size}px`;
         if (size === MIN_FONT_PX) break;
       }
-      fits.push({ table, ratio: size / base, size, keep: table.getBoundingClientRect().height < sheet.height * 0.8 });
+      // The type size is not fixed here: the sheet decides it at print time. Safari
+      // ignores the orientation a page asks for, so the same report must fit whichever
+      // sheet the person picks. k ties the type size to the block's printed width
+      // (CSS: font-size = 100cqi * k, never above the screen size).
+      const style = getComputedStyle(block);
+      const blockContent = Math.max(1, block.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+      fits.push({ table, ratio: size / base, size, base, k: (base * (size / base) * 0.97) / blockContent,
+        keep: table.getBoundingClientRect().height < sheet.height * 0.8 });
       table.style.fontSize = '';
     }));
     document.body.classList.remove('kp-measure');
     return fits;
   }
+  // Tables are always measured on the narrower (portrait) sheet, so they fit whichever
+  // orientation the browser finally prints; on a landscape sheet they simply get larger
+  // type, up to their screen size. The orientation only chooses the requested page.
   function chooseOrientation(targets, requested) {
-    if (requested === 'portrait' || requested === 'landscape') return { orientation: requested, fits: measure(targets, SHEET[requested]) };
-    const portrait = measure(targets, SHEET.portrait);
-    const tightest = Math.min(1, ...portrait.map((fit) => fit.ratio));
-    if (tightest >= LANDSCAPE_BELOW) return { orientation: 'portrait', fits: portrait };
-    return { orientation: 'landscape', fits: measure(targets, SHEET.landscape) };
+    const fits = measure(targets, SHEET.portrait);
+    if (requested === 'portrait' || requested === 'landscape') return { orientation: requested, fits };
+    const tightest = Math.min(1, ...fits.map((fit) => fit.ratio));
+    return { orientation: tightest >= LANDSCAPE_BELOW ? 'portrait' : 'landscape', fits };
   }
 
   // ---------- printing ----------
@@ -142,7 +151,9 @@
     document.body.classList.add('kp-printing', `kp-${chosen.orientation}`);
     targets.forEach((el, index) => { el.classList.add('kp-include'); if (newPage && index > 0) el.classList.add('kp-break'); });
     chosen.fits.forEach((fit) => {
-      if (fit.ratio < 0.999) fit.table.style.fontSize = `${fit.size}px`;
+      fit.table.classList.add('kp-fit');
+      fit.table.style.setProperty('--kp-base', `${fit.base}px`);
+      fit.table.style.setProperty('--kp-k', String(fit.k));
       if (fit.keep) fit.table.classList.add('kp-keep');
     });
     const previousTitle = document.title;
@@ -153,7 +164,11 @@
       window.removeEventListener('afterprint', cleanupPrint);
       document.body.classList.remove('kp-printing', 'kp-portrait', 'kp-landscape');
       all.forEach((el) => el.classList.remove('kp-include', 'kp-break'));
-      chosen.fits.forEach((fit) => { fit.table.style.fontSize = ''; fit.table.classList.remove('kp-keep', 'kp-fit'); });
+      chosen.fits.forEach((fit) => {
+        fit.table.style.removeProperty('--kp-base');
+        fit.table.style.removeProperty('--kp-k');
+        fit.table.classList.remove('kp-keep', 'kp-fit');
+      });
       restoreFields();
       style.remove();
       meta.remove();
@@ -181,13 +196,13 @@
     dialog.innerHTML = `<form method="dialog">
       <h2>PDF report</h2>
       <p class="kp-hint">Choose the blocks to include. Each block starts on its own page; tables are never cut off and are fitted to the sheet.</p>
-      <div class="kp-blocks">${items.map((el) => `<label><input type="checkbox" value="${esc(el.dataset.printBlock)}" ${reportDefault(el) ? 'checked' : ''}> ${esc(titleOf(el))}</label>`).join('')}</div>
-      <div class="kp-row"><span>Orientation</span>
-        <label><input type="radio" name="kpOrientation" value="auto" checked> Auto</label>
-        <label><input type="radio" name="kpOrientation" value="portrait"> Portrait</label>
-        <label><input type="radio" name="kpOrientation" value="landscape"> Landscape</label></div>
-      <label class="kp-row"><input type="checkbox" name="kpNewPage" checked> Each block on a new page</label>
-      ${isSafari ? '<p class="kp-hint kp-safari">Safari chooses the orientation in its own print dialog: if the report is set to landscape, select Landscape there too (Show Details → Orientation).</p>' : ''}
+      <div class="kp-blocks">${items.map((el) => `<label class="kp-check"><input type="checkbox" value="${esc(el.dataset.printBlock)}" ${reportDefault(el) ? 'checked' : ''}><span>${esc(titleOf(el))}</span></label>`).join('')}</div>
+      <fieldset class="kp-orientation"><legend>Orientation</legend>
+        <label class="kp-check"><input type="radio" name="kpOrientation" value="auto" checked><span>Auto</span></label>
+        <label class="kp-check"><input type="radio" name="kpOrientation" value="portrait"><span>Portrait</span></label>
+        <label class="kp-check"><input type="radio" name="kpOrientation" value="landscape"><span>Landscape</span></label></fieldset>
+      <label class="kp-check"><input type="checkbox" name="kpNewPage" checked><span>Each block on a new page</span></label>
+      ${isSafari ? '<p class="kp-hint kp-safari"><b>Safari:</b> it always opens its print window in portrait. For a wide report click <b>Show Details</b> there and pick the <b>landscape</b> icon. Tables fit the page either way; landscape only makes them larger.</p>' : ''}
       <p class="kp-status" role="status"></p>
       <div class="kp-actions"><button type="button" class="secondary kp-select-none">Clear</button><button type="button" class="secondary kp-cancel">Cancel</button><button type="submit" class="kp-print">Create PDF</button></div>
     </form>`;

@@ -1036,7 +1036,7 @@ function printReport(mode) {
   window.print();
   window.setTimeout(cleanup, 1500);
 }
-$('printWarehouse').addEventListener('click', () => printReport('full'));
+$('printWarehouse').addEventListener('click', () => (window.KilnPrint ? window.KilnPrint.open({ name: 'Full Order Report' }) : printReport('full')));
 $('printKilnSettings').addEventListener('click', () => printReport('settings'));
 migrateLegacyTagRecoveries();
 reconcileGormanCompletedInventory();

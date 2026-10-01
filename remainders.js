@@ -87,6 +87,7 @@ function render() {
 }
 
 $('printRemainders').addEventListener('click', () => {
+  if (window.KilnPrint) { window.KilnPrint.open({ name: 'Remainder Inventory' }); return; }
   const previousTitle = document.title;
   document.title = `Remainder Inventory - ${new Date().toISOString().slice(0, 10)}`;
   window.addEventListener('afterprint', () => { document.title = previousTitle; }, { once: true });

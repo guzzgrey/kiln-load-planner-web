@@ -291,6 +291,11 @@ function tagPlanning(input) {
     positive(tag.lines).forEach(line => { row(line.lengthFt, line.material).tagged += num(line.quantity); });
   });
   (input.tests || []).forEach(test => positive(test.lines).forEach(line => { row(line.lengthFt, line.material).tested += num(line.quantity); }));
+  // An EXPECTED reservation is taken from the cycle that is in the kiln at that
+  // moment (line.loadNumber). Once that cycle is completed its boards are READY,
+  // and so is the reservation; it never stays booked against the next cycle.
+  const completedLoads = new Set((input.kilnOutput || []).map(cycle => num(cycle.loadNumber)).filter(Boolean));
+  const effectiveSource = item => item.source === 'expected' && !completedLoads.has(num(item.loadNumber)) ? 'expected' : 'ready';
   if (input.inProgress) positive(input.inProgress.lots).forEach(lot => { row(lot.lengthFt, lot.material).expected += num(lot.quantity); });
   (input.plannedLoads || []).forEach(load => positive(load.lots).forEach(lot => { row(lot.lengthFt, lot.material).forecast += num(lot.quantity); }));
 
@@ -314,7 +319,8 @@ function tagPlanning(input) {
           boards:lines.reduce((sum, line) => sum + line.quantity, 0), bf:lines.reduce((sum, line) => sum + bf(line.lengthFt, line.quantity), 0) };
       }
       const lines = positive(stack.items).map(item => ({ id:item.id, lengthFt:num(item.lengthFt ?? item.length), material:item.material || species,
-        quantity:num(item.quantity), source:item.source === 'expected' ? 'expected' : 'ready' }));
+        quantity:num(item.quantity), source:effectiveSource(item), loadNumber:num(item.loadNumber) || null,
+        reservedAs:item.source === 'expected' ? 'expected' : 'ready' }));
       lines.forEach(line => {
         const target = row(line.lengthFt, line.material);
         if (line.source === 'expected') target.reservedExpected += line.quantity; else target.reservedReady += line.quantity;
@@ -514,8 +520,11 @@ function loadLegacyOrder(getItem) {
 
 // Legacy drafts → planner format. A stack is linked to a built TAG only when its name
 // equals the TAG number of the same order AND its per-length counts equal the TAG
-// exactly; nothing is linked by guesswork. Idempotent.
-function migrateLegacyDrafts(drafts, tags) {
+// exactly; nothing is linked by guesswork. An EXPECTED line saved without its kiln
+// cycle is given the cycle that is in the kiln now (the only one it can have been
+// taken from). Idempotent.
+function migrateLegacyDrafts(drafts, tags, { inProgressLoadNumber = null } = {}) {
+  const inKiln = num(inProgressLoadNumber) || null;
   const positive = lines => (lines || []).filter(line => num(line.quantity) > 0);
   const byLabel = new Map(tags.map(tag => [String(tag.label || '').trim().toLowerCase(), tag]));
   const perLength = lines => JSON.stringify(Object.entries(positive(lines).reduce((acc, line) => {
@@ -525,10 +534,14 @@ function migrateLegacyDrafts(drafts, tags) {
   drafts.forEach(draft => (draft.stacks || []).forEach(stack => { if (stack.tagId) linked.add(stack.tagId); }));
   let changed = false;
   const next = drafts.map(draft => ({ ...draft, stacks:(draft.stacks || []).map(stack => {
-    const items = (stack.items || []).map(item => (item.lengthFt != null ? item : {
-      id:item.id, lengthFt:num(item.length), material:item.material, quantity:num(item.quantity),
-      source:item.sourceStatus === 'expected' ? 'expected' : 'ready', legacyLotId:item.lotId || null,
-    }));
+    const items = (stack.items || []).map(item => {
+      const next = item.lengthFt != null ? item : {
+        id:item.id, lengthFt:num(item.length), material:item.material, quantity:num(item.quantity),
+        source:item.sourceStatus === 'expected' ? 'expected' : 'ready', legacyLotId:item.lotId || null,
+        ...(num(item.loadNumber) ? { loadNumber:num(item.loadNumber) } : {}),
+      };
+      return next.source === 'expected' && !num(next.loadNumber) && inKiln && !stack.tagId ? { ...next, loadNumber:inKiln } : next;
+    });
     if (items.some((item, index) => item !== (stack.items || [])[index])) changed = true;
     if (stack.tagId) return { ...stack, items };
     const tag = byLabel.get(String(stack.name || '').trim().toLowerCase());

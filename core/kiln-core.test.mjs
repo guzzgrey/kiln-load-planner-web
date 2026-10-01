@@ -104,3 +104,13 @@ test('kiln program phase codes survive browser translation', () => {
   assert.equal(phaseLabel('Cooling'), 'Cooling');
   assert.deepEqual(kilnProgram({ rows: [{ phase: 'ПХ8', mc: 5 }] }).rows, [{ phase: 'PH8', mc: 5 }]);
 });
+
+test('reservations on the cycle in the kiln become READY when that cycle completes', () => {
+  const lots = L({ 8: 472, 16: 128 });
+  const draft = { id: 'd', orderId: 'o', stacks: [{ id: 's', items: [{ id: 'a', lengthFt: 8, material: 'Hemlock', quantity: 472, source: 'expected' }] }] };
+  const stamped = migrateLegacyDrafts([draft], [], { inProgressLoadNumber: 5 }).drafts;
+  assert.equal(stamped[0].stacks[0].items[0].loadNumber, 5);
+  const plan = tagPlanning({ species: 'Hemlock', kilnOutput: [{ cycleId: 'c5', loadNumber: 5, lots }], tags: [], drafts: stamped });
+  assert.deepEqual(plan.blocking, []);
+  assert.equal(plan.rows.find((row) => row.lengthFt === 8).reservedReady, 472);
+});

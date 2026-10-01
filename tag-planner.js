@@ -55,7 +55,7 @@
   function migrateOnce() {
     const loaded = load(getItem);
     if (!loaded) return '';
-    const { drafts, changed } = migrateLegacyDrafts(loaded.planning.drafts, loaded.planning.tags);
+    const { drafts, changed } = migrateLegacyDrafts(loaded.planning.drafts, loaded.planning.tags, { inProgressLoadNumber: loaded.planning.inProgress?.loadNumber });
     if (!changed) return '';
     state = { ...loaded, drafts: loaded.planning.drafts };
     const linked = drafts.flatMap((draft) => draft.stacks).filter((stack) => stack.linkedAt === 'migration').length;
@@ -136,7 +136,7 @@
 
     $('draftStacks').innerHTML = planDraft.stacks.length ? planDraft.stacks.map((stack) => {
       const lines = stack.lines.map((line) => stack.status === 'planned'
-        ? `<article class="preorder-allocation ${line.source}"><span><b>${fmt(line.lengthFt)} ft · ${esc(line.material)}</b><small>${line.source === 'expected' ? 'EXPECTED · in kiln' : 'READY'} · ${fmt(bf(line.lengthFt, line.quantity), 1)} BF</small></span><input class="line-qty" data-stack="${esc(stack.id)}" data-line="${esc(line.id)}" type="number" min="1" value="${line.quantity}" aria-label="Boards"><button class="danger line-remove" data-stack="${esc(stack.id)}" data-line="${esc(line.id)}" type="button">×</button></article>`
+        ? `<article class="preorder-allocation ${line.source}"><span><b>${fmt(line.lengthFt)} ft · ${esc(line.material)}</b><small>${line.source === 'expected' ? `EXPECTED · in kiln${line.loadNumber ? ` · Load ${fmt(line.loadNumber)}` : ''}` : line.reservedAs === 'expected' ? `READY · from Load ${fmt(line.loadNumber)}` : 'READY'} · ${fmt(bf(line.lengthFt, line.quantity), 1)} BF</small></span><input class="line-qty" data-stack="${esc(stack.id)}" data-line="${esc(line.id)}" type="number" min="1" value="${line.quantity}" aria-label="Boards"><button class="danger line-remove" data-stack="${esc(stack.id)}" data-line="${esc(line.id)}" type="button">×</button></article>`
         : `<article class="preorder-allocation tagged"><span><b>${fmt(line.lengthFt)} ft · ${esc(line.material)}</b><small>${fmt(bf(line.lengthFt, line.quantity), 1)} BF</small></span><b>${fmt(line.quantity)}</b></article>`).join('');
       if (stack.status !== 'planned') {
         const label = stack.status === 'broken' ? 'TAG LINK NEEDS REVIEW' : stack.status === 'shipped' ? `TAG ${esc(stack.tagLabel)} · SHIPPED` : `TAG ${esc(stack.tagLabel)} · BUILT`;
@@ -165,9 +165,13 @@
       const quantity = Math.floor(Number(document.querySelector(`.stack-add-qty[data-stack="${button.dataset.stack}"]`).value || 0));
       if (!(quantity > 0)) { status('pending', 'Enter a whole number of boards.'); return; }
       stack.items = stack.items || [];
-      const existing = stack.items.find((item) => Number(item.lengthFt) === Number(lengthFt) && item.material === material && item.source === source);
+      // An EXPECTED line remembers the kiln cycle it is taken from, so it turns READY
+      // when that cycle is completed.
+      const loadNumber = source === 'expected' ? Number(state.planning.inProgress?.loadNumber || 0) || undefined : undefined;
+      const existing = stack.items.find((item) => Number(item.lengthFt) === Number(lengthFt) && item.material === material && item.source === source
+        && Number(item.loadNumber || 0) === Number(loadNumber || 0));
       if (existing) existing.quantity = Number(existing.quantity) + quantity;
-      else stack.items.push({ id: newId('line'), lengthFt: Number(lengthFt), material, source, quantity });
+      else stack.items.push({ id: newId('line'), lengthFt: Number(lengthFt), material, source, quantity, ...(loadNumber ? { loadNumber } : {}) });
       commit(drafts, `${fmt(quantity)} × ${lengthFt} ft ${material} planned into ${stack.name}.`);
     }));
     document.querySelectorAll('.line-qty').forEach((input) => input.addEventListener('change', () => afterEvent(() => {

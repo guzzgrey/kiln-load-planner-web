@@ -139,7 +139,9 @@ body::after {
 }
 
 .header-actions { position:relative; z-index:1; display:flex; max-width:680px; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
-.order-workspace { display:grid; grid-template-columns:minmax(300px,1fr) auto auto auto; align-items:end; gap:10px; margin:0 0 14px; padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:0 2px 8px rgba(24,34,29,.05); }
+body.sandbox-order .order-workspace { border-color:#e2c48d; background:#fffaf0; }
+body.sandbox-order .order-workspace::before { content:"TEST ORDER · for practice; Delete order removes it together with everything recorded in it"; grid-column:1 / -1; color:#8a5a06; font-size:12px; font-weight:700; letter-spacing:.02em; }
+.order-workspace { display:grid; grid-template-columns:minmax(300px,1fr) auto auto auto auto auto; align-items:end; gap:10px; margin:0 0 14px; padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:0 2px 8px rgba(24,34,29,.05); }
 .order-workspace label { color:var(--green); font-weight:800; }
 .order-workspace select { margin-top:5px; }
 .order-workspace > span { align-self:center; color:var(--muted); font-size:12px; white-space:nowrap; }

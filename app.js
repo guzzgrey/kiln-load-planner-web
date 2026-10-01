@@ -59,7 +59,7 @@ function readOrderIndex() {
   } catch (_) { return []; }
 }
 function orderMetadata(order) {
-  return { id: order.id, number: order.number, supplier: order.inputs?.supplier || '', status: order.status || 'active', updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(), plannedCycles: order.plannedCycles || 0 };
+  return { id: order.id, number: order.number, supplier: order.inputs?.supplier || '', status: order.status || 'active', sandbox: Boolean(order.sandbox), updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(), plannedCycles: order.plannedCycles || 0 };
 }
 function storeOrder(order) {
   if (!order?.id) return;
@@ -256,7 +256,8 @@ function renderOrderSelector() {
     storeOrder(activeOrder);
     index = readOrderIndex();
   }
-  selector.innerHTML = index.filter((item) => item.status !== 'completed').map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === activeOrder.id ? 'selected' : ''}>${escapeHtml(item.number || 'Untitled order')} · ${escapeHtml(item.supplier || 'supplier not entered')} · ${item.plannedCycles || 0} loads</option>`).join('');
+  selector.innerHTML = index.filter((item) => item.status !== 'completed').map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === activeOrder.id ? 'selected' : ''}>${item.sandbox ? 'TEST · ' : ''}${escapeHtml(item.number || 'Untitled order')} · ${escapeHtml(item.supplier || 'supplier not entered')} · ${item.plannedCycles || 0} loads</option>`).join('');
+  document.body.classList.toggle('sandbox-order', Boolean(activeOrder?.sandbox));
 }
 function scheduleDraftSave() {
   window.clearTimeout(draftSaveTimer);
@@ -280,23 +281,107 @@ async function switchOrder(id) {
   if (window.kilnCloudFlush) await window.kilnCloudFlush();
   window.location.reload();
 }
-async function createOrder() {
+async function createOrder({ sandbox = false } = {}) {
   window.clearTimeout(draftSaveTimer);
   persistActiveOrder(false);
-  const suggested = newOrderNumber();
-  const number = window.prompt('Enter the new order / batch number:', suggested)?.trim();
+  const suggested = sandbox ? `TEST-${new Date().toISOString().slice(0, 10)}-${String(Date.now()).slice(-3)}` : newOrderNumber();
+  const number = window.prompt(sandbox
+    ? 'Test order number. A test order is for practice: it is marked TEST and can be deleted with everything recorded in it.'
+    : 'Enter the new order / batch number:', suggested)?.trim();
   if (!number) return;
   if (readOrderIndex().some((item) => String(item.number).toLowerCase() === number.toLowerCase() && item.status !== 'completed')) {
     window.alert('An active order with this number already exists. Open it from the list.');
     return;
   }
-  const order = { id: `order-${Date.now()}`, number, status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inventory: {}, liftStickerOverrides: {} };
+  const order = { id: `order-${Date.now()}`, number, status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inventory: {}, liftStickerOverrides: {},
+    ...(sandbox ? { sandbox: true } : {}) };
   storeOrder(order);
   writeActiveOrderPointer(order);
   $('orderSaveState').textContent = 'Creating and synchronizing order…';
   if (window.kilnCloudFlush) await window.kilnCloudFlush();
   window.location.reload();
 }
+// ---------- deleting an order ----------
+// A test order (sandbox) is deleted with everything recorded in it. A real order may be
+// deleted only while nothing has been recorded for it: no completed or started cycle,
+// recovery cut, TEST, YARD TAG or shipment. Its customer drafts are plans and go with it.
+const ORDER_FACT_KEYS = {
+  cycles: COMPLETED_CYCLES_STORAGE,
+  recoveries: 'kiln-planner-recovery-operations-v1',
+  tests: 'kiln-planner-test-boards-v1',
+  tags: 'kiln-planner-shipping-tags-v1',
+  shipments: 'kiln-planner-shipments-v1',
+  drafts: 'kiln-planner-preliminary-orders-v1',
+};
+function readList(key) {
+  try { const value = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(value) ? value : []; } catch (_) { return []; }
+}
+function recordedFactsFor(order) {
+  // Broad match on purpose: any record that might belong to the order blocks deleting it.
+  const mightBelong = (item) => item && (item.orderId === order.id || (order.planSignature && item.orderId === order.planSignature)
+    || (order.number && (item.orderNumber === order.number || item.productionOrderNumber === order.number)));
+  const tags = readList(ORDER_FACT_KEYS.tags).filter(mightBelong);
+  const tagIds = new Set(tags.map((tag) => tag.id));
+  return {
+    // The ledger and the copy embedded in the order describe the same cycles: count each once.
+    cycles: new Set([...readList(ORDER_FACT_KEYS.cycles).filter(mightBelong), ...(Array.isArray(order.completedCycles) ? order.completedCycles : [])]
+      .map((record, index) => record?.id || `load-${record?.loadNumber ?? index}`)).size,
+    started: order.activeCycleNumber ? 1 : 0,
+    recoveries: readList(ORDER_FACT_KEYS.recoveries).filter(mightBelong).length,
+    tests: readList(ORDER_FACT_KEYS.tests).filter(mightBelong).length,
+    tags: tags.length,
+    shipments: readList(ORDER_FACT_KEYS.shipments).filter((item) => mightBelong(item) || (item.tagIds || []).some((id) => tagIds.has(id))).length,
+  };
+}
+function describeFacts(facts) {
+  const parts = [[facts.cycles, 'completed cycle'], [facts.started, 'started cycle'], [facts.recoveries, 'recovery cut'], [facts.tests, 'TEST record'],
+    [facts.tags, 'YARD TAG'], [facts.shipments, 'shipment']].filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}${count === 1 ? '' : 's'}`);
+  return parts.join(', ');
+}
+async function deleteActiveOrder() {
+  const order = activeOrder;
+  if (!order?.id) return;
+  window.clearTimeout(draftSaveTimer);
+  const facts = recordedFactsFor(order);
+  const recorded = describeFacts(facts);
+  const status = $('calculationStatus');
+  if (!order.sandbox && recorded) {
+    status.className = 'calculation-status pending';
+    status.textContent = `Order ${order.number} has recorded production (${recorded}) and cannot be deleted. Close it with Complete order in Production & Shipping.`;
+    status.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  const drafts = readList(ORDER_FACT_KEYS.drafts).filter((draft) => draft.orderId === order.id);
+  const removing = [recorded, drafts.length ? `${drafts.length} customer draft${drafts.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ');
+  const question = `Delete ${order.sandbox ? 'TEST order' : 'order'} ${order.number}${removing ? ` together with ${removing}` : ''}? This cannot be undone.`;
+  if (!window.confirm(question)) return;
+  // Only records that name this order by id are removed; nothing is matched by number.
+  const own = (item) => item?.orderId === order.id;
+  if (order.sandbox) {
+    const ownTagIds = new Set(readList(ORDER_FACT_KEYS.tags).filter(own).map((tag) => tag.id));
+    for (const name of ['cycles', 'recoveries', 'tests', 'tags']) {
+      const list = readList(ORDER_FACT_KEYS[name]);
+      const kept = list.filter((item) => !own(item));
+      if (kept.length !== list.length) localStorage.setItem(ORDER_FACT_KEYS[name], JSON.stringify(kept));
+    }
+    const shipmentsList = readList(ORDER_FACT_KEYS.shipments);
+    const keptShipments = shipmentsList.filter((item) => !own(item) && !(item.tagIds || []).some((id) => ownTagIds.has(id)));
+    if (keptShipments.length !== shipmentsList.length) localStorage.setItem(ORDER_FACT_KEYS.shipments, JSON.stringify(keptShipments));
+  }
+  const allDrafts = readList(ORDER_FACT_KEYS.drafts);
+  if (drafts.length) localStorage.setItem(ORDER_FACT_KEYS.drafts, JSON.stringify(allDrafts.filter((draft) => draft.orderId !== order.id)));
+  const index = readOrderIndex().filter((item) => item.id !== order.id);
+  localStorage.setItem(ORDER_INDEX_STORAGE, JSON.stringify(index));
+  localStorage.removeItem(orderStorageKey(order.id));
+  const next = index.find((item) => item.status !== 'completed' && readStoredOrder(item.id));
+  if (next) localStorage.setItem(ACTIVE_ORDER_STORAGE, JSON.stringify({ orderRef: next.id }));
+  else localStorage.removeItem(ACTIVE_ORDER_STORAGE);
+  activeOrder = null; // nothing may save the deleted order again before the reload
+  $('orderSaveState').textContent = 'Order deleted';
+  if (window.kilnCloudFlush) await window.kilnCloudFlush();
+  window.location.reload();
+}
+
 function inputSnapshot() {
   const ids = ['supplier','supplierClearance','species','planningMode','size','customT','customW','batchProfile','kiln','height','maxStack','metalBox','actualT','actualW','liftWidth','sticker','topSticker','acrossMode','across'];
   return Object.fromEntries(ids.map((id) => [id, $(id).value]));
@@ -5492,7 +5577,9 @@ function bindEvents() {
   $('orderNumber').addEventListener('input', scheduleDraftSave);
   $('orderNumber').addEventListener('change', () => persistActiveOrder(false));
   $('orderSelector').addEventListener('change', (event) => switchOrder(event.target.value));
-  $('newOrder').addEventListener('click', createOrder);
+  $('newOrder').addEventListener('click', () => createOrder());
+  $('newTestOrder').addEventListener('click', () => createOrder({ sandbox: true }));
+  $('deleteOrder').addEventListener('click', deleteActiveOrder);
   $('saveOrder').addEventListener('click', () => {
     window.clearTimeout(draftSaveTimer);
     persistActiveOrder(globalOrderPlans.length > 0);

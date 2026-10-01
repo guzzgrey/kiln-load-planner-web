@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiln Load Planner</title>
     <link rel="icon" type="image/png" href="assets/conifer-forest-mark-v1.png" />
-    <link rel="stylesheet" href="styles.css?v=forest-backdrop-v19" />
+    <link rel="stylesheet" href="styles.css?v=order-delete-v21" />
     <link rel="stylesheet" href="print-kit.css?v=1" />
   </head>
   <body>
@@ -33,6 +33,8 @@
         </div>
         <button id="saveOrder" class="secondary" type="button">Save</button>
         <button id="newOrder" type="button">+ New order</button>
+        <button id="newTestOrder" class="secondary" type="button" title="A personal practice order: marked TEST and removable at any time together with everything recorded in it">+ Test order</button>
+        <button id="deleteOrder" class="danger" type="button" title="Delete a test order, or an order with no recorded production">Delete order</button>
         <span id="orderSaveState" class="save-indicator">Saved</span>
       </section>
 
@@ -518,6 +520,6 @@
     <script src="supabase-config.js"></script>
     <script src="print-kit.js?v=1"></script>
     <script src="core/kiln-core.js?v=4"></script>
-    <script src="cloud-sync.js?v=cloud-nul-safe-v9" data-app="app.js?v=print-blocks-v57"></script>
+    <script src="cloud-sync.js?v=cloud-safe-v10" data-app="app.js?v=order-delete-v58"></script>
   </body>
 </html>
